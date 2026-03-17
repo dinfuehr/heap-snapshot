@@ -1614,8 +1614,9 @@ impl HeapSnapshot {
         let efc = self.edge_fields_count;
         let eto = self.edge_to_node_offset;
 
-        // Phase 1: find unreachable nodes that have at least one retainer
-        // that IS reachable.  These are the "unreachable roots".
+        // Phase 1: find unreachable roots — nodes that either:
+        //  (a) have a reachable retainer (e.g. via a weak edge), or
+        //  (b) have no retainers at all (truly orphaned roots).
         let mut queue: Vec<usize> = Vec::new();
         for ordinal in 0..self.node_count {
             if self.node_distances[ordinal] != Distance::NONE {
@@ -1623,6 +1624,12 @@ impl HeapSnapshot {
             }
             let first = self.first_retainer_index[ordinal] as usize;
             let last = self.first_retainer_index[ordinal + 1] as usize;
+            if first == last {
+                // No retainers at all — root of an isolated unreachable subgraph.
+                self.node_distances[ordinal] = Distance::UNREACHABLE_BASE;
+                queue.push(ordinal);
+                continue;
+            }
             for idx in first..last {
                 let retainer_index = self.retaining_nodes[idx] as usize;
                 let retainer_ordinal = retainer_index / nfc;

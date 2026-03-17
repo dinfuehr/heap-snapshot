@@ -3093,6 +3093,141 @@ fn test_unreachable_node_reachable_size() {
     assert_eq!(info4.size, 150.0);
 }
 
+/// Builds a snapshot where two unreachable objects form a chain with no
+/// reachable retainer at all:
+///
+/// ```text
+/// Node 0 (synthetic root): synthetic, 1 edge
+/// Node 1 (GC roots): synthetic, "(GC roots)", 1 edge
+/// Node 2: object, "Reachable", size=100, 0 edges
+/// Node 3: object, "B", size=200, 1 edge (strong → node 4)
+/// Node 4: object, "A", size=150, 0 edges
+/// ```
+///
+/// Edges:
+///   root → (GC roots) → Reachable
+///   B → A  (strong, but B itself has no retainer from the reachable world)
+///
+/// Both B and A are unreachable.  B has no reachable retainer, so the
+/// unreachable-depth BFS cannot seed from it.  Currently both end up as U.
+fn make_isolated_unreachable_snapshot() -> HeapSnapshot {
+    let node_fields: Vec<String> = ["type", "name", "id", "self_size", "edge_count"]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+    let nfc = node_fields.len();
+
+    let node_type_enum: Vec<String> = [
+        "hidden",
+        "array",
+        "string",
+        "object",
+        "code",
+        "closure",
+        "regexp",
+        "number",
+        "native",
+        "synthetic",
+        "concatenated string",
+        "sliced string",
+        "symbol",
+        "bigint",
+    ]
+    .iter()
+    .map(|s| s.to_string())
+    .collect();
+
+    let edge_fields: Vec<String> = ["type", "name_or_index", "to_node"]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+    let efc = edge_fields.len();
+
+    let edge_type_enum: Vec<String> = [
+        "context", "element", "property", "internal", "hidden", "shortcut", "weak",
+    ]
+    .iter()
+    .map(|s| s.to_string())
+    .collect();
+
+    let strings: Vec<String> = [
+        "",           // 0
+        "(GC roots)", // 1
+        "Reachable",  // 2
+        "B",          // 3
+        "A",          // 4
+        "ref",        // 5
+        "link",       // 6
+    ]
+    .iter()
+    .map(|s| s.to_string())
+    .collect();
+
+    let n = |ordinal: u32| ordinal * nfc as u32;
+
+    let nodes: Vec<u32> = vec![
+        9, 0, 1, 0, 1, // node 0: synthetic root, 1 edge
+        9, 1, 2, 0, 1, // node 1: (GC roots), 1 edge
+        3, 2, 3, 100, 0, // node 2: Reachable, size=100, 0 edges
+        3, 3, 5, 200, 1, // node 3: B, size=200, 1 edge
+        3, 4, 7, 150, 0, // node 4: A, size=150, 0 edges
+    ];
+
+    let edges: Vec<u32> = vec![
+        1, 0, n(1), // root --element[0]--> (GC roots)
+        2, 5, n(2), // (GC roots) --property "ref"--> Reachable
+        2, 6, n(4), // B --property "link"--> A
+    ];
+
+    let raw = RawHeapSnapshot {
+        snapshot: SnapshotHeader {
+            meta: SnapshotMeta {
+                node_fields,
+                node_type_enum,
+                edge_fields,
+                edge_type_enum,
+                location_fields: vec![],
+                sample_fields: vec![],
+                trace_function_info_fields: vec![],
+                trace_node_fields: vec![],
+            },
+            node_count: nodes.len() / nfc,
+            edge_count: edges.len() / efc,
+            trace_function_count: 0,
+            root_index: Some(0),
+            extra_native_bytes: None,
+        },
+        nodes,
+        edges,
+        strings,
+        locations: vec![],
+    };
+
+    HeapSnapshot::new(raw)
+}
+
+#[test]
+fn test_isolated_unreachable_both_get_u() {
+    let snap = make_isolated_unreachable_snapshot();
+
+    // Node 2 is reachable
+    assert_eq!(snap.node_distance(NodeOrdinal(2)), Distance(1));
+
+    // Node 3 (B) has no retainers at all — it is a root of its
+    // unreachable subgraph and gets U.
+    assert_eq!(
+        snap.node_distance(NodeOrdinal(3)),
+        Distance::UNREACHABLE_BASE,
+        "B should be U (no retainers, orphaned root)"
+    );
+    // Node 4 (A) is reachable from B via strong edge → U+1.
+    assert_eq!(
+        snap.node_distance(NodeOrdinal(4)),
+        Distance(Distance::UNREACHABLE_BASE.0 + 1),
+        "A should be U+1 (reachable from B within unreachable subgraph)"
+    );
+}
+
 #[test]
 fn test_unreachable_aggregates_include_all_unreachable() {
     let snap = make_unreachable_snapshot();
