@@ -1381,7 +1381,7 @@ fn test_status_row_node_ordinal_is_none() {
 
 #[test]
 fn test_status_row_distance_is_none() {
-    let (snap, app, _work_rx) = make_paged_summary_app(EDGE_PAGE_SIZE + 5);
+    let (_snap, app, _work_rx) = make_paged_summary_app(EDGE_PAGE_SIZE + 5);
 
     // The last row on the first page is a status/paging row (e.g. "1–10 of 15 objects")
     let status_row = app.current_row().unwrap();
