@@ -4,7 +4,7 @@ use std::rc::Rc;
 use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::print::retainers::RetainerAutoExpandPlan;
-use crate::types::NodeOrdinal;
+use crate::types::{Distance, NodeOrdinal};
 
 use super::EDGE_PAGE_SIZE;
 
@@ -43,13 +43,13 @@ pub(super) fn mint_id(counter: &Cell<u64>) -> NodeId {
 // can index by screen position and the cursor is just a row index.
 pub(super) enum FlatRowKind {
     SummaryGroup {
-        distance: i32,
+        distance: Option<Distance>,
         shallow_size: f64,
         retained_size: f64,
     },
     HeapNode {
         node_ordinal: Option<NodeOrdinal>,
-        distance: i32,
+        distance: Option<Distance>,
         shallow_size: f64,
         retained_size: f64,
         reachable_size: Option<f64>,
@@ -128,8 +128,8 @@ pub(super) struct ChildNode {
     pub(super) id: NodeId,
     // display text (e.g. "prop :: Object @123")
     pub(super) label: Rc<str>,
-    // BFS distance from GC roots (-1 = unreachable)
-    pub(super) distance: i32,
+    // BFS distance from GC roots (None for paging status rows)
+    pub(super) distance: Option<Distance>,
     // own size in bytes
     pub(super) shallow_size: f64,
     // size kept alive exclusively by this node

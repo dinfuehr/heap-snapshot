@@ -1,6 +1,8 @@
 use crate::print::format_count;
-use crate::snapshot::{HeapSnapshot, NO_DISTANCE};
+use crate::snapshot::HeapSnapshot;
+use crate::types::Distance;
 
+use super::super::UnreachableFilter;
 use super::super::types::*;
 use super::super::{App, contains_ignore_case};
 
@@ -12,15 +14,11 @@ impl App {
         snap: &HeapSnapshot,
     ) {
         let filter = &self.summary_filter;
-        let unreachable_only = self.summary_unreachable_only;
+        let unreachable_filter = self.summary_unreachable_filter;
+        let unreachable_active = unreachable_filter != UnreachableFilter::Off;
         for (i, agg) in self.sorted_aggregates.iter().enumerate() {
-            // Skip reachable groups when unreachable-only filter is active
-            if unreachable_only && agg.distance != NO_DISTANCE {
-                continue;
-            }
-
             let group_matches = filter.is_empty() || contains_ignore_case(&agg.name, filter);
-            if !group_matches && !unreachable_only {
+            if !group_matches && !unreachable_active {
                 // Group name didn't match — check if any member matches
                 let any_member_match = agg
                     .node_ordinals
@@ -34,26 +32,42 @@ impl App {
             let id = self.summary_ids[i];
             let is_expanded = state.expanded.contains(&id);
             let has_children = !agg.node_ordinals.is_empty();
-            let (display_count, shallow_size, retained_size) = if unreachable_only || !group_matches
-            {
-                let mut count = 0u32;
-                let mut shallow = 0.0f64;
-                let mut retained = 0.0f64;
-                for ord in &agg.node_ordinals {
-                    if unreachable_only && snap.node_distance(*ord) != NO_DISTANCE {
-                        continue;
+            let (display_count, shallow_size, retained_size, display_distance) =
+                if unreachable_active || !group_matches {
+                    let mut count = 0u32;
+                    let mut shallow = 0.0f64;
+                    let mut retained = 0.0f64;
+                    let mut min_dist = Distance::NONE;
+                    for ord in &agg.node_ordinals {
+                        if unreachable_active {
+                            let d = snap.node_distance(*ord);
+                            match unreachable_filter {
+                                UnreachableFilter::All => {
+                                    if !d.is_unreachable() {
+                                        continue;
+                                    }
+                                }
+                                UnreachableFilter::RootsOnly => {
+                                    if !d.is_unreachable_root() {
+                                        continue;
+                                    }
+                                }
+                                UnreachableFilter::Off => {}
+                            }
+                        }
+                        if !group_matches && !contains_ignore_case(snap.node_raw_name(*ord), filter)
+                        {
+                            continue;
+                        }
+                        count += 1;
+                        shallow += snap.node_self_size(*ord) as f64;
+                        retained += snap.node_retained_size(*ord);
+                        min_dist = min_dist.min(snap.node_distance(*ord));
                     }
-                    if !group_matches && !contains_ignore_case(snap.node_raw_name(*ord), filter) {
-                        continue;
-                    }
-                    count += 1;
-                    shallow += snap.node_self_size(*ord) as f64;
-                    retained += snap.node_retained_size(*ord);
-                }
-                (count, shallow, retained)
-            } else {
-                (agg.count, agg.self_size, agg.max_ret)
-            };
+                    (count, shallow, retained, min_dist)
+                } else {
+                    (agg.count, agg.self_size, agg.max_ret, agg.distance)
+                };
             // Skip groups with no matching members after filtering
             if display_count == 0 {
                 continue;
@@ -79,7 +93,7 @@ impl App {
                     is_weak: false,
                     is_root_holder: false,
                     kind: FlatRowKind::SummaryGroup {
-                        distance: agg.distance,
+                        distance: Some(display_distance),
                         shallow_size,
                         retained_size,
                     },

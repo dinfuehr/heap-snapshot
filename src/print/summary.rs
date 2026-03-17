@@ -2,26 +2,21 @@ use rustc_hash::FxHashSet;
 
 use super::{
     COL_DIST, COL_NAME_SUMMARY, COL_RETAINED, COL_RETAINED_PCT, COL_SHALLOW, COL_SHALLOW_PCT,
-    ExpandMap, GroupExpandMap, display_width, format_count, format_size, pad_str, pct_str,
-    total_width, truncate_str,
+    ExpandMap, GroupExpandMap, display_width, format_count, format_distance, format_size, pad_str,
+    pct_str, total_width, truncate_str,
 };
 use crate::snapshot::HeapSnapshot;
-use crate::types::NodeOrdinal;
+use crate::types::{Distance, NodeOrdinal};
 
 fn print_row(
     display: &str,
-    dist: i32,
+    dist: Distance,
     shallow: f64,
     retained: f64,
     total_shallow: f64,
     total_retained: f64,
 ) {
-    let dist_str = if dist < 0 {
-        "\u{2013}" /* – */
-            .to_string()
-    } else {
-        dist.to_string()
-    };
+    let dist_str = format_distance(dist);
     let name_col = pad_str(display, COL_NAME_SUMMARY);
     println!(
         "{}{:>w_d$}{:>w_s$}{:>w_sp$}{:>w_r$}{:>w_rp$}",

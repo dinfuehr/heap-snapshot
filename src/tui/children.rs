@@ -2,9 +2,10 @@ use std::cell::Cell;
 
 use rustc_hash::{FxHashMap, FxHashSet};
 
-use crate::snapshot::{HeapSnapshot, NO_DISTANCE};
-use crate::types::{AggregateInfo, NodeOrdinal};
+use crate::snapshot::HeapSnapshot;
+use crate::types::{AggregateInfo, Distance, NodeOrdinal};
 
+use super::UnreachableFilter;
 use super::contains_ignore_case;
 use super::types::*;
 
@@ -18,7 +19,7 @@ pub(super) fn compute_children(
     edge_filters: &FxHashMap<NodeOrdinal, String>,
     summary_filter: &str,
     retainer_path_edges: Option<&FxHashSet<usize>>,
-    unreachable_only: bool,
+    unreachable_filter: UnreachableFilter,
     next_id: &Cell<u64>,
 ) -> Vec<ChildNode> {
     match key {
@@ -29,7 +30,7 @@ pub(super) fn compute_children(
                 &sorted_aggregates[*i],
                 w,
                 summary_filter,
-                unreachable_only,
+                unreachable_filter,
                 next_id,
             )
         }
@@ -50,22 +51,36 @@ pub(super) fn compute_children(
     }
 }
 
+/// Check whether a node passes the unreachable filter.
+fn passes_unreachable_filter(
+    snap: &HeapSnapshot,
+    ord: NodeOrdinal,
+    filter: UnreachableFilter,
+) -> bool {
+    match filter {
+        UnreachableFilter::Off => true,
+        UnreachableFilter::All => snap.node_distance(ord).is_unreachable(),
+        UnreachableFilter::RootsOnly => snap.node_distance(ord).is_unreachable_root(),
+    }
+}
+
 pub(super) fn compute_class_members(
     snap: &HeapSnapshot,
     agg: &AggregateInfo,
     w: EdgeWindow,
     filter: &str,
-    unreachable_only: bool,
+    unreachable_filter: UnreachableFilter,
     next_id: &Cell<u64>,
 ) -> Vec<ChildNode> {
-    let is_filtered = !filter.is_empty() || unreachable_only;
+    let unreachable_active = unreachable_filter != UnreachableFilter::Off;
+    let is_filtered = !filter.is_empty() || unreachable_active;
     if is_filtered {
         // Filter first, then page the matching subset.
         let matching: Vec<&NodeOrdinal> = agg
             .node_ordinals
             .iter()
             .filter(|ord| {
-                if unreachable_only && snap.node_distance(**ord) != NO_DISTANCE {
+                if !passes_unreachable_filter(snap, **ord, unreachable_filter) {
                     return false;
                 }
                 filter.is_empty() || contains_ignore_case(snap.node_raw_name(**ord), filter)
@@ -85,7 +100,7 @@ pub(super) fn compute_class_members(
                 ChildNode {
                     id: mint_id(next_id),
                     label: format!("{name} @{node_id}").into(),
-                    distance: snap.node_distance(ordinal),
+                    distance: Some(snap.node_distance(ordinal)),
                     shallow_size: snap.node_self_size(ordinal) as f64,
                     retained_size: snap.node_retained_size(ordinal),
                     node_ordinal: Some(ordinal),
@@ -110,7 +125,7 @@ pub(super) fn compute_class_members(
                     start + shown,
                 )
                 .into(),
-                distance: -1,
+                distance: None,
                 shallow_size: 0.0,
                 retained_size: 0.0,
                 node_ordinal: None,
@@ -136,7 +151,7 @@ pub(super) fn compute_class_members(
             ChildNode {
                 id: mint_id(next_id),
                 label: format!("{name} @{node_id}").into(),
-                distance: snap.node_distance(ordinal),
+                distance: Some(snap.node_distance(ordinal)),
                 shallow_size: snap.node_self_size(ordinal) as f64,
                 retained_size: snap.node_retained_size(ordinal),
                 node_ordinal: Some(ordinal),
@@ -162,7 +177,7 @@ pub(super) fn compute_class_members(
                 start + shown,
             )
             .into(),
-            distance: -1,
+            distance: None,
             shallow_size: 0.0,
             retained_size: 0.0,
             node_ordinal: None,
@@ -196,7 +211,7 @@ fn edge_to_child_node(
     ChildNode {
         id: mint_id(next_id),
         label: label.into(),
-        distance: snap.node_distance(child_ord),
+        distance: Some(snap.node_distance(child_ord)),
         shallow_size: snap.node_self_size(child_ord) as f64,
         retained_size: snap.node_retained_size(child_ord),
         node_ordinal: Some(child_ord),
@@ -248,7 +263,7 @@ pub(super) fn compute_edges(
                     start + visible,
                 )
                 .into(),
-                distance: -1,
+                distance: None,
                 shallow_size: 0.0,
                 retained_size: 0.0,
                 node_ordinal: None,
@@ -315,7 +330,7 @@ pub(super) fn compute_edges(
                 ChildNode {
                     id: mint_id(next_id),
                     label: label.into(),
-                    distance: -1,
+                    distance: None,
                     shallow_size: 0.0,
                     retained_size: 0.0,
                     node_ordinal: None,
@@ -341,7 +356,7 @@ pub(super) fn compute_edges(
         children.push(ChildNode {
             id: mint_id(next_id),
             label: status.into(),
-            distance: -1,
+            distance: None,
             shallow_size: 0.0,
             retained_size: 0.0,
             node_ordinal: None,
@@ -391,11 +406,11 @@ pub(super) fn make_retainer_child(
         format!("{edge_name} in {display_name} @{node_id}")
     };
     let dist = snap.node_distance(ret_ord);
-    let expandable = dist > 0;
+    let expandable = dist > Distance(0) && !dist.is_unreachable();
     ChildNode {
         id: mint_id(next_id),
         label: label.into(),
-        distance: dist,
+        distance: Some(dist),
         shallow_size: snap.node_self_size(ret_ord) as f64,
         retained_size: snap.node_retained_size(ret_ord),
         node_ordinal: Some(ret_ord),
@@ -455,7 +470,7 @@ pub(super) fn compute_retainers(
                     format!("{shown_start}\u{2013}{shown_end} of {total} refs")
                 }
                 .into(),
-                distance: -1,
+                distance: None,
                 shallow_size: 0.0,
                 retained_size: 0.0,
                 node_ordinal: None,
@@ -492,7 +507,7 @@ pub(super) fn compute_retainers(
                 format!("{shown_start}\u{2013}{shown_end} of {total} refs")
             }
             .into(),
-            distance: -1,
+            distance: None,
             shallow_size: 0.0,
             retained_size: 0.0,
             node_ordinal: None,
@@ -520,7 +535,7 @@ pub(super) fn compute_dominated_children(
             ChildNode {
                 id: mint_id(next_id),
                 label: format!("{display_name} @{node_id}").into(),
-                distance: snap.node_distance(child_ord),
+                distance: Some(snap.node_distance(child_ord)),
                 shallow_size: snap.node_self_size(child_ord) as f64,
                 retained_size: snap.node_retained_size(child_ord),
                 node_ordinal: Some(child_ord),

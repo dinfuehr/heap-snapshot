@@ -1,7 +1,7 @@
 use rustc_hash::FxHashMap;
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
-use crate::types::NodeId;
+use crate::types::{Distance, NodeId};
 
 pub mod containment;
 pub mod diff;
@@ -87,6 +87,13 @@ pub(crate) fn format_count(n: u32) -> String {
     result.chars().rev().collect()
 }
 
+/// Format a distance value for display.
+/// Reachable nodes show their numeric distance.
+/// Unreachable nodes show "U" (root) or "U+N" (N hops from an unreachable root).
+pub fn format_distance(dist: Distance) -> String {
+    dist.to_string()
+}
+
 fn print_tree_header(col_name: usize) {
     println!(
         "{:<w_name$}{:>w_dist$}{:>w_ss$}{:>w_rs$}",
@@ -108,18 +115,13 @@ fn print_tree_header(col_name: usize) {
 
 fn print_data_cols(
     name_col: &str,
-    dist: i32,
+    dist: Distance,
     shallow: f64,
     retained: f64,
     total_shallow: f64,
     total_retained: f64,
 ) {
-    let dist_str = if dist < 0 {
-        "\u{2013}" /* – */
-            .to_string()
-    } else {
-        dist.to_string()
-    };
+    let dist_str = format_distance(dist);
     let shallow_pct = pct_str(shallow, total_shallow);
     let retained_pct = pct_str(retained, total_retained);
 

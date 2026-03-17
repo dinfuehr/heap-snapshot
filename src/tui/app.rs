@@ -1,6 +1,6 @@
 use crate::print::retainers::RetainerAutoExpandPlan;
 use crate::snapshot::HeapSnapshot;
-use crate::types::NodeOrdinal;
+use crate::types::{Distance, NodeOrdinal};
 
 use super::children::{
     compute_children, compute_class_members, compute_compare_edges, compute_edges,
@@ -8,7 +8,7 @@ use super::children::{
 };
 use super::types::*;
 use super::{
-    App, EDGE_PAGE_SIZE, RETAINER_AUTO_EXPAND_DEPTH, RETAINER_AUTO_EXPAND_NODES,
+    App, EDGE_PAGE_SIZE, RETAINER_AUTO_EXPAND_DEPTH, RETAINER_AUTO_EXPAND_NODES, UnreachableFilter,
     contains_ignore_case,
 };
 
@@ -46,7 +46,7 @@ impl App {
                 };
                 let dist = snap.node_distance(pe.retainer);
                 let id = mint_id(next_id);
-                let has_children = dist > 0;
+                let has_children = dist > Distance(0);
 
                 let children_key = if !pe.children.is_empty() && has_children {
                     let ck = ChildrenKey::Retainers(id, pe.retainer);
@@ -63,7 +63,7 @@ impl App {
                 children.push(ChildNode {
                     id,
                     label: label.into(),
-                    distance: dist,
+                    distance: Some(dist),
                     shallow_size: snap.node_self_size(pe.retainer) as f64,
                     retained_size: snap.node_retained_size(pe.retainer),
                     node_ordinal: Some(pe.retainer),
@@ -123,7 +123,7 @@ impl App {
                 };
                 let dist = snap.node_distance(ret_ord);
                 let id = mint_id(&self.next_id);
-                let has_children = dist > 0;
+                let has_children = dist > Distance(0);
 
                 let children_key = if !pe.children.is_empty() && has_children {
                     let ck = ChildrenKey::Retainers(id, ret_ord);
@@ -148,7 +148,7 @@ impl App {
                 root_children.push(ChildNode {
                     id,
                     label: label.into(),
-                    distance: dist,
+                    distance: Some(dist),
                     shallow_size: snap.node_self_size(ret_ord) as f64,
                     retained_size: snap.node_retained_size(ret_ord),
                     node_ordinal: Some(ret_ord),
@@ -175,7 +175,7 @@ impl App {
                     format!("{shown_start}\u{2013}{shown_end} of {total} refs")
                 }
                 .into(),
-                distance: -1,
+                distance: None,
                 shallow_size: 0.0,
                 retained_size: 0.0,
                 node_ordinal: None,
@@ -229,7 +229,7 @@ impl App {
                 };
                 let dist = snap.node_distance(pe.retainer);
                 let id = mint_id(next_id);
-                let has_children = dist > 0;
+                let has_children = dist > Distance(0);
 
                 let children_key = if !pe.children.is_empty() && has_children {
                     let ck = ChildrenKey::Retainers(id, pe.retainer);
@@ -246,7 +246,7 @@ impl App {
                 children.push(ChildNode {
                     id,
                     label: label.into(),
-                    distance: dist,
+                    distance: Some(dist),
                     shallow_size: snap.node_self_size(pe.retainer) as f64,
                     retained_size: snap.node_retained_size(pe.retainer),
                     node_ordinal: Some(pe.retainer),
@@ -275,7 +275,7 @@ impl App {
             root_children.push(ChildNode {
                 id: mint_id(&self.next_id),
                 label: format!("{selected} selected of {total} refs").into(),
-                distance: -1,
+                distance: None,
                 shallow_size: 0.0,
                 retained_size: 0.0,
                 node_ordinal: None,
@@ -413,7 +413,7 @@ impl App {
             &self.retainers.tree_state.edge_filters,
             "",
             None,
-            false,
+            UnreachableFilter::Off,
             &self.next_id,
         );
         self.retainers.tree_state.children_map.insert(key, children);
@@ -477,7 +477,7 @@ impl App {
                 &self.summary_state.edge_filters,
                 self.member_filter_for(agg_idx),
                 Some(&self.retainers.gc_root_path_edges),
-                self.summary_unreachable_only,
+                self.summary_unreachable_filter,
                 &self.next_id,
             );
             self.summary_state.children_map.insert(ck, children);
@@ -539,7 +539,7 @@ impl App {
                     &self.dominators_state.edge_filters,
                     "",
                     None,
-                    false,
+                    UnreachableFilter::Off,
                     &self.next_id,
                 );
                 self.dominators_state
@@ -589,7 +589,7 @@ impl App {
         let mut seen = rustc_hash::FxHashSet::default();
         seen.insert(cur);
         while cur != synthetic_root {
-            let mut best: Option<(NodeOrdinal, usize, i32)> = None; // (retainer_ord, edge_idx, distance)
+            let mut best: Option<(NodeOrdinal, usize, Distance)> = None; // (retainer_ord, edge_idx, distance)
             snap.for_each_retainer(cur, |edge_idx, ret_ord| {
                 if snap.is_invisible_edge(edge_idx) || seen.contains(&ret_ord) {
                     return;
@@ -672,7 +672,7 @@ impl App {
                     &self.containment_state.edge_filters,
                     "",
                     None,
-                    false,
+                    UnreachableFilter::Off,
                     &self.next_id,
                 );
                 self.containment_state
@@ -745,8 +745,11 @@ impl App {
                         } else {
                             ""
                         };
-                        let unreachable_only =
-                            self.summary_unreachable_only && self.current_view == ViewType::Summary;
+                        let unreachable_filter = if self.current_view == ViewType::Summary {
+                            self.summary_unreachable_filter
+                        } else {
+                            UnreachableFilter::Off
+                        };
                         Some(compute_children(
                             &ck,
                             id,
@@ -766,7 +769,7 @@ impl App {
                                     }
                                 }
                             },
-                            unreachable_only,
+                            unreachable_filter,
                             &self.next_id,
                         ))
                     }
@@ -884,7 +887,7 @@ impl App {
         self.current_row().is_some_and(|r| {
             !r.nav.has_children
                 && match &r.render.kind {
-                    FlatRowKind::HeapNode { distance, .. } => *distance < 0,
+                    FlatRowKind::HeapNode { node_ordinal, .. } => node_ordinal.is_none(),
                     _ => false,
                 }
         })
@@ -1091,7 +1094,7 @@ impl App {
                     &self.sorted_aggregates[agg_idx],
                     w,
                     self.member_filter_for(agg_idx),
-                    self.summary_unreachable_only,
+                    self.summary_unreachable_filter,
                     &self.next_id,
                 );
                 (ck, children)

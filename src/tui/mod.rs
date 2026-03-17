@@ -101,6 +101,19 @@ fn contains_ignore_case(haystack: &str, needle: &str) -> bool {
         .any(|w| w.eq_ignore_ascii_case(needle.as_bytes()))
 }
 
+/// Unreachable filter mode for the Summary view.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum UnreachableFilter {
+    /// Show all objects (no filter).
+    Off,
+    /// Show all unreachable objects (distance >= UNREACHABLE_BASE), including
+    /// those only reachable from other unreachable objects (U+1, U+2, …).
+    All,
+    /// Show only fully unreachable objects (distance == UNREACHABLE_BASE),
+    /// excluding those reachable from other unreachable objects.
+    RootsOnly,
+}
+
 // ── App ──────────────────────────────────────────────────────────────────
 
 struct App {
@@ -122,8 +135,8 @@ struct App {
     search_error: Option<String>,
     // lowercase substring filter applied to constructor names in Summary
     summary_filter: String,
-    // when true, only show unreachable groups (distance == NO_DISTANCE) in Summary
-    summary_unreachable_only: bool,
+    // unreachable filter mode for Summary view
+    summary_unreachable_filter: UnreachableFilter,
     // node whose edges are being filtered ("f" prompt)
     edge_filter_target: Option<NodeOrdinal>,
     // NodeId of the row whose edges are being filtered
@@ -209,7 +222,7 @@ impl App {
             &containment_state.edge_filters,
             "",
             None,
-            false,
+            UnreachableFilter::Off,
             &next_id,
         );
         containment_state
@@ -230,7 +243,7 @@ impl App {
             &dominators_state.edge_filters,
             "",
             None,
-            false,
+            UnreachableFilter::Off,
             &next_id,
         );
         dominators_state
@@ -277,7 +290,7 @@ impl App {
             search_input: String::new(),
             search_error: None,
             summary_filter: String::new(),
-            summary_unreachable_only: false,
+            summary_unreachable_filter: UnreachableFilter::Off,
             edge_filter_target: None,
             edge_filter_node_id: None,
             edge_filter_is_compare: false,

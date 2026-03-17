@@ -1,13 +1,14 @@
 use ratatui::prelude::*;
 use ratatui::widgets::Paragraph;
 
-use crate::print::{format_size, pct_str};
+use crate::print::{format_distance, format_size, pct_str};
 use crate::snapshot::HeapSnapshot;
 
 use super::types::*;
 use super::{
     App, COL_DETACHED, COL_DIST, COL_REACHABLE, COL_REACHABLE_PCT, COL_RETAINED, COL_RETAINED_PCT,
-    COL_SHALLOW, COL_SHALLOW_PCT, fit_cell, fit_name_cell, regular_name_col_width,
+    COL_SHALLOW, COL_SHALLOW_PCT, UnreachableFilter, fit_cell, fit_name_cell,
+    regular_name_col_width,
 };
 
 impl App {
@@ -295,10 +296,9 @@ impl App {
                     FlatRowKind::DiffGroup { .. } | FlatRowKind::DiffObject { .. } => continue,
                 };
 
-            let dist_str = if distance < 0 {
-                "\u{2013}".to_string()
-            } else {
-                distance.to_string()
+            let dist_str = match distance {
+                Some(d) => format_distance(d),
+                None => String::new(),
             };
             let shallow_str = format_size(shallow_size);
             let shallow_pct = pct_str(shallow_size, total_shallow);
@@ -315,7 +315,7 @@ impl App {
                 }
             };
 
-            let is_status_line = distance < 0 && !row.nav.has_children;
+            let is_status_line = node_ordinal.is_none() && !row.nav.has_children;
             let name_style = if row.render.is_root_holder {
                 Style::default().fg(Color::Red).bg(bg)
             } else if row.render.is_weak {
@@ -402,14 +402,24 @@ impl App {
                 } else if let Some(ref err) = self.search_error {
                     Line::from(Span::styled(err.clone(), Style::default().fg(Color::Red)))
                 } else if self.current_view == ViewType::Summary
-                    && (self.summary_unreachable_only || !self.summary_filter.is_empty())
+                    && (self.summary_unreachable_filter != UnreachableFilter::Off
+                        || !self.summary_filter.is_empty())
                 {
                     let mut spans = Vec::new();
-                    if self.summary_unreachable_only {
-                        spans.push(Span::styled(
-                            "unreachable only",
-                            Style::default().fg(Color::Yellow),
-                        ));
+                    match self.summary_unreachable_filter {
+                        UnreachableFilter::All => {
+                            spans.push(Span::styled(
+                                "unreachable (all)",
+                                Style::default().fg(Color::Yellow),
+                            ));
+                        }
+                        UnreachableFilter::RootsOnly => {
+                            spans.push(Span::styled(
+                                "unreachable (roots only)",
+                                Style::default().fg(Color::Yellow),
+                            ));
+                        }
+                        UnreachableFilter::Off => {}
                     }
                     if !self.summary_filter.is_empty() {
                         if !spans.is_empty() {
@@ -421,7 +431,7 @@ impl App {
                         ));
                     }
                     spans.push(Span::styled(
-                        "  (u: toggle unreachable, /: text filter)",
+                        "  (u/U: toggle unreachable, /: text filter)",
                         Style::default().dim(),
                     ));
                     Line::from(spans)

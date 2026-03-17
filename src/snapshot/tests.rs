@@ -1,5 +1,5 @@
 use super::*;
-use crate::types::{RawHeapSnapshot, SnapshotHeader, SnapshotMeta};
+use crate::types::{Distance, RawHeapSnapshot, SnapshotHeader, SnapshotMeta};
 
 /// Builds a minimal snapshot with 5 nodes and 4 edges:
 ///
@@ -321,11 +321,11 @@ fn test_node_self_size() {
 fn test_node_distance() {
     let snap = make_test_snapshot();
     // BFS from (GC roots) ordinal 1
-    assert_eq!(snap.node_distance(NodeOrdinal(0)), 0); // synthetic root (fallback BFS)
-    assert_eq!(snap.node_distance(NodeOrdinal(1)), 0); // (GC roots)
-    assert_eq!(snap.node_distance(NodeOrdinal(2)), 1); // Object
-    assert_eq!(snap.node_distance(NodeOrdinal(3)), 2); // hello
-    assert_eq!(snap.node_distance(NodeOrdinal(4)), 1); // Array
+    assert_eq!(snap.node_distance(NodeOrdinal(0)), Distance(0)); // synthetic root (fallback BFS)
+    assert_eq!(snap.node_distance(NodeOrdinal(1)), Distance(0)); // (GC roots)
+    assert_eq!(snap.node_distance(NodeOrdinal(2)), Distance(1)); // Object
+    assert_eq!(snap.node_distance(NodeOrdinal(3)), Distance(2)); // hello
+    assert_eq!(snap.node_distance(NodeOrdinal(4)), Distance(1)); // Array
 }
 
 #[test]
@@ -587,19 +587,19 @@ fn test_aggregates() {
     assert_eq!(obj.count, 1);
     assert_eq!(obj.self_size, 100.0);
     assert_eq!(obj.max_ret, 150.0);
-    assert_eq!(obj.distance, 1);
+    assert_eq!(obj.distance, Distance(1));
 
     let str_agg = &aggs["(string)"];
     assert_eq!(str_agg.count, 1);
     assert_eq!(str_agg.self_size, 50.0);
     assert_eq!(str_agg.max_ret, 50.0);
-    assert_eq!(str_agg.distance, 2);
+    assert_eq!(str_agg.distance, Distance(2));
 
     let arr_agg = &aggs["(array)"];
     assert_eq!(arr_agg.count, 1);
     assert_eq!(arr_agg.self_size, 200.0);
     assert_eq!(arr_agg.max_ret, 200.0);
-    assert_eq!(arr_agg.distance, 1);
+    assert_eq!(arr_agg.distance, Distance(1));
 }
 
 // ====== Shared test helpers ======
@@ -1820,7 +1820,7 @@ fn test_ephemeron_value_has_valid_distance() {
     let snap = make_ephemeron_snapshot();
     // Value should still be reachable with a valid distance
     // GC roots (0) → key/table (1) → value (2)
-    assert_eq!(snap.node_distance(NodeOrdinal(4)), 2);
+    assert_eq!(snap.node_distance(NodeOrdinal(4)), Distance(2));
 }
 
 /// Snapshot where the key and table are at very different BFS depths.
@@ -1912,12 +1912,12 @@ fn make_ephemeron_depth_snapshot() -> HeapSnapshot {
 fn test_ephemeron_distance_dedup_skips_first() {
     let snap = make_ephemeron_depth_snapshot();
     // Key at distance 1, table at distance 5 (behind 4 intermediate hops).
-    assert_eq!(snap.node_distance(NodeOrdinal(2)), 1); // KeyObj
-    assert_eq!(snap.node_distance(NodeOrdinal(7)), 5); // WeakMap
+    assert_eq!(snap.node_distance(NodeOrdinal(2)), Distance(1)); // KeyObj
+    assert_eq!(snap.node_distance(NodeOrdinal(7)), Distance(5)); // WeakMap
 
     // Value gets distance 6 (from table at depth 5), not 2 (from key at depth 1),
     // because the first ephemeron edge (from key) is skipped by dedup.
-    assert_eq!(snap.node_distance(NodeOrdinal(8)), 6);
+    assert_eq!(snap.node_distance(NodeOrdinal(8)), Distance(6));
 }
 
 /// Mirror of make_ephemeron_depth_snapshot: table is close (distance 1),
@@ -2008,12 +2008,12 @@ fn make_ephemeron_depth_reversed_snapshot() -> HeapSnapshot {
 fn test_ephemeron_distance_dedup_skips_first_reversed() {
     let snap = make_ephemeron_depth_reversed_snapshot();
     // Table at distance 1, key at distance 5.
-    assert_eq!(snap.node_distance(NodeOrdinal(2)), 1); // WeakMap
-    assert_eq!(snap.node_distance(NodeOrdinal(7)), 5); // KeyObj
+    assert_eq!(snap.node_distance(NodeOrdinal(2)), Distance(1)); // WeakMap
+    assert_eq!(snap.node_distance(NodeOrdinal(7)), Distance(5)); // KeyObj
 
     // Value gets distance 6 (from key at depth 5), not 2 (from table at depth 1),
     // because the first ephemeron edge (from table) is skipped by dedup.
-    assert_eq!(snap.node_distance(NodeOrdinal(8)), 6);
+    assert_eq!(snap.node_distance(NodeOrdinal(8)), Distance(6));
 }
 
 // ── sloppy_function_map filtering ──────────────────────────────────────
@@ -2085,15 +2085,15 @@ fn make_sloppy_function_map_snapshot() -> HeapSnapshot {
 #[test]
 fn test_sloppy_function_map_edge_filtered_in_distances() {
     let snap = make_sloppy_function_map_snapshot();
-    assert_eq!(snap.node_distance(NodeOrdinal(2)), 1); // NativeContext
-    assert_eq!(snap.node_distance(NodeOrdinal(3)), 1); // Mid
+    assert_eq!(snap.node_distance(NodeOrdinal(2)), Distance(1)); // NativeContext
+    assert_eq!(snap.node_distance(NodeOrdinal(3)), Distance(1)); // Mid
 
     // Target reachable via Mid → Target (distance 2), NOT via
     // NativeContext → sloppy_function_map (which is filtered out).
-    assert_eq!(snap.node_distance(NodeOrdinal(4)), 2);
+    assert_eq!(snap.node_distance(NodeOrdinal(4)), Distance(2));
 
     // Keeper is reachable via NativeContext → array_function (not filtered).
-    assert_eq!(snap.node_distance(NodeOrdinal(5)), 2);
+    assert_eq!(snap.node_distance(NodeOrdinal(5)), Distance(2));
 }
 
 // ── (map descriptors) array filtering ──────────────────────────────────
@@ -2187,18 +2187,18 @@ fn make_map_descriptors_snapshot() -> HeapSnapshot {
 #[test]
 fn test_map_descriptors_element_filtering() {
     let snap = make_map_descriptors_snapshot();
-    assert_eq!(snap.node_distance(NodeOrdinal(2)), 1); // (map descriptors)
-    assert_eq!(snap.node_distance(NodeOrdinal(8)), 1); // Alt
+    assert_eq!(snap.node_distance(NodeOrdinal(2)), Distance(1)); // (map descriptors)
+    assert_eq!(snap.node_distance(NodeOrdinal(8)), Distance(1)); // Alt
 
     // Allowed element edges: index 0, 1, 5 → distance 2
-    assert_eq!(snap.node_distance(NodeOrdinal(3)), 2); // Child0 via element[0]
-    assert_eq!(snap.node_distance(NodeOrdinal(4)), 2); // Child1 via element[1]
-    assert_eq!(snap.node_distance(NodeOrdinal(6)), 2); // Child5 via element[5]
+    assert_eq!(snap.node_distance(NodeOrdinal(3)), Distance(2)); // Child0 via element[0]
+    assert_eq!(snap.node_distance(NodeOrdinal(4)), Distance(2)); // Child1 via element[1]
+    assert_eq!(snap.node_distance(NodeOrdinal(6)), Distance(2)); // Child5 via element[5]
 
     // Filtered element edges: index 4, 7 (>= 2 && % 3 == 1)
     // These children are only reachable via Alt (distance 1) → property edge
-    assert_eq!(snap.node_distance(NodeOrdinal(5)), 2); // Child4 via Alt
-    assert_eq!(snap.node_distance(NodeOrdinal(7)), 2); // Child7 via Alt
+    assert_eq!(snap.node_distance(NodeOrdinal(5)), Distance(2)); // Child4 via Alt
+    assert_eq!(snap.node_distance(NodeOrdinal(7)), Distance(2)); // Child7 via Alt
 }
 
 #[test]
@@ -2236,8 +2236,8 @@ fn test_map_descriptors_property_edges_not_filtered() {
         ]),
     );
     // Property edge from (map descriptors) is never filtered
-    assert_eq!(snap.node_distance(NodeOrdinal(2)), 1);
-    assert_eq!(snap.node_distance(NodeOrdinal(3)), 2);
+    assert_eq!(snap.node_distance(NodeOrdinal(2)), Distance(1));
+    assert_eq!(snap.node_distance(NodeOrdinal(3)), Distance(2));
 }
 
 // ── retained size: duplicate fields ────────────────────────────────────
@@ -2499,7 +2499,7 @@ fn test_aggregates_multiple_same_class() {
     assert_eq!(foo.self_size, 600.0);
 
     // distance: min of 1, 2, 3
-    assert_eq!(foo.distance, 1);
+    assert_eq!(foo.distance, Distance(1));
 
     // node_ordinals: all three
     assert_eq!(foo.node_ordinals.len(), 3);
@@ -3048,11 +3048,19 @@ fn test_unreachable_node_distance() {
     let snap = make_unreachable_snapshot();
 
     // Reachable node: distance 1 (GC roots → Reachable)
-    assert_eq!(snap.node_distance(NodeOrdinal(2)), 1);
+    assert_eq!(snap.node_distance(NodeOrdinal(2)), Distance(1));
 
-    // Unreachable nodes: only reachable via weak edge, so distance = NO_DISTANCE (-5)
-    assert_eq!(snap.node_distance(NodeOrdinal(3)), -5);
-    assert_eq!(snap.node_distance(NodeOrdinal(4)), -5);
+    // Unreachable nodes: only reachable via weak edge.
+    // Node 3 has a reachable retainer (node 2 via weak edge) → Distance::UNREACHABLE_BASE.
+    // Node 4 is only reachable from node 3 → Distance::UNREACHABLE_BASE + 1.
+    assert_eq!(
+        snap.node_distance(NodeOrdinal(3)),
+        Distance::UNREACHABLE_BASE
+    );
+    assert_eq!(
+        snap.node_distance(NodeOrdinal(4)),
+        Distance(Distance::UNREACHABLE_BASE.0 + 1)
+    );
 }
 
 #[test]
@@ -3083,4 +3091,55 @@ fn test_unreachable_node_reachable_size() {
     // Reachable size from node 4: just itself (150)
     let info4 = snap.reachable_size(&[NodeOrdinal(4)]);
     assert_eq!(info4.size, 150.0);
+}
+
+#[test]
+fn test_unreachable_aggregates_include_all_unreachable() {
+    let snap = make_unreachable_snapshot();
+    let aggs = snap.unreachable_aggregates();
+
+    // Both node 3 (Unreachable, 300) and node 4 (Child, 150) are unreachable.
+    let total_count: u32 = aggs.values().map(|a| a.count).sum();
+    let total_size: f64 = aggs.values().map(|a| a.self_size).sum();
+    assert_eq!(total_count, 2);
+    assert_eq!(total_size, 450.0);
+}
+
+#[test]
+fn test_unreachable_aggregates_distances() {
+    let snap = make_unreachable_snapshot();
+    let aggs = snap.unreachable_aggregates();
+
+    // Node 3 ("Unreachable"): has reachable retainer → UNREACHABLE_BASE (U)
+    // Node 4 ("Child"): only reachable from node 3 → UNREACHABLE_BASE+1 (U+1)
+    let unreachable_agg = aggs.values().find(|a| a.name == "Unreachable").unwrap();
+    assert_eq!(unreachable_agg.distance, Distance::UNREACHABLE_BASE);
+    assert_eq!(unreachable_agg.count, 1);
+
+    let child_agg = aggs.values().find(|a| a.name == "Child").unwrap();
+    assert_eq!(
+        child_agg.distance,
+        Distance(Distance::UNREACHABLE_BASE.0 + 1)
+    );
+    assert_eq!(child_agg.count, 1);
+}
+
+#[test]
+fn test_unreachable_roots_only_excludes_transitive() {
+    let snap = make_unreachable_snapshot();
+    let aggs = snap.unreachable_aggregates();
+
+    // Filter to roots only (distance == UNREACHABLE_BASE)
+    let roots_only: Vec<_> = aggs
+        .values()
+        .filter(|a| {
+            a.node_ordinals
+                .iter()
+                .any(|ord| snap.node_distance(*ord).is_unreachable_root())
+        })
+        .collect();
+
+    // Only "Unreachable" (node 3) is a root; "Child" (node 4) is U+1
+    assert_eq!(roots_only.len(), 1);
+    assert_eq!(roots_only[0].name, "Unreachable");
 }

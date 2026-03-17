@@ -1,6 +1,6 @@
 use super::children::{compute_edges, compute_retainers, shifted_window_start};
 use super::*;
-use crate::types::{RawHeapSnapshot, SnapshotHeader, SnapshotMeta};
+use crate::types::{Distance, RawHeapSnapshot, SnapshotHeader, SnapshotMeta};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use std::fs::File;
 use std::rc::Rc;
@@ -1380,6 +1380,41 @@ fn test_status_row_node_ordinal_is_none() {
 }
 
 #[test]
+fn test_status_row_distance_is_none() {
+    let (snap, app, _work_rx) = make_paged_summary_app(EDGE_PAGE_SIZE + 5);
+
+    // The last row on the first page is a status/paging row (e.g. "1–10 of 15 objects")
+    let status_row = app.current_row().unwrap();
+    assert!(
+        status_row.node_ordinal().is_none(),
+        "expected a status row (node_ordinal=None)"
+    );
+    // Status rows should have distance=None, not a numeric value
+    match &status_row.render.kind {
+        FlatRowKind::HeapNode { distance, .. } => {
+            assert_eq!(
+                *distance, None,
+                "status/paging rows should have distance=None"
+            );
+        }
+        _ => panic!("expected HeapNode variant for summary member status row"),
+    }
+
+    // Verify a real member row has Some(distance)
+    let member_row = &app.cached_rows[1];
+    assert!(member_row.node_ordinal().is_some());
+    match &member_row.render.kind {
+        FlatRowKind::HeapNode { distance, .. } => {
+            assert!(
+                distance.is_some(),
+                "real member rows should have Some(distance)"
+            );
+        }
+        _ => panic!("expected HeapNode variant"),
+    }
+}
+
+#[test]
 fn test_keys_on_status_row_are_noop() {
     let (snap, mut app, work_rx) = make_paged_summary_app(EDGE_PAGE_SIZE + 5);
 
@@ -1660,16 +1695,13 @@ fn test_unreachable_node_distance_displayed_as_dash() {
     match &unreachable_row.render.kind {
         FlatRowKind::HeapNode { distance, .. } => {
             assert_eq!(
-                *distance, -5,
-                "unreachable node should have NO_DISTANCE (-5)"
+                *distance,
+                Some(Distance::UNREACHABLE_BASE),
+                "unreachable node should have UNREACHABLE_BASE"
             );
-            // This -5 value is rendered as "–" (en-dash) by the TUI
-            let dist_str = if *distance < 0 {
-                "\u{2013}".to_string()
-            } else {
-                distance.to_string()
-            };
-            assert_eq!(dist_str, "\u{2013}");
+            // UNREACHABLE_BASE is rendered as "U" by the TUI
+            let dist_str = crate::print::format_distance(distance.unwrap());
+            assert_eq!(dist_str, "U");
         }
         _ => panic!("expected HeapNode"),
     }
@@ -1682,7 +1714,11 @@ fn test_unreachable_node_distance_displayed_as_dash() {
         .unwrap();
     match &reachable_row.render.kind {
         FlatRowKind::HeapNode { distance, .. } => {
-            assert_eq!(*distance, 1, "Reachable node should have distance 1");
+            assert_eq!(
+                *distance,
+                Some(Distance(1)),
+                "Reachable node should have distance 1"
+            );
         }
         _ => panic!("expected HeapNode"),
     }
@@ -1702,8 +1738,9 @@ fn test_unreachable_node_distance_displayed_as_dash() {
     match &child_row.render.kind {
         FlatRowKind::HeapNode { distance, .. } => {
             assert_eq!(
-                *distance, -5,
-                "child of unreachable node should also have NO_DISTANCE"
+                *distance,
+                Some(Distance(Distance::UNREACHABLE_BASE.0 + 1)),
+                "child of unreachable node should have UNREACHABLE_BASE + 1"
             );
         }
         _ => panic!("expected HeapNode"),
@@ -1733,21 +1770,22 @@ fn test_retainers_of_unreachable_node() {
 
     match &retainer_row.render.kind {
         FlatRowKind::HeapNode { distance, .. } => {
-            // The retainer (node 3) is unreachable, so distance should be -5
+            // The retainer (node 3) is unreachable, so distance should be UNREACHABLE_BASE
             assert_eq!(
-                *distance, -5,
-                "unreachable retainer should have NO_DISTANCE"
+                *distance,
+                Some(Distance::UNREACHABLE_BASE),
+                "unreachable retainer should have UNREACHABLE_BASE"
             );
         }
         _ => panic!("expected HeapNode"),
     }
 
-    // Because distance <= 0, compute_retainers marks it as non-expandable.
+    // Because distance >= UNREACHABLE_BASE, compute_retainers marks it as non-expandable.
     // This means you can't walk further up the retainer chain from an
     // unreachable node — the retainer tree dead-ends here.
     assert!(
         !retainer_row.nav.has_children,
-        "unreachable retainer should not be expandable (distance <= 0)"
+        "unreachable retainer should not be expandable (distance >= UNREACHABLE_BASE)"
     );
 
     // Now open retainers for node 3 (Unreachable).
@@ -1770,7 +1808,11 @@ fn test_retainers_of_unreachable_node() {
 
     match &weak_retainer.render.kind {
         FlatRowKind::HeapNode { distance, .. } => {
-            assert_eq!(*distance, 1, "node 2 is reachable, distance should be 1");
+            assert_eq!(
+                *distance,
+                Some(Distance(1)),
+                "node 2 is reachable, distance should be 1"
+            );
         }
         _ => panic!("expected HeapNode"),
     }
@@ -2072,8 +2114,9 @@ fn test_filtered_retainers_sorted_before_paging() {
     let first_data: Vec<_> = page1.iter().filter(|c| c.node_ordinal.is_some()).collect();
     assert_eq!(first_data.len(), 1);
     assert_eq!(
-        first_data[0].distance, near_dist,
-        "page 1 should contain nearest retainer (dist {near_dist}), got dist {}",
+        first_data[0].distance,
+        Some(near_dist),
+        "page 1 should contain nearest retainer (dist {near_dist}), got dist {:?}",
         first_data[0].distance
     );
 
@@ -2083,8 +2126,9 @@ fn test_filtered_retainers_sorted_before_paging() {
     let second_data: Vec<_> = page2.iter().filter(|c| c.node_ordinal.is_some()).collect();
     assert_eq!(second_data.len(), 1);
     assert_eq!(
-        second_data[0].distance, mid_dist,
-        "page 2 should contain farther retainer (dist {mid_dist}), got dist {}",
+        second_data[0].distance,
+        Some(mid_dist),
+        "page 2 should contain farther retainer (dist {mid_dist}), got dist {:?}",
         second_data[0].distance
     );
 }
@@ -2951,7 +2995,7 @@ fn test_unreachable_filter_hides_reachable_groups() {
     );
 
     // Enable unreachable filter
-    app.summary_unreachable_only = true;
+    app.summary_unreachable_filter = UnreachableFilter::All;
     app.summary_state = TreeState::new();
     app.mark_rows_dirty();
     app.rebuild_rows(&snap);
@@ -2984,7 +3028,7 @@ fn test_unreachable_filter_shows_correct_count() {
     let (_result_tx, result_rx) = mpsc::channel();
     let mut app = App::new(&snap, Vec::new(), work_tx, result_rx);
 
-    app.summary_unreachable_only = true;
+    app.summary_unreachable_filter = UnreachableFilter::All;
     app.summary_state = TreeState::new();
     app.mark_rows_dirty();
     app.rebuild_rows(&snap);
@@ -3013,7 +3057,7 @@ fn test_unreachable_filter_expanded_members() {
     let (_result_tx, result_rx) = mpsc::channel();
     let mut app = App::new(&snap, Vec::new(), work_tx, result_rx);
 
-    app.summary_unreachable_only = true;
+    app.summary_unreachable_filter = UnreachableFilter::All;
     app.summary_state = TreeState::new();
     app.mark_rows_dirty();
     app.rebuild_rows(&snap);
@@ -3049,13 +3093,12 @@ fn test_unreachable_filter_expanded_members() {
 
     assert_eq!(members.len(), 2, "should show only 2 unreachable members");
 
-    // All shown members should be unreachable (distance == NO_DISTANCE)
+    // All shown members should be unreachable (distance >= UNREACHABLE_BASE)
     for m in &members {
         match &m.render.kind {
             FlatRowKind::HeapNode { distance, .. } => {
-                assert_eq!(
-                    *distance,
-                    crate::snapshot::NO_DISTANCE,
+                assert!(
+                    distance.is_some_and(|d| d.is_unreachable()),
                     "member should be unreachable: {}",
                     m.render.label
                 );
@@ -3080,7 +3123,7 @@ fn test_unreachable_filter_toggle_restores_all() {
         .count();
 
     // Toggle on
-    app.summary_unreachable_only = true;
+    app.summary_unreachable_filter = UnreachableFilter::All;
     app.summary_state = TreeState::new();
     app.mark_rows_dirty();
     app.rebuild_rows(&snap);
@@ -3092,7 +3135,7 @@ fn test_unreachable_filter_toggle_restores_all() {
     assert!(count_filtered < count_before, "filter should reduce groups");
 
     // Toggle off
-    app.summary_unreachable_only = false;
+    app.summary_unreachable_filter = UnreachableFilter::Off;
     app.summary_state = TreeState::new();
     app.mark_rows_dirty();
     app.rebuild_rows(&snap);
@@ -3150,7 +3193,7 @@ fn test_unreachable_plus_text_filter_hides_group_matching_only_reachable() {
     let mut app = App::new(&snap, Vec::new(), work_tx, result_rx);
 
     // Enable unreachable-only + text filter "hello"
-    app.summary_unreachable_only = true;
+    app.summary_unreachable_filter = UnreachableFilter::All;
     app.summary_filter = "hello".to_string();
     app.summary_state = TreeState::new();
     app.mark_rows_dirty();
@@ -3222,7 +3265,7 @@ fn test_unreachable_filter_recomputes_group_sizes() {
     assert_eq!(full_shallow, 1000.0, "full group shallow = 100+200+300+400");
 
     // With unreachable filter: only nodes 4 (300) and 5 (400) → shallow = 700
-    app.summary_unreachable_only = true;
+    app.summary_unreachable_filter = UnreachableFilter::All;
     app.summary_state = TreeState::new();
     app.mark_rows_dirty();
     app.rebuild_rows(&snap);

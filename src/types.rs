@@ -1,3 +1,37 @@
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Distance(pub u32);
+
+impl Distance {
+    /// Sentinel for nodes not yet visited during BFS.
+    pub const NONE: Distance = Distance(u32::MAX);
+    /// Base distance for unreachable nodes.  Unreachable roots get this value,
+    /// their children get UNREACHABLE_BASE + 1, +2, etc.
+    pub const UNREACHABLE_BASE: Distance = Distance(u32::MAX / 2);
+
+    pub fn is_unreachable(self) -> bool {
+        self >= Self::UNREACHABLE_BASE
+    }
+
+    pub fn is_unreachable_root(self) -> bool {
+        self == Self::UNREACHABLE_BASE
+    }
+}
+
+impl std::fmt::Display for Distance {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if *self >= Self::UNREACHABLE_BASE {
+            let offset = self.0 - Self::UNREACHABLE_BASE.0;
+            if offset == 0 {
+                write!(f, "U")
+            } else {
+                write!(f, "U+{offset}")
+            }
+        } else {
+            write!(f, "{}", self.0)
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct NodeOrdinal(pub usize);
 
@@ -57,7 +91,7 @@ pub struct Statistics {
 
 pub struct AggregateInfo {
     pub count: u32,
-    pub distance: i32,
+    pub distance: Distance,
     pub self_size: f64,
     pub max_ret: f64,
     pub name: String,

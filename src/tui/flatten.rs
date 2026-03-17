@@ -134,7 +134,7 @@ impl App {
                 label,
                 kind: FlatRowKind::HeapNode {
                     node_ordinal: Some(ordinal),
-                    distance: snap.node_distance(ordinal),
+                    distance: Some(snap.node_distance(ordinal)),
                     shallow_size: snap.node_self_size(ordinal) as f64,
                     retained_size: snap.node_retained_size(ordinal),
                     reachable_size: self.reachable_sizes.get(&ordinal).copied(),

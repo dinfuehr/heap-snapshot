@@ -13,7 +13,7 @@ use crate::types::{AggregateInfo, NodeId, NodeOrdinal, RawHeapSnapshot, Statisti
 pub const V8_STACK_ROOTS: &str = "(Stack roots)";
 pub const CPPGC_STACK_ROOTS: &str = "C++ native stack roots";
 
-pub const NO_DISTANCE: i32 = -5;
+use crate::types::Distance;
 const SHIFT_FOR_CLASS_INDEX: u32 = 2;
 const BITMASK_FOR_DOM_LINK_STATE: u32 = (1 << SHIFT_FOR_CLASS_INDEX) - 1;
 const MAX_INTERFACE_NAME_LENGTH: usize = 60;
@@ -76,7 +76,7 @@ pub struct HeapSnapshot {
     root_node_index: usize,
     gc_roots_ordinal: usize,
     first_edge_indexes: Vec<u32>,
-    node_distances: Vec<i32>,
+    node_distances: Vec<Distance>,
     retained_sizes: Vec<f64>,
     dominators_tree: Vec<u32>,
     dominated_nodes: Vec<u32>,
@@ -270,7 +270,7 @@ impl HeapSnapshot {
             root_node_index,
             gc_roots_ordinal: root_node_index / node_field_count, // updated after build_edge_indexes
             first_edge_indexes: vec![0u32; node_count + 1],
-            node_distances: vec![NO_DISTANCE; node_count],
+            node_distances: vec![Distance::NONE; node_count],
             retained_sizes: vec![0.0; node_count],
             dominators_tree: vec![0u32; node_count],
             dominated_nodes: Vec::new(),
@@ -374,6 +374,9 @@ impl HeapSnapshot {
 
         // Calculate distances
         snap.calculate_distances();
+
+        // Calculate depths within the unreachable subgraph
+        snap.calculate_unreachable_depths();
 
         // Calculate object names
         snap.calculate_object_names();
@@ -1538,7 +1541,7 @@ impl HeapSnapshot {
         let nfc = self.node_field_count;
         let node_count = self.node_count;
 
-        self.node_distances = vec![NO_DISTANCE; node_count];
+        self.node_distances = vec![Distance::NONE; node_count];
 
         let mut nodes_to_visit = vec![0u32; node_count];
         let mut visit_len: usize;
@@ -1553,7 +1556,7 @@ impl HeapSnapshot {
 
         // Phase 1: BFS from (GC roots).  Distance 0 at GC roots, 1 for
         // its direct children (the individual GC sub-roots), and so on.
-        self.node_distances[gc_roots_ordinal] = 0;
+        self.node_distances[gc_roots_ordinal] = Distance(0);
         nodes_to_visit[0] = (gc_roots_ordinal * nfc) as u32;
         visit_len = 1;
         self.bfs_with_filter(
@@ -1567,8 +1570,8 @@ impl HeapSnapshot {
         // the synthetic root, e.g. "C++ Persistent roots".  User roots
         // (NativeContexts) are intentionally skipped — if they aren't
         // reachable from (GC roots) they are detached and should stay at
-        // NO_DISTANCE.
-        self.node_distances[root_ordinal] = 0;
+        // Distance::NONE.
+        self.node_distances[root_ordinal] = Distance(0);
         visit_len = 0;
         let first = self.first_edge_indexes[root_ordinal] as usize;
         let last = self.first_edge_indexes[root_ordinal + 1] as usize;
@@ -1576,10 +1579,10 @@ impl HeapSnapshot {
         while ei < last {
             let child_index = self.edges[ei + self.edge_to_node_offset] as usize;
             let child_ordinal = child_index / nfc;
-            if self.node_distances[child_ordinal] == NO_DISTANCE
+            if self.node_distances[child_ordinal] == Distance::NONE
                 && !self.is_user_root_ordinal(NodeOrdinal(child_ordinal))
             {
-                self.node_distances[child_ordinal] = 1;
+                self.node_distances[child_ordinal] = Distance(1);
                 nodes_to_visit[visit_len] = child_index as u32;
                 visit_len += 1;
             }
@@ -1592,6 +1595,73 @@ impl HeapSnapshot {
                 &mut pending_ephemerons,
                 &weak_map_re,
             );
+        }
+    }
+
+    /// Compute depths within the unreachable subgraph.
+    ///
+    /// After `calculate_distances()`, every node with `Distance::NONE` is
+    /// unreachable from GC roots.  Among those, some are directly referenced
+    /// by reachable nodes (e.g. via weak edges that were filtered out during
+    /// distance BFS).  We call those "unreachable roots" and assign them
+    /// `Distance::UNREACHABLE_BASE`.  We then BFS through only unreachable
+    /// nodes, incrementing by 1, so the UI can show them as U+1, U+2, etc.
+    ///
+    /// Truly isolated unreachable nodes (no path from any reachable node)
+    /// also get `Distance::UNREACHABLE_BASE` and display as plain "U".
+    fn calculate_unreachable_depths(&mut self) {
+        let nfc = self.node_field_count;
+        let efc = self.edge_fields_count;
+        let eto = self.edge_to_node_offset;
+
+        // Phase 1: find unreachable nodes that have at least one retainer
+        // that IS reachable.  These are the "unreachable roots".
+        let mut queue: Vec<usize> = Vec::new();
+        for ordinal in 0..self.node_count {
+            if self.node_distances[ordinal] != Distance::NONE {
+                continue;
+            }
+            let first = self.first_retainer_index[ordinal] as usize;
+            let last = self.first_retainer_index[ordinal + 1] as usize;
+            for idx in first..last {
+                let retainer_index = self.retaining_nodes[idx] as usize;
+                let retainer_ordinal = retainer_index / nfc;
+                let ret_dist = self.node_distances[retainer_ordinal];
+                if ret_dist != Distance::NONE && !ret_dist.is_unreachable() {
+                    self.node_distances[ordinal] = Distance::UNREACHABLE_BASE;
+                    queue.push(ordinal);
+                    break;
+                }
+            }
+        }
+
+        // Phase 2: BFS from unreachable roots through forward edges,
+        // visiting only other unreachable nodes (still at Distance::NONE).
+        let mut head = 0;
+        while head < queue.len() {
+            let ordinal = queue[head];
+            head += 1;
+            let distance = Distance(self.node_distances[ordinal].0 + 1);
+            let first_edge = self.first_edge_indexes[ordinal] as usize;
+            let last_edge = self.first_edge_indexes[ordinal + 1] as usize;
+            let mut ei = first_edge;
+            while ei < last_edge {
+                let child_index = self.edges[ei + eto] as usize;
+                let child_ordinal = child_index / nfc;
+                if self.node_distances[child_ordinal] == Distance::NONE {
+                    self.node_distances[child_ordinal] = distance;
+                    queue.push(child_ordinal);
+                }
+                ei += efc;
+            }
+        }
+
+        // Phase 3: any remaining Distance::NONE nodes are truly isolated —
+        // set them to UNREACHABLE_BASE so they display as plain "U".
+        for ordinal in 0..self.node_count {
+            if self.node_distances[ordinal] == Distance::NONE {
+                self.node_distances[ordinal] = Distance::UNREACHABLE_BASE;
+            }
         }
     }
 
@@ -1619,7 +1689,7 @@ impl HeapSnapshot {
             let node_index = nodes_to_visit[index] as usize;
             index += 1;
             let node_ordinal = node_index / nfc;
-            let distance = self.node_distances[node_ordinal] + 1;
+            let distance = Distance(self.node_distances[node_ordinal].0 + 1);
             let first_edge = self.first_edge_indexes[node_ordinal] as usize;
             let last_edge = self.first_edge_indexes[node_ordinal + 1] as usize;
             let mut ei = first_edge;
@@ -1631,7 +1701,7 @@ impl HeapSnapshot {
                 }
                 let child_index = self.edges[ei + eto] as usize;
                 let child_ordinal = child_index / nfc;
-                if self.node_distances[child_ordinal] != NO_DISTANCE {
+                if self.node_distances[child_ordinal] != Distance::NONE {
                     ei += efc;
                     continue;
                 }
@@ -2092,7 +2162,7 @@ impl HeapSnapshot {
             let node_size = self.nodes[node_index + sso] as f64;
             let node_type = self.nodes[node_index + tyo];
 
-            if self.node_distances[ordinal] == NO_DISTANCE && node_size > 0.0 {
+            if self.node_distances[ordinal].is_unreachable() && node_size > 0.0 {
                 unreachable_count += 1;
                 unreachable_size += node_size;
             }
@@ -2384,7 +2454,7 @@ impl HeapSnapshot {
         }
     }
 
-    pub fn node_distance(&self, ordinal: NodeOrdinal) -> i32 {
+    pub fn node_distance(&self, ordinal: NodeOrdinal) -> Distance {
         self.node_distances[ordinal.0]
     }
 
@@ -2824,9 +2894,9 @@ impl HeapSnapshot {
         aggregates
     }
 
-    /// Build aggregates for unreachable nodes only (distance == NO_DISTANCE).
+    /// Build aggregates for unreachable nodes only (distance >= UNREACHABLE_BASE).
     pub fn unreachable_aggregates(&self) -> FxHashMap<String, AggregateInfo> {
-        self.build_aggregates(|ordinal| self.node_distances[ordinal] == NO_DISTANCE)
+        self.build_aggregates(|ordinal| self.node_distances[ordinal].is_unreachable())
     }
 
     fn build_aggregates(&self, filter: impl Fn(usize) -> bool) -> FxHashMap<String, AggregateInfo> {

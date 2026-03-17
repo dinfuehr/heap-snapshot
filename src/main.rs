@@ -89,6 +89,10 @@ enum Command {
     Unreachable {
         /// Path to .heapsnapshot file
         file: String,
+        /// Show only fully unreachable objects (distance U), excluding those
+        /// only reachable from other unreachable objects (U+1, U+2, …)
+        #[arg(long)]
+        full: bool,
     },
     /// Compare two heap snapshots
     Diff {
@@ -452,9 +456,9 @@ fn main() {
             }
             println!("\n{} stack-rooted objects", entries.len());
         }
-        Command::Unreachable { file } => {
+        Command::Unreachable { file, full } => {
             let snap = load_snapshot(&file);
-            print::unreachable::print_unreachable(&snap);
+            print::unreachable::print_unreachable(&snap, full);
         }
         Command::Diff {
             main,

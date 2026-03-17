@@ -83,7 +83,7 @@ impl App {
             children.push(ChildNode {
                 id: mint_id(&self.next_id),
                 label: format!("+ {} @{node_id}", d.name).into(),
-                distance: ordinal.map_or(0, |o| snap.node_distance(o)),
+                distance: ordinal.map(|o| snap.node_distance(o)),
                 shallow_size: *self_size as f64,
                 retained_size: 0.0,
                 node_ordinal: ordinal,
@@ -107,9 +107,7 @@ impl App {
             children.push(ChildNode {
                 id: mint_id(&self.next_id),
                 label: format!("\u{2212} {} @{node_id}", d.name).into(),
-                distance: ordinal
-                    .and_then(|o| compare_snap.map(|cs| cs.node_distance(o)))
-                    .unwrap_or(0),
+                distance: ordinal.and_then(|o| compare_snap.map(|cs| cs.node_distance(o))),
                 shallow_size: 0.0,
                 retained_size: *self_size as f64,
                 node_ordinal: ordinal,
