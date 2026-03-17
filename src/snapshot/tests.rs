@@ -3174,9 +3174,15 @@ fn make_isolated_unreachable_snapshot() -> HeapSnapshot {
     ];
 
     let edges: Vec<u32> = vec![
-        1, 0, n(1), // root --element[0]--> (GC roots)
-        2, 5, n(2), // (GC roots) --property "ref"--> Reachable
-        2, 6, n(4), // B --property "link"--> A
+        1,
+        0,
+        n(1), // root --element[0]--> (GC roots)
+        2,
+        5,
+        n(2), // (GC roots) --property "ref"--> Reachable
+        2,
+        6,
+        n(4), // B --property "link"--> A
     ];
 
     let raw = RawHeapSnapshot {
