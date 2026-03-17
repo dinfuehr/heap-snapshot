@@ -867,7 +867,6 @@ impl HeapSnapshot {
             self.native_context_global_fields
                 .insert(format!("get {attr}"));
         }
-
     }
 
     fn build_native_context_vars(&mut self) {

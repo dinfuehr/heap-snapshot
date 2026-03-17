@@ -1,4 +1,3 @@
-
 use super::*;
 use crate::print::retainers::{RetainerAutoExpandLimits, plan_gc_root_retainer_paths};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};

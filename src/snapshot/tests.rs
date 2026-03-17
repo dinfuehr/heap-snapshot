@@ -1346,7 +1346,6 @@ fn test_native_contexts_list() {
     assert_eq!(contexts, vec![2, 3, 4]);
 }
 
-
 // ====== native_context_vars tests ======
 
 /// Snapshot with two NativeContexts to test native_context_vars.
@@ -1404,41 +1403,69 @@ fn make_vars_snapshot() -> HeapSnapshot {
         ]),
         vec![
             //   type name id  size edges det
-            9, 0, 1, 0, 1, 0,    // node  0: synthetic root
-            9, 1, 2, 0, 2, 0,    // node  1: (GC roots)
-            0, 2, 3, 100, 2, 0,  // node  2: NativeContext A
-            0, 3, 5, 100, 2, 0,  // node  3: NativeContext B
-            8, 4, 7, 50, 2, 1,   // node  4: Window (global*) for A
-            8, 4, 9, 50, 2, 1,   // node  5: Window (global*) for B
-            3, 5, 11, 10, 1, 0,  // node  6: ScriptContextTable A
-            3, 6, 13, 10, 2, 0,  // node  7: Context (script ctx A)
-            2, 7, 15, 1, 0, 0,   // node  8: dummy
-            3, 5, 17, 10, 0, 0,  // node  9: ScriptContextTable B (empty)
-            2, 7, 19, 1, 0, 0,   // node 10: dummy for context edges
+            9, 0, 1, 0, 1, 0, // node  0: synthetic root
+            9, 1, 2, 0, 2, 0, // node  1: (GC roots)
+            0, 2, 3, 100, 2, 0, // node  2: NativeContext A
+            0, 3, 5, 100, 2, 0, // node  3: NativeContext B
+            8, 4, 7, 50, 2, 1, // node  4: Window (global*) for A
+            8, 4, 9, 50, 2, 1, // node  5: Window (global*) for B
+            3, 5, 11, 10, 1, 0, // node  6: ScriptContextTable A
+            3, 6, 13, 10, 2, 0, // node  7: Context (script ctx A)
+            2, 7, 15, 1, 0, 0, // node  8: dummy
+            3, 5, 17, 10, 0, 0, // node  9: ScriptContextTable B (empty)
+            2, 7, 19, 1, 0, 0, // node 10: dummy for context edges
         ],
         vec![
             // root -> GC roots
-            1, 0, n(1),
+            1,
+            0,
+            n(1),
             // GC roots -> ctx A, ctx B
-            2, 10, n(2),
-            2, 11, n(3),
+            2,
+            10,
+            n(2),
+            2,
+            11,
+            n(3),
             // NativeContext A -> global_object, script_context_table
-            3, 8, n(4),
-            3, 9, n(6),
+            3,
+            8,
+            n(4),
+            3,
+            9,
+            n(6),
             // NativeContext B -> global_object, script_context_table
-            3, 8, n(5),
-            3, 9, n(9),
+            3,
+            8,
+            n(5),
+            3,
+            9,
+            n(9),
             // Window A: Array (common), myAppVar (unique)
-            2, 12, n(8),
-            2, 13, n(8),
+            2,
+            12,
+            n(8),
+            2,
+            13,
+            n(8),
             // Window B: Array (common), bSpecial (unique)
-            2, 12, n(8),
-            2, 14, n(8),
+            2,
+            12,
+            n(8),
+            2,
+            14,
+            n(8),
             // ScriptContextTable A -> Context (hidden edge)
-            4, 0, n(7),
+            4,
+            0,
+            n(7),
             // Context A: myLet, myConst (context-type edges)
-            0, 15, n(10),
-            0, 16, n(10),
+            0,
+            15,
+            n(10),
+            0,
+            16,
+            n(10),
         ],
         s(&[
             "",
@@ -1472,10 +1499,7 @@ fn test_native_context_vars_with_global_and_script_vars() {
         vars_a.contains("myAppVar"),
         "expected myAppVar in vars: {vars_a}"
     );
-    assert!(
-        vars_a.contains("myLet"),
-        "expected myLet in vars: {vars_a}"
-    );
+    assert!(vars_a.contains("myLet"), "expected myLet in vars: {vars_a}");
     assert!(
         vars_a.contains("myConst"),
         "expected myConst in vars: {vars_a}"
