@@ -1,0 +1,23 @@
+[package]
+name = "heap-snapshot"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+clap = { version = "4", features = ["derive"] }
+crossterm = "0.28"
+ratatui = "0.29"
+regex = "1"
+rustc-hash = "2"
+dirs = "6"
+sha2 = "0.10"
+toml = "0.8"
+serde = { version = "1", features = ["derive"] }
+unicode-width = "0.2"
+
+[dev-dependencies]
+criterion = { version = "0.5", features = ["html_reports"] }
+
+[[bench]]
+name = "tui_bench"
+harness = false
