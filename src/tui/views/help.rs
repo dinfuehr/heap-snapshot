@@ -49,6 +49,7 @@ impl App {
             Line::from("  f filters the current edge list; empty input clears it"),
             Line::from("  u toggles unreachable filter (all: U, U+1, U+2, …) in Summary view"),
             Line::from("  U toggles unreachable filter (roots only: U) in Summary view"),
+            Line::from("    pressing u while in roots-only switches to all, and vice versa"),
             Line::from("  Enter applies a prompt, Esc cancels, Backspace deletes"),
             Line::from(""),
             Line::from(Span::styled("Inspection", Style::default().bold())),
@@ -81,6 +82,9 @@ impl App {
             Line::from("  and everything it uniquely keeps alive were removed from the graph."),
             Line::from("  Reachable Size: sum of shallow sizes reachable by following outgoing"),
             Line::from("  references from this object, ignoring weak and shortcut edges."),
+            Line::from("  Distance: BFS hops from GC roots. Unreachable objects show U, U+1, etc."),
+            Line::from("    U: directly unreachable — referenced only via weak/filtered edges."),
+            Line::from("    U+N: N hops from a U object through the unreachable subgraph."),
             Line::from("  Det: 0 unknown, 1 attached, 2 detached."),
             Line::from(""),
             Line::from(Span::styled(
