@@ -8,6 +8,10 @@ impl Distance {
     /// their children get UNREACHABLE_BASE + 1, +2, etc.
     pub const UNREACHABLE_BASE: Distance = Distance(u32::MAX / 2);
 
+    pub fn is_reachable(self) -> bool {
+        self < Self::UNREACHABLE_BASE
+    }
+
     pub fn is_unreachable(self) -> bool {
         self >= Self::UNREACHABLE_BASE
     }

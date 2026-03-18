@@ -1611,39 +1611,67 @@ impl HeapSnapshot {
     /// also get `Distance::UNREACHABLE_BASE` and display as plain "U".
     fn calculate_unreachable_depths(&mut self) {
         let nfc = self.node_field_count;
-        let efc = self.edge_fields_count;
-        let eto = self.edge_to_node_offset;
 
-        // Phase 1: find unreachable roots — nodes that either:
-        //  (a) have a reachable retainer (e.g. via a weak edge), or
-        //  (b) have no retainers at all (truly orphaned roots).
-        let mut queue: Vec<usize> = Vec::new();
+        // Phase 1: find unreachable roots.  A node is seeded as U if:
+        //  - it has any retainer from a reachable node (the reachable node
+        //    points to it via a weak or filtered edge, making it a direct
+        //    entry point into the unreachable subgraph), OR
+        //  - it has no non-weak retainers at all (orphaned or only
+        //    weak-referenced by other unreachable nodes).
+        //
+        // A node is NOT seeded only if it has a strong retainer from an
+        // unreachable node and no retainer from any reachable node — in
+        // that case it will get U+N from the BFS.
+        let mut seeds: Vec<usize> = Vec::new();
         for ordinal in 0..self.node_count {
             if self.node_distances[ordinal] != Distance::NONE {
                 continue;
             }
             let first = self.first_retainer_index[ordinal] as usize;
             let last = self.first_retainer_index[ordinal + 1] as usize;
-            if first == last {
-                // No retainers at all — root of an isolated unreachable subgraph.
-                self.node_distances[ordinal] = Distance::UNREACHABLE_BASE;
-                queue.push(ordinal);
-                continue;
-            }
+            let mut has_reachable_retainer = false;
+            let mut has_strong_unreachable_retainer = false;
             for idx in first..last {
-                let retainer_index = self.retaining_nodes[idx] as usize;
-                let retainer_ordinal = retainer_index / nfc;
+                let retainer_ordinal = self.retaining_nodes[idx] as usize / nfc;
                 let ret_dist = self.node_distances[retainer_ordinal];
-                if ret_dist != Distance::NONE && !ret_dist.is_unreachable() {
-                    self.node_distances[ordinal] = Distance::UNREACHABLE_BASE;
-                    queue.push(ordinal);
+                if ret_dist.is_reachable() {
+                    has_reachable_retainer = true;
                     break;
                 }
+                let edge_index = self.retaining_edges[idx] as usize;
+                let edge_type = self.edges[edge_index + self.edge_type_offset];
+                if edge_type != self.edge_weak_type {
+                    has_strong_unreachable_retainer = true;
+                }
+            }
+            if has_reachable_retainer || !has_strong_unreachable_retainer {
+                self.node_distances[ordinal] = Distance::UNREACHABLE_BASE;
+                seeds.push(ordinal);
             }
         }
 
-        // Phase 2: BFS from unreachable roots through forward edges,
-        // visiting only other unreachable nodes (still at Distance::NONE).
+        // Phase 2: BFS from the seeds.
+        self.unreachable_bfs(&seeds);
+
+        // Phase 3: any remaining NONE nodes form cycles with no root.
+        // Pick each one as a new root and BFS from it.
+        for ordinal in 0..self.node_count {
+            if self.node_distances[ordinal] == Distance::NONE {
+                self.node_distances[ordinal] = Distance::UNREACHABLE_BASE;
+                self.unreachable_bfs(&[ordinal]);
+            }
+        }
+    }
+
+    /// BFS from seed nodes through non-weak forward edges, visiting only
+    /// unreachable nodes still at `Distance::NONE`.
+    fn unreachable_bfs(&mut self, seeds: &[usize]) {
+        let nfc = self.node_field_count;
+        let efc = self.edge_fields_count;
+        let eto = self.edge_to_node_offset;
+        let etype_off = self.edge_type_offset;
+
+        let mut queue: Vec<usize> = seeds.to_vec();
         let mut head = 0;
         while head < queue.len() {
             let ordinal = queue[head];
@@ -1653,6 +1681,11 @@ impl HeapSnapshot {
             let last_edge = self.first_edge_indexes[ordinal + 1] as usize;
             let mut ei = first_edge;
             while ei < last_edge {
+                let edge_type = self.edges[ei + etype_off];
+                if edge_type == self.edge_weak_type {
+                    ei += efc;
+                    continue;
+                }
                 let child_index = self.edges[ei + eto] as usize;
                 let child_ordinal = child_index / nfc;
                 if self.node_distances[child_ordinal] == Distance::NONE {
@@ -1660,14 +1693,6 @@ impl HeapSnapshot {
                     queue.push(child_ordinal);
                 }
                 ei += efc;
-            }
-        }
-
-        // Phase 3: any remaining Distance::NONE nodes are truly isolated —
-        // set them to UNREACHABLE_BASE so they display as plain "U".
-        for ordinal in 0..self.node_count {
-            if self.node_distances[ordinal] == Distance::NONE {
-                self.node_distances[ordinal] = Distance::UNREACHABLE_BASE;
             }
         }
     }

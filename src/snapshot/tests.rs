@@ -3234,6 +3234,425 @@ fn test_isolated_unreachable_both_get_u() {
     );
 }
 
+/// Snapshot where an unreachable object A has both a weak and a strong
+/// reference to object B.  The weak edge should be skipped by the
+/// unreachable-depth BFS (just like the main distance BFS), so B is
+/// reached only via the strong edge and gets U+1.
+///
+/// ```text
+/// Node 0 (synthetic root): 1 edge
+/// Node 1 (GC roots): 1 edge → Reachable
+/// Node 2: Reachable, 1 weak edge → A
+/// Node 3: A, 2 edges (weak → B, strong → B)
+/// Node 4: B, 0 edges
+/// ```
+#[test]
+fn test_unreachable_weak_and_strong_to_same_target() {
+    let node_fields: Vec<String> = ["type", "name", "id", "self_size", "edge_count"]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+    let nfc = node_fields.len();
+
+    let node_type_enum: Vec<String> = [
+        "hidden",
+        "array",
+        "string",
+        "object",
+        "code",
+        "closure",
+        "regexp",
+        "number",
+        "native",
+        "synthetic",
+        "concatenated string",
+        "sliced string",
+        "symbol",
+        "bigint",
+    ]
+    .iter()
+    .map(|s| s.to_string())
+    .collect();
+
+    let edge_fields: Vec<String> = ["type", "name_or_index", "to_node"]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+    let efc = edge_fields.len();
+
+    let edge_type_enum: Vec<String> = [
+        "context", "element", "property", "internal", "hidden", "shortcut", "weak",
+    ]
+    .iter()
+    .map(|s| s.to_string())
+    .collect();
+
+    let strings: Vec<String> = [
+        "",           // 0
+        "(GC roots)", // 1
+        "Reachable",  // 2
+        "A",          // 3
+        "B",          // 4
+        "ref",        // 5
+        "weak_ref",   // 6
+        "strong_ref", // 7
+    ]
+    .iter()
+    .map(|s| s.to_string())
+    .collect();
+
+    let n = |ordinal: u32| ordinal * nfc as u32;
+
+    let nodes: Vec<u32> = vec![
+        9, 0, 1, 0, 1, // node 0: synthetic root, 1 edge
+        9, 1, 2, 0, 1, // node 1: (GC roots), 1 edge
+        3, 2, 3, 100, 1, // node 2: Reachable, 1 weak edge → A
+        3, 3, 5, 200, 2, // node 3: A, 2 edges (weak → B, strong → B)
+        3, 4, 7, 150, 0, // node 4: B, 0 edges
+    ];
+
+    let edges: Vec<u32> = vec![
+        1,
+        0,
+        n(1), // root → (GC roots)
+        2,
+        5,
+        n(2), // (GC roots) --property "ref"--> Reachable
+        6,
+        6,
+        n(3), // Reachable --weak "weak_ref"--> A
+        6,
+        6,
+        n(4), // A --weak "weak_ref"--> B
+        2,
+        7,
+        n(4), // A --property "strong_ref"--> B
+    ];
+
+    let raw = RawHeapSnapshot {
+        snapshot: SnapshotHeader {
+            meta: SnapshotMeta {
+                node_fields,
+                node_type_enum,
+                edge_fields,
+                edge_type_enum,
+                location_fields: vec![],
+                sample_fields: vec![],
+                trace_function_info_fields: vec![],
+                trace_node_fields: vec![],
+            },
+            node_count: nodes.len() / nfc,
+            edge_count: edges.len() / efc,
+            trace_function_count: 0,
+            root_index: Some(0),
+            extra_native_bytes: None,
+        },
+        nodes,
+        edges,
+        strings,
+        locations: vec![],
+    };
+
+    let snap = HeapSnapshot::new(raw);
+
+    // Node 2 is reachable
+    assert_eq!(snap.node_distance(NodeOrdinal(2)), Distance(1));
+
+    // A (node 3) has a reachable retainer (node 2 via weak edge) → U
+    assert_eq!(
+        snap.node_distance(NodeOrdinal(3)),
+        Distance::UNREACHABLE_BASE,
+        "A should be U"
+    );
+
+    // B (node 4) is referenced by A via both weak and strong edges.
+    // The weak edge is skipped, but the strong edge makes B reachable
+    // from A within the unreachable subgraph → U+1.
+    assert_eq!(
+        snap.node_distance(NodeOrdinal(4)),
+        Distance(Distance::UNREACHABLE_BASE.0 + 1),
+        "B should be U+1 (reached via strong edge from A)"
+    );
+}
+
+/// A is unreachable with a strong edge to B.  C is reachable and has a weak
+/// edge to B.  B is unreachable (the weak edge from C doesn't count), but
+/// it is reachable from A within the unreachable subgraph.
+///
+/// ```text
+/// Node 0 (synthetic root): 1 edge
+/// Node 1 (GC roots): 2 edges → Reachable, C
+/// Node 2: Reachable, 1 weak edge → A
+/// Node 3: A, 1 strong edge → B
+/// Node 4: B, 0 edges
+/// Node 5: C, 1 weak edge → B
+/// ```
+///
+/// A should be U (reachable retainer via weak from Reachable).
+/// B should be U+1 (reached from A via strong; the weak from C doesn't
+/// make B reachable, but it does make B have a reachable retainer — however
+/// that retainer is weak so it's filtered during the main distance BFS).
+#[test]
+fn test_unreachable_strong_from_unreachable_and_weak_from_reachable() {
+    let node_fields: Vec<String> = ["type", "name", "id", "self_size", "edge_count"]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+    let nfc = node_fields.len();
+
+    let node_type_enum: Vec<String> = [
+        "hidden",
+        "array",
+        "string",
+        "object",
+        "code",
+        "closure",
+        "regexp",
+        "number",
+        "native",
+        "synthetic",
+        "concatenated string",
+        "sliced string",
+        "symbol",
+        "bigint",
+    ]
+    .iter()
+    .map(|s| s.to_string())
+    .collect();
+
+    let edge_fields: Vec<String> = ["type", "name_or_index", "to_node"]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+    let efc = edge_fields.len();
+
+    let edge_type_enum: Vec<String> = [
+        "context", "element", "property", "internal", "hidden", "shortcut", "weak",
+    ]
+    .iter()
+    .map(|s| s.to_string())
+    .collect();
+
+    let strings: Vec<String> = [
+        "",           // 0
+        "(GC roots)", // 1
+        "Reachable",  // 2
+        "A",          // 3
+        "B",          // 4
+        "C",          // 5
+        "ref",        // 6
+        "weak_ref",   // 7
+        "strong_ref", // 8
+        "ref2",       // 9
+    ]
+    .iter()
+    .map(|s| s.to_string())
+    .collect();
+
+    let n = |ordinal: u32| ordinal * nfc as u32;
+
+    let nodes: Vec<u32> = vec![
+        9, 0, 1, 0, 1, // node 0: synthetic root, 1 edge
+        9, 1, 2, 0, 2, // node 1: (GC roots), 2 edges
+        3, 2, 3, 100, 1, // node 2: Reachable, 1 weak edge → A
+        3, 3, 5, 200, 1, // node 3: A, 1 strong edge → B
+        3, 4, 7, 150, 0, // node 4: B, 0 edges
+        3, 5, 9, 50, 1, // node 5: C, 1 weak edge → B
+    ];
+
+    let edges: Vec<u32> = vec![
+        1,
+        0,
+        n(1), // root → (GC roots)
+        2,
+        6,
+        n(2), // (GC roots) --property "ref"--> Reachable
+        2,
+        9,
+        n(5), // (GC roots) --property "ref2"--> C
+        6,
+        7,
+        n(3), // Reachable --weak "weak_ref"--> A
+        2,
+        8,
+        n(4), // A --property "strong_ref"--> B
+        6,
+        7,
+        n(4), // C --weak "weak_ref"--> B
+    ];
+
+    let raw = RawHeapSnapshot {
+        snapshot: SnapshotHeader {
+            meta: SnapshotMeta {
+                node_fields,
+                node_type_enum,
+                edge_fields,
+                edge_type_enum,
+                location_fields: vec![],
+                sample_fields: vec![],
+                trace_function_info_fields: vec![],
+                trace_node_fields: vec![],
+            },
+            node_count: nodes.len() / nfc,
+            edge_count: edges.len() / efc,
+            trace_function_count: 0,
+            root_index: Some(0),
+            extra_native_bytes: None,
+        },
+        nodes,
+        edges,
+        strings,
+        locations: vec![],
+    };
+
+    let snap = HeapSnapshot::new(raw);
+
+    // Reachable and C are reachable from GC roots
+    assert_eq!(snap.node_distance(NodeOrdinal(2)), Distance(1));
+    assert_eq!(snap.node_distance(NodeOrdinal(5)), Distance(1));
+
+    // A (node 3): only retainer is Reachable via weak edge → U
+    assert_eq!(
+        snap.node_distance(NodeOrdinal(3)),
+        Distance::UNREACHABLE_BASE,
+        "A should be U"
+    );
+
+    // B (node 4): retainers are A (strong, unreachable) and C (weak, reachable).
+    // C's weak edge doesn't make B reachable in the main BFS, but it does
+    // mean B has a reachable retainer — so B is seeded as a root → U.
+    assert_eq!(
+        snap.node_distance(NodeOrdinal(4)),
+        Distance::UNREACHABLE_BASE,
+        "B should be U (has reachable retainer C)"
+    );
+}
+
+/// Like the previous test, but A only has a weak edge to B (no strong edge).
+/// The unreachable-depth BFS should skip weak edges, so B is not reached
+/// from A and both get U independently.
+#[test]
+fn test_unreachable_weak_only_does_not_propagate() {
+    let node_fields: Vec<String> = ["type", "name", "id", "self_size", "edge_count"]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+    let nfc = node_fields.len();
+
+    let node_type_enum: Vec<String> = [
+        "hidden",
+        "array",
+        "string",
+        "object",
+        "code",
+        "closure",
+        "regexp",
+        "number",
+        "native",
+        "synthetic",
+        "concatenated string",
+        "sliced string",
+        "symbol",
+        "bigint",
+    ]
+    .iter()
+    .map(|s| s.to_string())
+    .collect();
+
+    let edge_fields: Vec<String> = ["type", "name_or_index", "to_node"]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+    let efc = edge_fields.len();
+
+    let edge_type_enum: Vec<String> = [
+        "context", "element", "property", "internal", "hidden", "shortcut", "weak",
+    ]
+    .iter()
+    .map(|s| s.to_string())
+    .collect();
+
+    let strings: Vec<String> = [
+        "",           // 0
+        "(GC roots)", // 1
+        "Reachable",  // 2
+        "A",          // 3
+        "B",          // 4
+        "ref",        // 5
+        "weak_ref",   // 6
+    ]
+    .iter()
+    .map(|s| s.to_string())
+    .collect();
+
+    let n = |ordinal: u32| ordinal * nfc as u32;
+
+    let nodes: Vec<u32> = vec![
+        9, 0, 1, 0, 1, // node 0: synthetic root, 1 edge
+        9, 1, 2, 0, 1, // node 1: (GC roots), 1 edge
+        3, 2, 3, 100, 1, // node 2: Reachable, 1 weak edge → A
+        3, 3, 5, 200, 1, // node 3: A, 1 weak edge → B
+        3, 4, 7, 150, 0, // node 4: B, 0 edges
+    ];
+
+    let edges: Vec<u32> = vec![
+        1,
+        0,
+        n(1), // root → (GC roots)
+        2,
+        5,
+        n(2), // (GC roots) --property "ref"--> Reachable
+        6,
+        6,
+        n(3), // Reachable --weak "weak_ref"--> A
+        6,
+        6,
+        n(4), // A --weak "weak_ref"--> B
+    ];
+
+    let raw = RawHeapSnapshot {
+        snapshot: SnapshotHeader {
+            meta: SnapshotMeta {
+                node_fields,
+                node_type_enum,
+                edge_fields,
+                edge_type_enum,
+                location_fields: vec![],
+                sample_fields: vec![],
+                trace_function_info_fields: vec![],
+                trace_node_fields: vec![],
+            },
+            node_count: nodes.len() / nfc,
+            edge_count: edges.len() / efc,
+            trace_function_count: 0,
+            root_index: Some(0),
+            extra_native_bytes: None,
+        },
+        nodes,
+        edges,
+        strings,
+        locations: vec![],
+    };
+
+    let snap = HeapSnapshot::new(raw);
+
+    // A (node 3): reachable retainer via weak edge → U
+    assert_eq!(
+        snap.node_distance(NodeOrdinal(3)),
+        Distance::UNREACHABLE_BASE,
+        "A should be U"
+    );
+
+    // B (node 4): A's only edge to B is weak → BFS skips it.
+    // B's only retainer is a weak edge from A, which doesn't count as a
+    // strong unreachable retainer, so B is seeded as a root in phase 1 → U.
+    assert_eq!(
+        snap.node_distance(NodeOrdinal(4)),
+        Distance::UNREACHABLE_BASE,
+        "B should be U (weak edge from A does not propagate distance)"
+    );
+}
+
 #[test]
 fn test_unreachable_aggregates_include_all_unreachable() {
     let snap = make_unreachable_snapshot();
@@ -3283,4 +3702,486 @@ fn test_unreachable_roots_only_excludes_transitive() {
     // Only "Unreachable" (node 3) is a root; "Child" (node 4) is U+1
     assert_eq!(roots_only.len(), 1);
     assert_eq!(roots_only[0].name, "Unreachable");
+}
+
+// ── Unreachable depth test helpers ─────────────────────────────────────
+
+/// Build a snapshot from strings, nodes, and edges with standard meta.
+/// Reduces boilerplate for unreachable-depth tests.
+fn build_test_snapshot(strings: Vec<String>, nodes: Vec<u32>, edges: Vec<u32>) -> HeapSnapshot {
+    let node_fields: Vec<String> = ["type", "name", "id", "self_size", "edge_count"]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+    let nfc = node_fields.len();
+
+    let node_type_enum: Vec<String> = [
+        "hidden",
+        "array",
+        "string",
+        "object",
+        "code",
+        "closure",
+        "regexp",
+        "number",
+        "native",
+        "synthetic",
+        "concatenated string",
+        "sliced string",
+        "symbol",
+        "bigint",
+    ]
+    .iter()
+    .map(|s| s.to_string())
+    .collect();
+
+    let edge_fields: Vec<String> = ["type", "name_or_index", "to_node"]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+    let efc = edge_fields.len();
+
+    let edge_type_enum: Vec<String> = [
+        "context", "element", "property", "internal", "hidden", "shortcut", "weak",
+    ]
+    .iter()
+    .map(|s| s.to_string())
+    .collect();
+
+    let raw = RawHeapSnapshot {
+        snapshot: SnapshotHeader {
+            meta: SnapshotMeta {
+                node_fields,
+                node_type_enum,
+                edge_fields,
+                edge_type_enum,
+                location_fields: vec![],
+                sample_fields: vec![],
+                trace_function_info_fields: vec![],
+                trace_node_fields: vec![],
+            },
+            node_count: nodes.len() / nfc,
+            edge_count: edges.len() / efc,
+            trace_function_count: 0,
+            root_index: Some(0),
+            extra_native_bytes: None,
+        },
+        nodes,
+        edges,
+        strings,
+        locations: vec![],
+    };
+
+    HeapSnapshot::new(raw)
+}
+
+// node index helper: ordinal * 5 (node_field_count)
+fn n(ordinal: u32) -> u32 {
+    ordinal * 5
+}
+
+// ── Unreachable depth tests ────────────────────────────────────────────
+
+/// Longer chain: A→B→C→D, all unreachable (no retainers).
+/// Depths should be U, U+1, U+2, U+3.
+#[test]
+fn test_unreachable_depth_long_chain() {
+    let strings: Vec<String> = ["", "(GC roots)", "R", "A", "B", "C", "D", "ref", "e"]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+
+    let nodes: Vec<u32> = vec![
+        9, 0, 1, 0, 1, // 0: synthetic root
+        9, 1, 2, 0, 1, // 1: (GC roots)
+        3, 2, 3, 10, 0, // 2: R (reachable)
+        3, 3, 5, 10, 1, // 3: A → B
+        3, 4, 7, 10, 1, // 4: B → C
+        3, 5, 9, 10, 1, // 5: C → D
+        3, 6, 11, 10, 0, // 6: D
+    ];
+
+    let edges: Vec<u32> = vec![
+        1,
+        0,
+        n(1), // root → GC roots
+        2,
+        7,
+        n(2), // GC roots → R
+        2,
+        8,
+        n(4), // A → B
+        2,
+        8,
+        n(5), // B → C
+        2,
+        8,
+        n(6), // C → D
+    ];
+
+    let snap = build_test_snapshot(strings, nodes, edges);
+
+    assert_eq!(snap.node_distance(NodeOrdinal(2)), Distance(1));
+    assert_eq!(
+        snap.node_distance(NodeOrdinal(3)),
+        Distance::UNREACHABLE_BASE
+    );
+    assert_eq!(
+        snap.node_distance(NodeOrdinal(4)),
+        Distance(Distance::UNREACHABLE_BASE.0 + 1)
+    );
+    assert_eq!(
+        snap.node_distance(NodeOrdinal(5)),
+        Distance(Distance::UNREACHABLE_BASE.0 + 2)
+    );
+    assert_eq!(
+        snap.node_distance(NodeOrdinal(6)),
+        Distance(Distance::UNREACHABLE_BASE.0 + 3)
+    );
+}
+
+/// Diamond: A→B, A→C, B→D, C→D.  All unreachable (no retainers).
+/// A=U, B=U+1, C=U+1, D=U+2 (shortest path via BFS).
+#[test]
+fn test_unreachable_depth_diamond() {
+    let strings: Vec<String> = ["", "(GC roots)", "R", "A", "B", "C", "D", "ref", "e"]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+
+    let nodes: Vec<u32> = vec![
+        9, 0, 1, 0, 1, // 0: synthetic root
+        9, 1, 2, 0, 1, // 1: (GC roots)
+        3, 2, 3, 10, 0, // 2: R
+        3, 3, 5, 10, 2, // 3: A → B, A → C
+        3, 4, 7, 10, 1, // 4: B → D
+        3, 5, 9, 10, 1, // 5: C → D
+        3, 6, 11, 10, 0, // 6: D
+    ];
+
+    let edges: Vec<u32> = vec![
+        1,
+        0,
+        n(1), // root → GC roots
+        2,
+        7,
+        n(2), // GC roots → R
+        2,
+        8,
+        n(4), // A → B
+        2,
+        8,
+        n(5), // A → C
+        2,
+        8,
+        n(6), // B → D
+        2,
+        8,
+        n(6), // C → D
+    ];
+
+    let snap = build_test_snapshot(strings, nodes, edges);
+
+    assert_eq!(
+        snap.node_distance(NodeOrdinal(3)),
+        Distance::UNREACHABLE_BASE
+    );
+    assert_eq!(
+        snap.node_distance(NodeOrdinal(4)),
+        Distance(Distance::UNREACHABLE_BASE.0 + 1)
+    );
+    assert_eq!(
+        snap.node_distance(NodeOrdinal(5)),
+        Distance(Distance::UNREACHABLE_BASE.0 + 1)
+    );
+    assert_eq!(
+        snap.node_distance(NodeOrdinal(6)),
+        Distance(Distance::UNREACHABLE_BASE.0 + 2)
+    );
+}
+
+/// Cycle: A→B→A (strong edges both ways).  Neither has a non-cycle
+/// retainer, so neither is seeded in phase 1.  Phase 2 picks one as a
+/// root (U) and the other gets U+1 via BFS.
+#[test]
+fn test_unreachable_depth_cycle() {
+    let strings: Vec<String> = ["", "(GC roots)", "R", "A", "B", "ref", "e"]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+
+    let nodes: Vec<u32> = vec![
+        9, 0, 1, 0, 1, // 0: synthetic root
+        9, 1, 2, 0, 1, // 1: (GC roots)
+        3, 2, 3, 10, 0, // 2: R
+        3, 3, 5, 10, 1, // 3: A → B
+        3, 4, 7, 10, 1, // 4: B → A
+    ];
+
+    let edges: Vec<u32> = vec![
+        1,
+        0,
+        n(1), // root → GC roots
+        2,
+        5,
+        n(2), // GC roots → R
+        2,
+        6,
+        n(4), // A → B
+        2,
+        6,
+        n(3), // B → A
+    ];
+
+    let snap = build_test_snapshot(strings, nodes, edges);
+
+    // A (lower ordinal) is picked as root → U, B gets U+1.
+    assert_eq!(
+        snap.node_distance(NodeOrdinal(3)),
+        Distance::UNREACHABLE_BASE
+    );
+    assert_eq!(
+        snap.node_distance(NodeOrdinal(4)),
+        Distance(Distance::UNREACHABLE_BASE.0 + 1)
+    );
+}
+
+/// Mutual references with reachable retainers: R --weak→ A, R --weak→ B,
+/// A --strong→ B, B --strong→ A.  Both A and B are genuine unreachable
+/// roots (directly referenced from the reachable world).  Both should be U.
+#[test]
+fn test_unreachable_depth_mutual_refs_with_reachable_retainer() {
+    let strings: Vec<String> = ["", "(GC roots)", "R", "A", "B", "ref", "w", "e"]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+
+    let nodes: Vec<u32> = vec![
+        9, 0, 1, 0, 1, // 0: synthetic root
+        9, 1, 2, 0, 1, // 1: (GC roots)
+        3, 2, 3, 10, 2, // 2: R, 2 weak edges → A, B
+        3, 3, 5, 10, 1, // 3: A → B (strong)
+        3, 4, 7, 10, 1, // 4: B → A (strong)
+    ];
+
+    let edges: Vec<u32> = vec![
+        1,
+        0,
+        n(1), // root → GC roots
+        2,
+        5,
+        n(2), // GC roots → R
+        6,
+        6,
+        n(3), // R --weak→ A
+        6,
+        6,
+        n(4), // R --weak→ B
+        2,
+        7,
+        n(4), // A --strong→ B
+        2,
+        7,
+        n(3), // B --strong→ A
+    ];
+
+    let snap = build_test_snapshot(strings, nodes, edges);
+
+    // Both have reachable retainers (R via weak), so both are roots → U.
+    assert_eq!(
+        snap.node_distance(NodeOrdinal(3)),
+        Distance::UNREACHABLE_BASE,
+        "A should be U (has reachable retainer)"
+    );
+    assert_eq!(
+        snap.node_distance(NodeOrdinal(4)),
+        Distance::UNREACHABLE_BASE,
+        "B should be U (has reachable retainer)"
+    );
+}
+
+/// Two disconnected unreachable subgraphs: A→B and C→D.
+/// Each subgraph computes depths independently.
+#[test]
+fn test_unreachable_depth_two_disconnected_subgraphs() {
+    let strings: Vec<String> = ["", "(GC roots)", "R", "A", "B", "C", "D", "ref", "e"]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+
+    let nodes: Vec<u32> = vec![
+        9, 0, 1, 0, 1, // 0: synthetic root
+        9, 1, 2, 0, 1, // 1: (GC roots)
+        3, 2, 3, 10, 0, // 2: R
+        3, 3, 5, 10, 1, // 3: A → B
+        3, 4, 7, 10, 0, // 4: B
+        3, 5, 9, 10, 1, // 5: C → D
+        3, 6, 11, 10, 0, // 6: D
+    ];
+
+    let edges: Vec<u32> = vec![
+        1,
+        0,
+        n(1), // root → GC roots
+        2,
+        7,
+        n(2), // GC roots → R
+        2,
+        8,
+        n(4), // A → B
+        2,
+        8,
+        n(6), // C → D
+    ];
+
+    let snap = build_test_snapshot(strings, nodes, edges);
+
+    // First subgraph
+    assert_eq!(
+        snap.node_distance(NodeOrdinal(3)),
+        Distance::UNREACHABLE_BASE
+    );
+    assert_eq!(
+        snap.node_distance(NodeOrdinal(4)),
+        Distance(Distance::UNREACHABLE_BASE.0 + 1)
+    );
+    // Second subgraph
+    assert_eq!(
+        snap.node_distance(NodeOrdinal(5)),
+        Distance::UNREACHABLE_BASE
+    );
+    assert_eq!(
+        snap.node_distance(NodeOrdinal(6)),
+        Distance(Distance::UNREACHABLE_BASE.0 + 1)
+    );
+}
+
+/// Min-depth diamond: A→B (direct) and A→C→B (via C).
+/// B is reachable at U+1 (direct from A) and U+2 (via C).
+/// BFS should assign the shorter path: B == U+1.
+#[test]
+fn test_unreachable_depth_min_path() {
+    let strings: Vec<String> = ["", "(GC roots)", "R", "A", "B", "C", "ref", "e"]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+
+    let nodes: Vec<u32> = vec![
+        9, 0, 1, 0, 1, // 0: synthetic root
+        9, 1, 2, 0, 1, // 1: (GC roots)
+        3, 2, 3, 10, 0, // 2: R
+        3, 3, 5, 10, 2, // 3: A, 2 edges → B, C
+        3, 4, 7, 10, 0, // 4: B
+        3, 5, 9, 10, 1, // 5: C → B
+    ];
+
+    let edges: Vec<u32> = vec![
+        1,
+        0,
+        n(1), // root → GC roots
+        2,
+        6,
+        n(2), // GC roots → R
+        2,
+        7,
+        n(4), // A → B (direct)
+        2,
+        7,
+        n(5), // A → C
+        2,
+        7,
+        n(4), // C → B (indirect)
+    ];
+
+    let snap = build_test_snapshot(strings, nodes, edges);
+
+    assert_eq!(
+        snap.node_distance(NodeOrdinal(3)),
+        Distance::UNREACHABLE_BASE
+    );
+    assert_eq!(
+        snap.node_distance(NodeOrdinal(4)),
+        Distance(Distance::UNREACHABLE_BASE.0 + 1),
+        "B should be U+1 (shortest path, direct from A)"
+    );
+    assert_eq!(
+        snap.node_distance(NodeOrdinal(5)),
+        Distance(Distance::UNREACHABLE_BASE.0 + 1),
+        "C should be U+1"
+    );
+}
+
+/// No unreachable nodes — all nodes reachable from GC roots.
+/// None should have distance >= UNREACHABLE_BASE.
+#[test]
+fn test_unreachable_depth_none_unreachable() {
+    let strings: Vec<String> = ["", "(GC roots)", "A", "B", "ref", "e"]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+
+    let nodes: Vec<u32> = vec![
+        9, 0, 1, 0, 1, // 0: synthetic root, 1 edge
+        9, 1, 2, 0, 1, // 1: (GC roots), 1 edge → A
+        3, 2, 3, 10, 1, // 2: A, 1 edge → B
+        3, 3, 5, 10, 0, // 3: B
+    ];
+
+    let edges: Vec<u32> = vec![
+        1,
+        0,
+        n(1), // root → GC roots
+        2,
+        4,
+        n(2), // GC roots → A
+        2,
+        5,
+        n(3), // A → B
+    ];
+
+    let snap = build_test_snapshot(strings, nodes, edges);
+
+    for i in 0..snap.node_count() {
+        assert!(
+            !snap.node_distance(NodeOrdinal(i)).is_unreachable(),
+            "node {i} should be reachable"
+        );
+    }
+}
+
+/// Self-loop: A has a strong edge to itself.  A has a strong unreachable
+/// retainer (itself), so it is not seeded in phase 1.  It gets U via phase 3.
+#[test]
+fn test_unreachable_depth_self_loop() {
+    let strings: Vec<String> = ["", "(GC roots)", "R", "A", "ref", "self"]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+
+    let nodes: Vec<u32> = vec![
+        9, 0, 1, 0, 1, // 0: synthetic root
+        9, 1, 2, 0, 1, // 1: (GC roots)
+        3, 2, 3, 10, 0, // 2: R
+        3, 3, 5, 10, 1, // 3: A → A (self-loop)
+    ];
+
+    let edges: Vec<u32> = vec![
+        1,
+        0,
+        n(1), // root → GC roots
+        2,
+        4,
+        n(2), // GC roots → R
+        2,
+        5,
+        n(3), // A → A (self-loop)
+    ];
+
+    let snap = build_test_snapshot(strings, nodes, edges);
+
+    assert_eq!(
+        snap.node_distance(NodeOrdinal(3)),
+        Distance::UNREACHABLE_BASE,
+        "self-loop node should be U"
+    );
 }
