@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>WeakMap Retained Size Test</title>
+</head>
+<body>
+    <h1>WeakMap Retained Size Test</h1>
+    <button onclick="create()">Create 1,000 Divs & WeakMap Entries</button>
+    <p id="status">Ready</p>
+    <div id="container" style="display:none"></div>
+    <script>
+        class Message {
+            constructor(id) {
+                this.id = id;
+                this.data = new Float64Array(128);
+            }
+        }
+        const myWeakMap = new WeakMap();
+        function create() {
+            const container = document.getElementById("container");
+            for (let i = 0; i < 1000; i++) {
+                // console.log(i);
+                const div = document.createElement("div");
+                container.appendChild(div);
+                myWeakMap.set(div, new Message(i));
+            }
+            document.getElementById("status").innerText = "Done! Take a snapshot.";
+        }
+    </script>
+</body>
+</html>
