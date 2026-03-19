@@ -3929,9 +3929,15 @@ fn make_weak_root_snapshot() -> HeapSnapshot {
 
     // edge type indices: element=1, property=2, weak=6
     let edges = vec![
-        1u32, 0, n(1), // root --element[0]--> (GC roots)
-        2, 4, n(2),    // (GC roots) --property "ref"--> Holder
-        6, 5, n(3),    // Holder --weak "weak_ref"--> Target
+        1u32,
+        0,
+        n(1), // root --element[0]--> (GC roots)
+        2,
+        4,
+        n(2), // (GC roots) --property "ref"--> Holder
+        6,
+        5,
+        n(3), // Holder --weak "weak_ref"--> Target
     ];
 
     build_snapshot(strings, nodes, edges)
@@ -3963,5 +3969,4 @@ fn test_weak_root_holder_displays_cyan() {
         holder_row.render.is_root_holder,
         "Holder is directly held by (GC roots)"
     );
-
 }

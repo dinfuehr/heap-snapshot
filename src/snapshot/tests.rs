@@ -675,6 +675,41 @@ fn build_snapshot(
     HeapSnapshot::new(raw)
 }
 
+fn build_snapshot_with_options(
+    node_fields: Vec<String>,
+    nodes: Vec<u32>,
+    edges: Vec<u32>,
+    strings: Vec<String>,
+    options: SnapshotOptions,
+) -> HeapSnapshot {
+    let nfc = node_fields.len();
+    let efc = 3;
+    let raw = RawHeapSnapshot {
+        snapshot: SnapshotHeader {
+            meta: SnapshotMeta {
+                node_fields,
+                node_type_enum: standard_node_type_enum(),
+                edge_fields: standard_edge_fields(),
+                edge_type_enum: standard_edge_type_enum(),
+                location_fields: vec![],
+                sample_fields: vec![],
+                trace_function_info_fields: vec![],
+                trace_node_fields: vec![],
+            },
+            node_count: nodes.len() / nfc,
+            edge_count: edges.len() / efc,
+            trace_function_count: 0,
+            root_index: Some(0),
+            extra_native_bytes: None,
+        },
+        nodes,
+        edges,
+        strings,
+        locations: vec![],
+    };
+    HeapSnapshot::new_with_options(raw, options)
+}
+
 // ====== Snapshot builders ======
 
 /// Snapshot with a weak edge: node 2 --weak--> node 3, node 2 --property--> node 4
@@ -3775,6 +3810,78 @@ fn build_test_snapshot(strings: Vec<String>, nodes: Vec<u32>, edges: Vec<u32>) -
     HeapSnapshot::new(raw)
 }
 
+fn build_test_snapshot_with_options(
+    strings: Vec<String>,
+    nodes: Vec<u32>,
+    edges: Vec<u32>,
+    options: SnapshotOptions,
+) -> HeapSnapshot {
+    let node_fields: Vec<String> = ["type", "name", "id", "self_size", "edge_count"]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+    let nfc = node_fields.len();
+
+    let node_type_enum: Vec<String> = [
+        "hidden",
+        "array",
+        "string",
+        "object",
+        "code",
+        "closure",
+        "regexp",
+        "number",
+        "native",
+        "synthetic",
+        "concatenated string",
+        "sliced string",
+        "symbol",
+        "bigint",
+    ]
+    .iter()
+    .map(|s| s.to_string())
+    .collect();
+
+    let edge_fields: Vec<String> = ["type", "name_or_index", "to_node"]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+    let efc = edge_fields.len();
+
+    let edge_type_enum: Vec<String> = [
+        "context", "element", "property", "internal", "hidden", "shortcut", "weak",
+    ]
+    .iter()
+    .map(|s| s.to_string())
+    .collect();
+
+    let raw = RawHeapSnapshot {
+        snapshot: SnapshotHeader {
+            meta: SnapshotMeta {
+                node_fields,
+                node_type_enum,
+                edge_fields,
+                edge_type_enum,
+                location_fields: vec![],
+                sample_fields: vec![],
+                trace_function_info_fields: vec![],
+                trace_node_fields: vec![],
+            },
+            node_count: nodes.len() / nfc,
+            edge_count: edges.len() / efc,
+            trace_function_count: 0,
+            root_index: Some(0),
+            extra_native_bytes: None,
+        },
+        nodes,
+        edges,
+        strings,
+        locations: vec![],
+    };
+
+    HeapSnapshot::new_with_options(raw, options)
+}
+
 // node index helper: ordinal * 5 (node_field_count)
 fn n(ordinal: u32) -> u32 {
     ordinal * 5
@@ -4183,5 +4290,545 @@ fn test_unreachable_depth_self_loop() {
         snap.node_distance(NodeOrdinal(3)),
         Distance::UNREACHABLE_BASE,
         "self-loop node should be U"
+    );
+}
+
+/// With --weak-is-reachable, a node referenced only via a weak edge from a
+/// reachable node should get distance+1 of the retainer, not U.
+#[test]
+fn test_weak_is_reachable_flag() {
+    // root(0) --element--> (GC roots)(1) --property--> Reachable(2) --weak--> Target(3)
+    let strings = vec![
+        "".into(),
+        "(GC roots)".into(),
+        "Reachable".into(),
+        "Target".into(),
+        "ref".into(),
+        "weak_ref".into(),
+    ];
+
+    let nodes = vec![
+        9u32, 0, 1, 0, 1, // node 0: synthetic root
+        9, 1, 2, 0, 1, // node 1: (GC roots)
+        3, 2, 3, 100, 1, // node 2: Reachable
+        3, 3, 5, 200, 0, // node 3: Target
+    ];
+
+    // edge types: element=1, property=2, weak=6
+    let edges = vec![
+        1u32,
+        0,
+        n(1), // root --element--> (GC roots)
+        2,
+        4,
+        n(2), // (GC roots) --property "ref"--> Reachable
+        6,
+        5,
+        n(3), // Reachable --weak "weak_ref"--> Target
+    ];
+
+    // Without the flag: Target is unreachable.
+    let snap_default = build_test_snapshot(strings.clone(), nodes.clone(), edges.clone());
+    assert!(
+        snap_default.node_distance(NodeOrdinal(3)).is_unreachable(),
+        "without flag, Target should be unreachable (U)"
+    );
+    assert_eq!(
+        snap_default.node_distance(NodeOrdinal(2)),
+        Distance(1),
+        "Reachable should be at distance 1"
+    );
+
+    // With the flag: Target is reachable at distance 2 (Reachable is at 1).
+    let snap_weak = build_test_snapshot_with_options(
+        strings,
+        nodes,
+        edges,
+        SnapshotOptions {
+            weak_is_reachable: true,
+        },
+    );
+    assert_eq!(
+        snap_weak.node_distance(NodeOrdinal(2)),
+        Distance(1),
+        "Reachable should still be at distance 1"
+    );
+    assert_eq!(
+        snap_weak.node_distance(NodeOrdinal(3)),
+        Distance(2),
+        "with --weak-is-reachable, Target should be at distance 2"
+    );
+    assert!(
+        snap_weak.node_distance(NodeOrdinal(3)).is_reachable(),
+        "with --weak-is-reachable, Target should be reachable"
+    );
+}
+
+/// With --weak-is-reachable, weak edges within the unreachable subgraph
+/// should also be followed (U+1 instead of separate U seeds).
+#[test]
+fn test_weak_is_reachable_in_unreachable_subgraph() {
+    // root(0) --element--> (GC roots)(1) --weak--> A(2) --weak--> B(3)
+    // Without flag: A=U, B=U (both are separate unreachable roots).
+    // With flag: A is reachable (distance 1). B is reachable (distance 2).
+    let strings = vec![
+        "".into(),
+        "(GC roots)".into(),
+        "A".into(),
+        "B".into(),
+        "w1".into(),
+        "w2".into(),
+    ];
+
+    let nodes = vec![
+        9u32, 0, 1, 0, 1, // node 0: synthetic root
+        9, 1, 2, 0, 1, // node 1: (GC roots), 1 weak edge
+        3, 2, 3, 100, 1, // node 2: A, 1 weak edge
+        3, 3, 5, 200, 0, // node 3: B
+    ];
+
+    // edge types: element=1, weak=6
+    let edges = vec![
+        1u32,
+        0,
+        n(1), // root --element--> (GC roots)
+        6,
+        3,
+        n(2), // (GC roots) --weak--> A
+        6,
+        4,
+        n(3), // A --weak--> B
+    ];
+
+    // Without flag: both A and B are unreachable roots (U).
+    let snap_default = build_test_snapshot(strings.clone(), nodes.clone(), edges.clone());
+    assert!(
+        snap_default.node_distance(NodeOrdinal(2)).is_unreachable(),
+        "without flag, A should be unreachable"
+    );
+    assert!(
+        snap_default.node_distance(NodeOrdinal(3)).is_unreachable(),
+        "without flag, B should be unreachable"
+    );
+
+    // With flag: both become reachable via weak traversal.
+    let snap_weak = build_test_snapshot_with_options(
+        strings,
+        nodes,
+        edges,
+        SnapshotOptions {
+            weak_is_reachable: true,
+        },
+    );
+    assert_eq!(
+        snap_weak.node_distance(NodeOrdinal(2)),
+        Distance(1),
+        "with flag, A should be at distance 1"
+    );
+    assert_eq!(
+        snap_weak.node_distance(NodeOrdinal(3)),
+        Distance(2),
+        "with flag, B should be at distance 2"
+    );
+}
+
+/// Strong edges take precedence: a node reachable via both a strong and a
+/// weak edge keeps its strong-edge distance, unaffected by the flag.
+#[test]
+fn test_weak_is_reachable_strong_takes_precedence() {
+    // root(0) --element--> (GC roots)(1) --property--> A(2) --weak--> Target(3)
+    //                                (GC roots)(1) --property--> Target(3)
+    // Target is reachable via strong edge at distance 1 regardless of flag.
+    let strings = vec![
+        "".into(),
+        "(GC roots)".into(),
+        "A".into(),
+        "Target".into(),
+        "ref".into(),
+        "weak_ref".into(),
+        "strong_ref".into(),
+    ];
+
+    let nodes = vec![
+        9u32, 0, 1, 0, 1, // node 0: synthetic root
+        9, 1, 2, 0, 2, // node 1: (GC roots), 2 edges
+        3, 2, 3, 100, 1, // node 2: A, 1 weak edge
+        3, 3, 5, 200, 0, // node 3: Target
+    ];
+
+    // edge types: element=1, property=2, weak=6
+    let edges = vec![
+        1u32,
+        0,
+        n(1), // root --element--> (GC roots)
+        2,
+        4,
+        n(2), // (GC roots) --property "ref"--> A
+        2,
+        6,
+        n(3), // (GC roots) --property "strong_ref"--> Target
+        6,
+        5,
+        n(3), // A --weak "weak_ref"--> Target
+    ];
+
+    let snap_default = build_test_snapshot(strings.clone(), nodes.clone(), edges.clone());
+    assert_eq!(
+        snap_default.node_distance(NodeOrdinal(3)),
+        Distance(1),
+        "Target reachable via strong edge at distance 1"
+    );
+
+    let snap_weak = build_test_snapshot_with_options(
+        strings,
+        nodes,
+        edges,
+        SnapshotOptions {
+            weak_is_reachable: true,
+        },
+    );
+    assert_eq!(
+        snap_weak.node_distance(NodeOrdinal(3)),
+        Distance(1),
+        "with flag, Target still at distance 1 from strong edge"
+    );
+}
+
+/// With the flag, the minimum reachable retainer distance is used.
+#[test]
+fn test_weak_is_reachable_picks_minimum_retainer_distance() {
+    // root(0) --element--> (GC roots)(1) --property--> Near(2) --weak--> Target(4)
+    //                                (GC roots)(1) --property--> Far(3) --property--> FarChild(5) --weak--> Target(4)
+    // Near is at distance 1, FarChild at distance 3.
+    // Target should get min(1,3)+1 = 2.
+    let strings = vec![
+        "".into(),
+        "(GC roots)".into(),
+        "Near".into(),
+        "Far".into(),
+        "Target".into(),
+        "FarChild".into(),
+        "ref".into(),
+        "w".into(),
+        "child".into(),
+    ];
+
+    let nodes = vec![
+        9u32, 0, 1, 0, 1, // node 0: synthetic root
+        9, 1, 2, 0, 2, // node 1: (GC roots), 2 edges
+        3, 2, 3, 100, 1, // node 2: Near, 1 weak edge
+        3, 3, 5, 100, 1, // node 3: Far, 1 strong edge
+        3, 4, 7, 200, 0, // node 4: Target
+        3, 5, 9, 100, 1, // node 5: FarChild, 1 weak edge
+    ];
+
+    // edge types: element=1, property=2, weak=6
+    let edges = vec![
+        1u32,
+        0,
+        n(1), // root --element--> (GC roots)
+        2,
+        6,
+        n(2), // (GC roots) --property--> Near
+        2,
+        6,
+        n(3), // (GC roots) --property--> Far
+        6,
+        7,
+        n(4), // Near --weak--> Target
+        2,
+        8,
+        n(5), // Far --property--> FarChild
+        6,
+        7,
+        n(4), // FarChild --weak--> Target
+    ];
+
+    let snap_weak = build_test_snapshot_with_options(
+        strings,
+        nodes,
+        edges,
+        SnapshotOptions {
+            weak_is_reachable: true,
+        },
+    );
+    assert_eq!(
+        snap_weak.node_distance(NodeOrdinal(2)),
+        Distance(1),
+        "Near at distance 1"
+    );
+    assert_eq!(
+        snap_weak.node_distance(NodeOrdinal(5)),
+        Distance(2),
+        "FarChild at distance 2"
+    );
+    assert_eq!(
+        snap_weak.node_distance(NodeOrdinal(4)),
+        Distance(2),
+        "Target should get min(1,2)+1 = 2"
+    );
+}
+
+/// With the flag, unreachable_bfs propagates reachable distances from seeds
+/// through strong edges to deeper unreachable nodes.
+#[test]
+fn test_weak_is_reachable_propagates_through_strong_edges() {
+    // root(0) --element--> (GC roots)(1) --property--> A(2) --weak--> B(3) --property--> C(4)
+    // Without flag: B=U, C=U+1.
+    // With flag: B gets distance 2 (A at 1, +1), C gets distance 3 via unreachable_bfs.
+    let strings = vec![
+        "".into(),
+        "(GC roots)".into(),
+        "A".into(),
+        "B".into(),
+        "C".into(),
+        "ref".into(),
+        "w".into(),
+        "child".into(),
+    ];
+
+    let nodes = vec![
+        9u32, 0, 1, 0, 1, // node 0: synthetic root
+        9, 1, 2, 0, 1, // node 1: (GC roots)
+        3, 2, 3, 100, 1, // node 2: A
+        3, 3, 5, 200, 1, // node 3: B
+        3, 4, 7, 300, 0, // node 4: C
+    ];
+
+    // edge types: element=1, property=2, weak=6
+    let edges = vec![
+        1u32,
+        0,
+        n(1), // root --element--> (GC roots)
+        2,
+        5,
+        n(2), // (GC roots) --property--> A
+        6,
+        6,
+        n(3), // A --weak--> B
+        2,
+        7,
+        n(4), // B --property--> C
+    ];
+
+    let snap_default = build_test_snapshot(strings.clone(), nodes.clone(), edges.clone());
+    assert_eq!(
+        snap_default.node_distance(NodeOrdinal(3)),
+        Distance::UNREACHABLE_BASE,
+        "without flag, B is U"
+    );
+    assert_eq!(
+        snap_default.node_distance(NodeOrdinal(4)),
+        Distance(Distance::UNREACHABLE_BASE.0 + 1),
+        "without flag, C is U+1"
+    );
+
+    let snap_weak = build_test_snapshot_with_options(
+        strings,
+        nodes,
+        edges,
+        SnapshotOptions {
+            weak_is_reachable: true,
+        },
+    );
+    assert_eq!(
+        snap_weak.node_distance(NodeOrdinal(3)),
+        Distance(2),
+        "with flag, B at distance 2"
+    );
+    assert_eq!(
+        snap_weak.node_distance(NodeOrdinal(4)),
+        Distance(3),
+        "with flag, C at distance 3 via strong edge from B"
+    );
+}
+
+/// Distance must not depend on node serialization order.  Here a node with
+/// a lower ordinal is weakly retained by a node with a higher ordinal, so
+/// it would be visited first in an ordinal-order scan before its retainer
+/// has a distance.
+#[test]
+fn test_weak_is_reachable_independent_of_ordinal_order() {
+    // root(0) --element--> (GC roots)(1) --property--> High(4) --weak--> Low(2)
+    // Also: (GC roots)(1) --property--> Other(3) (filler to push High to ordinal 4)
+    //
+    // Low has ordinal 2, its weak retainer High has ordinal 4.
+    // In an ordinal scan, Low is processed before High.
+    // Correct: High distance=1, Low distance=2.
+    let strings = vec![
+        "".into(),
+        "(GC roots)".into(),
+        "Low".into(),
+        "Other".into(),
+        "High".into(),
+        "ref".into(),
+        "other".into(),
+        "w".into(),
+    ];
+
+    let nodes = vec![
+        9u32, 0, 1, 0, 1, // node 0: synthetic root
+        9, 1, 2, 0, 2, // node 1: (GC roots), 2 edges
+        3, 2, 3, 200, 0, // node 2: Low (lower ordinal, no outgoing edges)
+        3, 3, 5, 100, 0, // node 3: Other
+        3, 4, 7, 100, 1, // node 4: High (higher ordinal, 1 weak edge)
+    ];
+
+    // edge types: element=1, property=2, weak=6
+    let edges = vec![
+        1u32,
+        0,
+        n(1), // root --element--> (GC roots)
+        2,
+        5,
+        n(4), // (GC roots) --property "ref"--> High
+        2,
+        6,
+        n(3), // (GC roots) --property "other"--> Other
+        6,
+        7,
+        n(2), // High --weak "w"--> Low
+    ];
+
+    let snap = build_test_snapshot_with_options(
+        strings,
+        nodes,
+        edges,
+        SnapshotOptions {
+            weak_is_reachable: true,
+        },
+    );
+    assert_eq!(
+        snap.node_distance(NodeOrdinal(4)),
+        Distance(1),
+        "High should be at distance 1"
+    );
+    assert_eq!(
+        snap.node_distance(NodeOrdinal(2)),
+        Distance(2),
+        "Low should be at distance 2 despite lower ordinal"
+    );
+}
+
+/// A chain of weak edges where each retainer has a higher ordinal than its
+/// target, so every node would be visited before its retainer in an
+/// ordinal scan.
+#[test]
+fn test_weak_is_reachable_reverse_ordinal_chain() {
+    // root(0) --element--> (GC roots)(1) --weak--> C(4) --weak--> B(3) --weak--> A(2)
+    // Correct: C=1, B=2, A=3.
+    let strings = vec![
+        "".into(),
+        "(GC roots)".into(),
+        "A".into(),
+        "B".into(),
+        "C".into(),
+        "w".into(),
+    ];
+
+    let nodes = vec![
+        9u32, 0, 1, 0, 1, // node 0: synthetic root
+        9, 1, 2, 0, 1, // node 1: (GC roots), 1 edge
+        3, 2, 3, 100, 0, // node 2: A
+        3, 3, 5, 100, 1, // node 3: B, 1 weak edge
+        3, 4, 7, 100, 1, // node 4: C, 1 weak edge
+    ];
+
+    // Edges are assigned to nodes in ordinal order by edge_count:
+    //   node 0 (root): 1 edge, node 1 (GC roots): 1 edge,
+    //   node 2 (A): 0, node 3 (B): 1, node 4 (C): 1
+    // edge types: element=1, weak=6
+    let edges = vec![
+        1u32,
+        0,
+        n(1), // node 0 (root) --element--> (GC roots)
+        6,
+        5,
+        n(4), // node 1 (GC roots) --weak--> C
+        6,
+        5,
+        n(2), // node 3 (B) --weak--> A
+        6,
+        5,
+        n(3), // node 4 (C) --weak--> B
+    ];
+
+    let snap = build_test_snapshot_with_options(
+        strings,
+        nodes,
+        edges,
+        SnapshotOptions {
+            weak_is_reachable: true,
+        },
+    );
+    assert_eq!(snap.node_distance(NodeOrdinal(4)), Distance(1), "C at 1");
+    assert_eq!(snap.node_distance(NodeOrdinal(3)), Distance(2), "B at 2");
+    assert_eq!(snap.node_distance(NodeOrdinal(2)), Distance(3), "A at 3");
+}
+
+/// Nodes unreachable due to non-weak filtered edges (e.g. sloppy_function_map
+/// from NativeContext, filtered by distance_filter_stateful) must NOT be
+/// promoted to reachable by --weak-is-reachable.  Only actual weak retaining
+/// edges trigger promotion.
+#[test]
+fn test_weak_is_reachable_does_not_promote_non_weak_filtered() {
+    // NativeContext(2) --property "sloppy_function_map"--> Filtered(3)  (filtered, non-weak)
+    // NativeContext(2) --weak--> WeakTarget(4)
+    // Without flag: both Filtered and WeakTarget are U.
+    // With flag: only WeakTarget should be promoted; Filtered stays U.
+    let nfc = 5u32;
+    let n = |ord: u32| ord * nfc;
+
+    let snap = build_snapshot_with_options(
+        standard_node_fields(),
+        vec![
+            9, 0, 1, 0, 1, // node 0: synthetic root
+            9, 1, 2, 0, 1, // node 1: (GC roots)
+            3, 2, 10, 20, 2, // node 2: NativeContext, 2 edges
+            3, 3, 12, 40, 0, // node 3: Filtered (behind sloppy_function_map)
+            3, 4, 14, 40, 0, // node 4: WeakTarget (behind weak edge)
+        ],
+        vec![
+            1,
+            0,
+            n(1), // root → (GC roots)
+            2,
+            5,
+            n(2), // (GC roots) → NativeContext (property "ctx")
+            2,
+            6,
+            n(3), // NativeContext → Filtered (property "sloppy_function_map")
+            6,
+            7,
+            n(4), // NativeContext → WeakTarget (weak "w")
+        ],
+        s(&[
+            "",                       // 0
+            "(GC roots)",             // 1
+            "system / NativeContext", // 2
+            "Filtered",               // 3
+            "WeakTarget",             // 4
+            "ctx",                    // 5
+            "sloppy_function_map",    // 6
+            "w",                      // 7
+        ]),
+        SnapshotOptions {
+            weak_is_reachable: true,
+        },
+    );
+
+    assert_eq!(
+        snap.node_distance(NodeOrdinal(2)),
+        Distance(1),
+        "NativeContext at distance 1"
+    );
+    assert!(
+        snap.node_distance(NodeOrdinal(3)).is_unreachable(),
+        "Filtered node behind sloppy_function_map should stay unreachable"
+    );
+    assert_eq!(
+        snap.node_distance(NodeOrdinal(4)),
+        Distance(2),
+        "WeakTarget behind weak edge should be promoted to distance 2"
     );
 }

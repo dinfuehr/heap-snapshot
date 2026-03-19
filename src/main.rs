@@ -3,7 +3,7 @@ use std::fs::File;
 
 use heap_snapshot::parser;
 use heap_snapshot::print::{self, EdgeWindow, ExpandMap, GroupExpandMap, GroupWindow};
-use heap_snapshot::snapshot::{self, HeapSnapshot};
+use heap_snapshot::snapshot::{self, HeapSnapshot, SnapshotOptions};
 use heap_snapshot::tui;
 use heap_snapshot::types::{self, NodeId};
 
@@ -11,13 +11,32 @@ use heap_snapshot::types::{self, NodeId};
 #[command(about = "Heap snapshot CLI analyzer")]
 struct Cli {
     #[command(subcommand)]
-    command: Option<Command>,
+    command: Command,
+}
+
+#[derive(clap::Args, Clone)]
+struct SnapshotArgs {
+    /// Treat weak edges as reachable when computing distances.
+    /// Objects referenced only via weak edges get distance+1 of the
+    /// retainer instead of being marked unreachable (U).
+    #[arg(long)]
+    weak_is_reachable: bool,
+}
+
+impl SnapshotArgs {
+    fn to_options(&self) -> SnapshotOptions {
+        SnapshotOptions {
+            weak_is_reachable: self.weak_is_reachable,
+        }
+    }
 }
 
 #[derive(Subcommand)]
 enum Command {
-    /// Interactive TUI viewer (default)
-    View {
+    /// Interactive TUI viewer
+    Tui {
+        #[command(flatten)]
+        snap_args: SnapshotArgs,
         /// Main .heapsnapshot file
         main: String,
         /// Optional comparison .heapsnapshot files for diff (can specify multiple)
@@ -25,6 +44,8 @@ enum Command {
     },
     /// Print summary table
     Summary {
+        #[command(flatten)]
+        snap_args: SnapshotArgs,
         /// Path to .heapsnapshot file
         file: String,
         /// Max depth for expanded nodes
@@ -39,6 +60,8 @@ enum Command {
     },
     /// Show retainers for an object
     Retainers {
+        #[command(flatten)]
+        snap_args: SnapshotArgs,
         /// Path to .heapsnapshot file
         file: String,
         /// Object ID (e.g. @3005313 or 3005313)
@@ -61,6 +84,8 @@ enum Command {
     },
     /// Show containment tree
     Containment {
+        #[command(flatten)]
+        snap_args: SnapshotArgs,
         /// Path to .heapsnapshot file
         file: String,
         /// Object ID (optional, defaults to root)
@@ -74,11 +99,15 @@ enum Command {
     },
     /// Dump native context info
     Contexts {
+        #[command(flatten)]
+        snap_args: SnapshotArgs,
         /// Path to .heapsnapshot file
         file: String,
     },
     /// Print stack roots (Stack roots and C++ native stack roots)
     Stack {
+        #[command(flatten)]
+        snap_args: SnapshotArgs,
         /// Path to .heapsnapshot file
         file: String,
         /// Only show objects with at least this reachable size (in MB)
@@ -87,6 +116,8 @@ enum Command {
     },
     /// Show unreachable objects (not reachable from GC roots)
     Unreachable {
+        #[command(flatten)]
+        snap_args: SnapshotArgs,
         /// Path to .heapsnapshot file
         file: String,
         /// Show only fully unreachable objects (distance U), excluding those
@@ -96,6 +127,8 @@ enum Command {
     },
     /// Compare two heap snapshots
     Diff {
+        #[command(flatten)]
+        snap_args: SnapshotArgs,
         /// Main snapshot
         main: String,
         /// Baseline snapshot to compare against
@@ -185,7 +218,7 @@ fn parse_expand_group(groups: &[String]) -> GroupExpandMap {
     map
 }
 
-fn load_snapshot(path: &str) -> HeapSnapshot {
+fn load_snapshot(options: &SnapshotOptions, path: &str) -> HeapSnapshot {
     println!("Reading and parsing {path}...");
     let file = File::open(path).unwrap_or_else(|e| {
         eprintln!("Error reading file: {e}");
@@ -196,50 +229,24 @@ fn load_snapshot(path: &str) -> HeapSnapshot {
         std::process::exit(1);
     });
     println!("Initializing snapshot...");
-    HeapSnapshot::new(raw)
+    HeapSnapshot::new_with_options(raw, options.clone())
 }
 
 fn main() {
-    let cli = Cli::try_parse().unwrap_or_else(|e| {
-        // If no subcommand given, try inserting "view" as default
-        let args: Vec<String> = std::env::args().collect();
-        if args.len() > 1
-            && !args[1].starts_with('-')
-            && ![
-                "view",
-                "summary",
-                "retainers",
-                "containment",
-                "contexts",
-                "stack",
-                "unreachable",
-                "diff",
-                "help",
-            ]
-            .contains(&args[1].as_str())
-        {
-            if !std::path::Path::new(&args[1]).exists() {
-                eprintln!(
-                    "error: '{}' is not a recognized subcommand or existing file",
-                    args[1]
-                );
-                std::process::exit(1);
-            }
-            let mut patched = vec![args[0].clone(), "view".to_string()];
-            patched.extend_from_slice(&args[1..]);
-            Cli::try_parse_from(&patched).unwrap_or_else(|_| e.exit())
-        } else {
-            e.exit()
-        }
-    });
+    let cli = Cli::parse();
 
-    match cli.command.unwrap() {
-        Command::View { main, compare } => {
-            let snap = load_snapshot(&main);
+    match cli.command {
+        Command::Tui {
+            snap_args,
+            main,
+            compare,
+        } => {
+            let options = snap_args.to_options();
+            let snap = load_snapshot(&options, &main);
             let compare_snaps: Vec<(String, HeapSnapshot)> = compare
                 .into_iter()
                 .map(|f| {
-                    let s = load_snapshot(&f);
+                    let s = load_snapshot(&options, &f);
                     (f, s)
                 })
                 .collect();
@@ -249,17 +256,19 @@ fn main() {
             });
         }
         Command::Summary {
+            snap_args,
             file,
             depth,
             expand_group,
             expand,
         } => {
-            let snap = load_snapshot(&file);
+            let snap = load_snapshot(&snap_args.to_options(), &file);
             let expand_ctors = parse_expand_group(&expand_group);
             let expand_ids = parse_expand(&expand);
             print::summary::print_summary(&snap, depth, &expand_ctors, &expand_ids);
         }
         Command::Retainers {
+            snap_args,
             file,
             object_id,
             depth,
@@ -268,7 +277,7 @@ fn main() {
             max_expand_nodes,
             expand,
         } => {
-            let snap = load_snapshot(&file);
+            let snap = load_snapshot(&snap_args.to_options(), &file);
             let id = parse_object_id(&object_id).unwrap_or_else(|e| {
                 eprintln!("Error: {e}");
                 std::process::exit(1);
@@ -287,12 +296,13 @@ fn main() {
             );
         }
         Command::Containment {
+            snap_args,
             file,
             object_id,
             depth,
             expand,
         } => {
-            let snap = load_snapshot(&file);
+            let snap = load_snapshot(&snap_args.to_options(), &file);
             let node_ordinal = match object_id {
                 Some(id_str) => {
                     let id = parse_object_id(&id_str).unwrap_or_else(|e| {
@@ -312,8 +322,8 @@ fn main() {
             let expand = parse_expand(&expand);
             print::containment::print_containment(&snap, node_ordinal, depth, &expand);
         }
-        Command::Contexts { file } => {
-            let snap = load_snapshot(&file);
+        Command::Contexts { snap_args, file } => {
+            let snap = load_snapshot(&snap_args.to_options(), &file);
             use types::NodeOrdinal;
             let contexts: Vec<_> = snap
                 .native_contexts()
@@ -354,10 +364,11 @@ fn main() {
             }
         }
         Command::Stack {
+            snap_args,
             file,
             minimum_reachable_size,
         } => {
-            let snap = load_snapshot(&file);
+            let snap = load_snapshot(&snap_args.to_options(), &file);
             let min_bytes = minimum_reachable_size.unwrap_or(0.0) * 1024.0 * 1024.0;
             let gc_roots = snap.gc_roots_ordinal();
             let synthetic_root = snap.synthetic_root_ordinal();
@@ -456,18 +467,24 @@ fn main() {
             }
             println!("\n{} stack-rooted objects", entries.len());
         }
-        Command::Unreachable { file, full } => {
-            let snap = load_snapshot(&file);
+        Command::Unreachable {
+            snap_args,
+            file,
+            full,
+        } => {
+            let snap = load_snapshot(&snap_args.to_options(), &file);
             print::unreachable::print_unreachable(&snap, full);
         }
         Command::Diff {
+            snap_args,
             main,
             compare,
             expand_group,
             expand: _,
         } => {
-            let snap1 = load_snapshot(&main);
-            let snap2 = load_snapshot(&compare);
+            let options = snap_args.to_options();
+            let snap1 = load_snapshot(&options, &main);
+            let snap2 = load_snapshot(&options, &compare);
             let expand_groups = parse_expand_group(&expand_group);
             print::diff::print_diff(&snap1, &snap2, &expand_groups);
         }

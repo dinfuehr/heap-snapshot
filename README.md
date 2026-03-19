@@ -17,14 +17,11 @@ The binary will be at `target/release/heap-snapshot`.
 ## Usage
 
 ```sh
-# Interactive TUI viewer (default)
-heap-snapshot view snapshot.heapsnapshot
-
-# Shorthand — file path without subcommand defaults to "view"
-heap-snapshot snapshot.heapsnapshot
+# Interactive TUI viewer
+heap-snapshot tui snapshot.heapsnapshot
 
 # Compare snapshots in TUI
-heap-snapshot view main.heapsnapshot baseline.heapsnapshot
+heap-snapshot tui main.heapsnapshot baseline.heapsnapshot
 
 # Print summary table
 heap-snapshot summary snapshot.heapsnapshot
@@ -46,6 +43,17 @@ heap-snapshot unreachable snapshot.heapsnapshot
 
 # Dump native context info
 heap-snapshot contexts snapshot.heapsnapshot
+```
+
+### Snapshot options
+
+These flags can be passed to any subcommand:
+
+```sh
+# Treat weak edges as reachable when computing distances.
+# Objects referenced only via weak edges get distance+1 of the
+# retainer instead of being marked unreachable (U).
+heap-snapshot tui --weak-is-reachable snapshot.heapsnapshot
 ```
 
 Run `heap-snapshot --help` or `heap-snapshot <subcommand> --help` for full option details.

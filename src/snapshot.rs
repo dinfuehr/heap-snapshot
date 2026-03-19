@@ -5,6 +5,9 @@
 // This file was started from Chromium DevTools' HeapSnapshot.ts
 // (front_end/entrypoints/heap_snapshot_worker/HeapSnapshot.ts).
 
+use std::cmp::Reverse;
+use std::collections::BinaryHeap;
+
 use regex::Regex;
 use rustc_hash::{FxHashMap, FxHashSet};
 
@@ -18,6 +21,14 @@ const SHIFT_FOR_CLASS_INDEX: u32 = 2;
 const BITMASK_FOR_DOM_LINK_STATE: u32 = (1 << SHIFT_FOR_CLASS_INDEX) - 1;
 const MAX_INTERFACE_NAME_LENGTH: usize = 60;
 const MIN_INTERFACE_PROPERTY_COUNT: usize = 1;
+
+#[derive(Clone, Debug, Default)]
+pub struct SnapshotOptions {
+    /// Treat weak edges as reachable when computing distances.
+    /// Objects referenced only via weak edges get distance+1 of the
+    /// retainer instead of being marked unreachable (U).
+    pub weak_is_reachable: bool,
+}
 
 pub struct ReachableInfo {
     pub size: f64,
@@ -118,12 +129,22 @@ pub struct HeapSnapshot {
     // Extra native bytes from snapshot header
     extra_native_bytes: f64,
 
+    // When true, weak edges are treated as reachable during BFS distance
+    // computation.  Objects referenced only via weak edges from reachable
+    // nodes get distance+1 of the retainer instead of being marked
+    // unreachable (U).
+    weak_is_reachable: bool,
+
     // Statistics (computed at init)
     statistics: Statistics,
 }
 
 impl HeapSnapshot {
     pub fn new(raw: RawHeapSnapshot) -> Self {
+        Self::new_with_options(raw, SnapshotOptions::default())
+    }
+
+    pub fn new_with_options(raw: RawHeapSnapshot, options: SnapshotOptions) -> Self {
         let meta = &raw.snapshot.meta;
 
         // Node field offsets
@@ -295,6 +316,7 @@ impl HeapSnapshot {
             location_line_offset,
             location_column_offset,
             extra_native_bytes,
+            weak_is_reachable: options.weak_is_reachable,
             statistics: Statistics {
                 total: 0.0,
                 native_total: 0.0,
@@ -1612,6 +1634,42 @@ impl HeapSnapshot {
     fn calculate_unreachable_depths(&mut self) {
         let nfc = self.node_field_count;
 
+        // When weak_is_reachable is set, we first seed nodes that are
+        // directly weakly retained by nodes already reachable from the main
+        // BFS, giving them min(retainer distance) + 1.  We BFS from those
+        // seeds first so that downstream nodes get correct distances before
+        // the normal unreachable seeding runs.  This avoids dependence on
+        // node serialization order: a node whose weak retainer has a higher
+        // ordinal won't be prematurely seeded as U.
+        if self.weak_is_reachable {
+            let mut weak_seeds: Vec<usize> = Vec::new();
+            for ordinal in 0..self.node_count {
+                if self.node_distances[ordinal] != Distance::NONE {
+                    continue;
+                }
+                let first = self.first_retainer_index[ordinal] as usize;
+                let last = self.first_retainer_index[ordinal + 1] as usize;
+                let mut min_weak_reachable_dist = Distance::NONE;
+                for idx in first..last {
+                    let retainer_ordinal = self.retaining_nodes[idx] as usize / nfc;
+                    let ret_dist = self.node_distances[retainer_ordinal];
+                    if !ret_dist.is_reachable() || ret_dist >= min_weak_reachable_dist {
+                        continue;
+                    }
+                    let edge_index = self.retaining_edges[idx] as usize;
+                    let edge_type = self.edges[edge_index + self.edge_type_offset];
+                    if edge_type == self.edge_weak_type {
+                        min_weak_reachable_dist = ret_dist;
+                    }
+                }
+                if min_weak_reachable_dist != Distance::NONE {
+                    self.node_distances[ordinal] = Distance(min_weak_reachable_dist.0 + 1);
+                    weak_seeds.push(ordinal);
+                }
+            }
+            self.unreachable_bfs(&weak_seeds);
+        }
+
         // Phase 1: find unreachable roots.  A node is seeded as U if:
         //  - it has any retainer from a reachable node (the reachable node
         //    points to it via a weak or filtered edge, making it a direct
@@ -1671,26 +1729,41 @@ impl HeapSnapshot {
         let eto = self.edge_to_node_offset;
         let etype_off = self.edge_type_offset;
 
-        let mut queue: Vec<usize> = seeds.to_vec();
-        let mut head = 0;
-        while head < queue.len() {
-            let ordinal = queue[head];
-            head += 1;
-            let distance = Distance(self.node_distances[ordinal].0 + 1);
+        // Use a min-heap so nodes are always processed in distance order.
+        // Without this, seeds at different starting distances cause a plain
+        // FIFO queue to visit high-distance seeds before lower-distance
+        // children discovered later, permanently overestimating distances
+        // where paths from different seeds converge.
+        let mut heap: BinaryHeap<Reverse<(u32, usize)>> = BinaryHeap::new();
+        for &s in seeds {
+            heap.push(Reverse((self.node_distances[s].0, s)));
+        }
+        while let Some(Reverse((dist, ordinal))) = heap.pop() {
+            // A shorter path may have already been recorded; skip stale entries.
+            if self.node_distances[ordinal].0 < dist {
+                continue;
+            }
+            let distance = Distance(dist + 1);
             let first_edge = self.first_edge_indexes[ordinal] as usize;
             let last_edge = self.first_edge_indexes[ordinal + 1] as usize;
             let mut ei = first_edge;
             while ei < last_edge {
                 let edge_type = self.edges[ei + etype_off];
-                if edge_type == self.edge_weak_type {
+                if edge_type == self.edge_weak_type && !self.weak_is_reachable {
+                    ei += efc;
+                    continue;
+                }
+                if !self.distance_filter_structural(ordinal * nfc, ei) {
                     ei += efc;
                     continue;
                 }
                 let child_index = self.edges[ei + eto] as usize;
                 let child_ordinal = child_index / nfc;
-                if self.node_distances[child_ordinal] == Distance::NONE {
+                if self.node_distances[child_ordinal] == Distance::NONE
+                    || distance < self.node_distances[child_ordinal]
+                {
                     self.node_distances[child_ordinal] = distance;
-                    queue.push(child_ordinal);
+                    heap.push(Reverse((distance.0, child_ordinal)));
                 }
                 ei += efc;
             }
@@ -1758,38 +1831,12 @@ impl HeapSnapshot {
         pending_ephemerons: &mut rustc_hash::FxHashSet<String>,
         weak_map_re: &Regex,
     ) -> bool {
-        let node_type = self.nodes[node_index + self.node_type_offset];
+        if !self.distance_filter_structural(node_index, edge_index) {
+            return false;
+        }
+
         let edge_name_or_index = self.edges[edge_index + self.edge_name_offset];
         let edge_type = self.edges[edge_index + self.edge_type_offset];
-
-        // Filter sloppy_function_map in NativeContext
-        let nfc = self.node_field_count;
-        if self.is_native_context(NodeOrdinal(node_index / nfc)) {
-            // Get edge string name (for non-element/non-hidden edges)
-            if edge_type != self.edge_element_type && edge_type != self.edge_hidden_type {
-                let edge_name = &self.strings[edge_name_or_index as usize];
-                if edge_name == "sloppy_function_map" {
-                    return false;
-                }
-            }
-        }
-
-        // Filter descriptor array edges
-        if node_type == self.node_array_type {
-            let node_name = &self.strings[self.nodes[node_index + self.node_name_offset] as usize];
-            if node_name == "(map descriptors)" {
-                // edge.name() on JSHeapSnapshotEdge: for element/hidden returns index,
-                // for others returns string. parseInt of string returns NaN.
-                // NaN < 2 is false, NaN % 3 is NaN, NaN !== 1 is true, overall true.
-                // So only element/hidden edges can fail this filter.
-                if edge_type == self.edge_element_type || edge_type == self.edge_hidden_type {
-                    let index = edge_name_or_index;
-                    if !(index < 2 || (index % 3) != 1) {
-                        return false;
-                    }
-                }
-            }
-        }
 
         // WeakMap ephemeron filtering
         if edge_type == self.edge_internal_type {
@@ -1803,6 +1850,43 @@ impl HeapSnapshot {
                             pending_ephemerons.insert(dup_part);
                             return false;
                         }
+                    }
+                }
+            }
+        }
+
+        true
+    }
+
+    /// Stateless structural edge filter shared by the main BFS and
+    /// `unreachable_bfs`.  Returns `false` for edges that should never
+    /// contribute to distance (sloppy_function_map, descriptor-array
+    /// internals).  Does *not* cover the stateful WeakMap/ephemeron
+    /// filter which is only relevant during the initial reachable BFS.
+    fn distance_filter_structural(&self, node_index: usize, edge_index: usize) -> bool {
+        let nfc = self.node_field_count;
+        let edge_type = self.edges[edge_index + self.edge_type_offset];
+        let edge_name_or_index = self.edges[edge_index + self.edge_name_offset];
+
+        // Filter sloppy_function_map in NativeContext
+        if self.is_native_context(NodeOrdinal(node_index / nfc)) {
+            if edge_type != self.edge_element_type && edge_type != self.edge_hidden_type {
+                let edge_name = &self.strings[edge_name_or_index as usize];
+                if edge_name == "sloppy_function_map" {
+                    return false;
+                }
+            }
+        }
+
+        // Filter descriptor array edges
+        let node_type = self.nodes[node_index + self.node_type_offset];
+        if node_type == self.node_array_type {
+            let node_name = &self.strings[self.nodes[node_index + self.node_name_offset] as usize];
+            if node_name == "(map descriptors)" {
+                if edge_type == self.edge_element_type || edge_type == self.edge_hidden_type {
+                    let index = edge_name_or_index;
+                    if !(index < 2 || (index % 3) != 1) {
+                        return false;
                     }
                 }
             }
