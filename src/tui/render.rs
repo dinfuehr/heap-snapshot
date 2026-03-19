@@ -316,10 +316,10 @@ impl App {
             };
 
             let is_status_line = node_ordinal.is_none() && !row.nav.has_children;
-            let name_style = if row.render.is_root_holder {
-                Style::default().fg(Color::Red).bg(bg)
-            } else if row.render.is_weak {
+            let name_style = if row.render.is_weak {
                 Style::default().fg(Color::Cyan).bg(bg)
+            } else if row.render.is_root_holder {
+                Style::default().fg(Color::Red).bg(bg)
             } else if is_status_line {
                 Style::default().fg(Color::Yellow).bg(bg)
             } else {

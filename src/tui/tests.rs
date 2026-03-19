@@ -3902,3 +3902,66 @@ fn test_show_in_containment_preserves_expansion_on_same_page() {
         "D should still be visible (expansion preserved)"
     );
 }
+
+/// Build a snapshot where (GC roots) has a **weak** edge to a node ("Target"),
+/// so Target's retainer row is both `is_root_holder` and `is_weak`.
+/// The render priority must give cyan (weak) rather than red (root holder).
+fn make_weak_root_snapshot() -> HeapSnapshot {
+    // Strings: 0="", 1="(GC roots)", 2="Holder", 3="Target", 4="ref", 5="weak_ref"
+    let strings = vec![
+        "".into(),
+        "(GC roots)".into(),
+        "Holder".into(),
+        "Target".into(),
+        "ref".into(),
+        "weak_ref".into(),
+    ];
+
+    let n = |ordinal: u32| ordinal * 5; // node_field_count = 5
+
+    //              type name id  size edges
+    let nodes = vec![
+        9u32, 0, 1, 0, 1, // node 0: synthetic root, 1 edge
+        9, 1, 2, 0, 1, // node 1: (GC roots), 1 edge → Holder (strong)
+        3, 2, 3, 100, 1, // node 2: Holder, 1 weak edge → Target
+        3, 3, 5, 200, 0, // node 3: Target, 0 edges
+    ];
+
+    // edge type indices: element=1, property=2, weak=6
+    let edges = vec![
+        1u32, 0, n(1), // root --element[0]--> (GC roots)
+        2, 4, n(2),    // (GC roots) --property "ref"--> Holder
+        6, 5, n(3),    // Holder --weak "weak_ref"--> Target
+    ];
+
+    build_snapshot(strings, nodes, edges)
+}
+
+#[test]
+fn test_weak_root_holder_displays_cyan() {
+    let snap = make_weak_root_snapshot();
+    let (work_tx, _work_rx) = mpsc::channel();
+    let (_result_tx, result_rx) = mpsc::channel();
+    let mut app = App::new(&snap, Vec::new(), work_tx, result_rx);
+
+    // Open retainers for Target (node 3, id=5).
+    let target_ord = snap
+        .node_for_snapshot_object_id(crate::types::NodeId(5))
+        .expect("Target @5 should exist");
+    app.set_retainers_target(target_ord, &snap);
+    app.rebuild_rows(&snap);
+
+    // Holder (node 2) retains Target via a weak edge and is itself held by (GC roots).
+    let holder_row = app
+        .cached_rows
+        .iter()
+        .find(|r| r.render.label.contains("Holder"))
+        .expect("Holder should appear as retainer of Target");
+
+    assert!(holder_row.render.is_weak, "edge to Target is weak");
+    assert!(
+        holder_row.render.is_root_holder,
+        "Holder is directly held by (GC roots)"
+    );
+
+}

@@ -66,7 +66,16 @@ impl App {
             Line::from("  n / p move to the next or previous page"),
             Line::from(""),
             Line::from(Span::styled("Retainers", Style::default().bold())),
+            Line::from("  On load, the retainer tree auto-expands a path toward (GC roots)"),
+            Line::from("  when one is found within the search limits (depth 20, 2000 nodes)."),
             Line::from("  k auto-expands paths from the current node toward (GC roots)"),
+            Line::from(vec![
+                Span::raw("  "),
+                Span::styled("Red", Style::default().fg(Color::Red)),
+                Span::raw(" names mark GC root holders; "),
+                Span::styled("cyan", Style::default().fg(Color::Cyan)),
+                Span::raw(" marks weak edges (even on GC roots)."),
+            ]),
         ];
 
         if self.diff.has_diff {
