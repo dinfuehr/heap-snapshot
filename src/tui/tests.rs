@@ -822,6 +822,8 @@ fn test_search_id_opening_retainers_keeps_retainer_cache_paged() {
     let (_result_tx, result_rx) = mpsc::channel();
     let mut app = App::new(&snap, Vec::new(), work_tx, result_rx);
 
+    // Search from containment view so @id opens retainers (summary view shows in summary instead)
+    app.current_view = ViewType::Containment;
     app.input_mode = InputMode::Search;
     app.search_input = "@3".to_string();
     app.handle_search_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE), &snap);

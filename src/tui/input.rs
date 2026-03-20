@@ -44,13 +44,17 @@ impl App {
                     self.search_error = None;
                     self.mark_rows_dirty();
                 } else if input.starts_with('@') {
-                    // @id → retainers lookup
+                    // @id → show in current view or open retainers
                     let id_str = &input[1..];
                     match id_str.parse::<u64>() {
                         Ok(id) => {
                             match snap.node_for_snapshot_object_id(crate::types::NodeId(id)) {
                                 Some(ordinal) => {
-                                    self.set_retainers_target(ordinal, snap);
+                                    if self.current_view == ViewType::Summary {
+                                        self.show_in_summary(ordinal, snap);
+                                    } else {
+                                        self.set_retainers_target(ordinal, snap);
+                                    }
                                     self.search_error = None;
                                 }
                                 None => {
