@@ -5408,3 +5408,172 @@ fn test_interface_inference_non_object_not_affected() {
         "non-Object nodes should not get interface names"
     );
 }
+
+// ── duplicate_strings ───────────────────────────────────────────────────
+
+#[test]
+fn test_duplicate_strings_basic() {
+    // Two string nodes with the same value "hello"
+    let nfc = 5u32;
+    let n = |ord: u32| ord * nfc;
+    let snap = build_snapshot(
+        standard_node_fields(),
+        vec![
+            9, 0, 1, 0, 1,    // 0: root
+            9, 1, 3, 0, 2,    // 1: GC roots
+            2, 2, 5, 40, 0,   // 2: string "hello", 40 bytes
+            2, 2, 7, 40, 0,   // 3: string "hello", 40 bytes
+        ],
+        vec![
+            1, 0, n(1),
+            2, 3, n(2),
+            2, 3, n(3),
+        ],
+        s(&["", "(GC roots)", "hello", "ref"]),
+    );
+    let dupes = snap.duplicate_strings();
+    assert_eq!(dupes.len(), 1);
+    assert_eq!(dupes[0].value, "hello");
+    assert_eq!(dupes[0].count, 2);
+    assert_eq!(dupes[0].total_size, 80.0);
+    assert_eq!(dupes[0].wasted_size(), 40.0);
+}
+
+#[test]
+fn test_duplicate_strings_no_duplicates() {
+    // Two different strings — no duplicates
+    let nfc = 5u32;
+    let n = |ord: u32| ord * nfc;
+    let snap = build_snapshot(
+        standard_node_fields(),
+        vec![
+            9, 0, 1, 0, 1,    // 0: root
+            9, 1, 3, 0, 2,    // 1: GC roots
+            2, 2, 5, 40, 0,   // 2: string "hello"
+            2, 3, 7, 40, 0,   // 3: string "world"
+        ],
+        vec![
+            1, 0, n(1),
+            2, 4, n(2),
+            2, 4, n(3),
+        ],
+        s(&["", "(GC roots)", "hello", "world", "ref"]),
+    );
+    let dupes = snap.duplicate_strings();
+    assert!(dupes.is_empty());
+}
+
+#[test]
+fn test_duplicate_strings_empty_strings_excluded() {
+    // Two empty strings should not be reported
+    let nfc = 5u32;
+    let n = |ord: u32| ord * nfc;
+    let snap = build_snapshot(
+        standard_node_fields(),
+        vec![
+            9, 0, 1, 0, 1,    // 0: root
+            9, 1, 3, 0, 2,    // 1: GC roots
+            2, 0, 5, 10, 0,   // 2: string "" (name index 0 = "")
+            2, 0, 7, 10, 0,   // 3: string ""
+        ],
+        vec![
+            1, 0, n(1),
+            2, 2, n(2),
+            2, 2, n(3),
+        ],
+        s(&["", "(GC roots)", "ref"]),
+    );
+    let dupes = snap.duplicate_strings();
+    assert!(dupes.is_empty(), "empty strings should be excluded");
+}
+
+#[test]
+fn test_duplicate_strings_non_string_nodes_excluded() {
+    // Two object nodes with the same name should not be reported
+    let nfc = 5u32;
+    let n = |ord: u32| ord * nfc;
+    let snap = build_snapshot(
+        standard_node_fields(),
+        vec![
+            9, 0, 1, 0, 1,    // 0: root
+            9, 1, 3, 0, 2,    // 1: GC roots
+            3, 2, 5, 40, 0,   // 2: object "Foo" (type 3 = object)
+            3, 2, 7, 40, 0,   // 3: object "Foo"
+        ],
+        vec![
+            1, 0, n(1),
+            2, 3, n(2),
+            2, 3, n(3),
+        ],
+        s(&["", "(GC roots)", "Foo", "ref"]),
+    );
+    let dupes = snap.duplicate_strings();
+    assert!(dupes.is_empty(), "non-string nodes should not be reported");
+}
+
+#[test]
+fn test_duplicate_strings_sorted_by_wasted_size() {
+    // "big" appears 2x at 100 bytes each (wasted 100), "small" appears 3x at 20 bytes each (wasted 40)
+    // Should sort by wasted descending: big first
+    let nfc = 5u32;
+    let n = |ord: u32| ord * nfc;
+    let snap = build_snapshot(
+        standard_node_fields(),
+        vec![
+            9, 0, 1, 0, 1,      // 0: root
+            9, 1, 3, 0, 5,      // 1: GC roots
+            2, 2, 5, 100, 0,    // 2: string "big"
+            2, 2, 7, 100, 0,    // 3: string "big"
+            2, 3, 9, 20, 0,     // 4: string "small"
+            2, 3, 11, 20, 0,    // 5: string "small"
+            2, 3, 13, 20, 0,    // 6: string "small"
+        ],
+        vec![
+            1, 0, n(1),
+            2, 4, n(2),
+            2, 4, n(3),
+            2, 4, n(4),
+            2, 4, n(5),
+            2, 4, n(6),
+        ],
+        s(&["", "(GC roots)", "big", "small", "ref"]),
+    );
+    let dupes = snap.duplicate_strings();
+    assert_eq!(dupes.len(), 2);
+    assert_eq!(dupes[0].value, "big");
+    assert_eq!(dupes[0].wasted_size(), 100.0);
+    assert_eq!(dupes[1].value, "small");
+    assert_eq!(dupes[1].wasted_size(), 40.0);
+}
+
+#[test]
+fn test_duplicate_strings_multiple_copies() {
+    // Same string 4 times
+    let nfc = 5u32;
+    let n = |ord: u32| ord * nfc;
+    let snap = build_snapshot(
+        standard_node_fields(),
+        vec![
+            9, 0, 1, 0, 1,    // 0: root
+            9, 1, 3, 0, 4,    // 1: GC roots
+            2, 2, 5, 50, 0,   // 2: string "dup"
+            2, 2, 7, 50, 0,   // 3: string "dup"
+            2, 2, 9, 50, 0,   // 4: string "dup"
+            2, 2, 11, 50, 0,  // 5: string "dup"
+        ],
+        vec![
+            1, 0, n(1),
+            2, 3, n(2),
+            2, 3, n(3),
+            2, 3, n(4),
+            2, 3, n(5),
+        ],
+        s(&["", "(GC roots)", "dup", "ref"]),
+    );
+    let dupes = snap.duplicate_strings();
+    assert_eq!(dupes.len(), 1);
+    assert_eq!(dupes[0].count, 4);
+    assert_eq!(dupes[0].total_size, 200.0);
+    assert_eq!(dupes[0].instance_size, 50.0);
+    assert_eq!(dupes[0].wasted_size(), 150.0);
+}

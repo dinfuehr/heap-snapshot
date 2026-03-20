@@ -72,6 +72,16 @@ enum Command {
         /// Path to .heapsnapshot file
         file: String,
     },
+    /// Show duplicate strings
+    Strings {
+        #[command(flatten)]
+        snap_args: SnapshotArgs,
+        /// Path to .heapsnapshot file
+        file: String,
+        /// Minimum number of duplicates to show
+        #[arg(long, default_value = "2")]
+        min_count: u32,
+    },
     /// Show retainers for an object
     Retainers {
         #[command(flatten)]
@@ -282,6 +292,14 @@ fn main() {
         Command::Statistics { snap_args, file } => {
             let snap = load_snapshot(&snap_args.to_options(), &file);
             print::statistics::print_statistics(&snap);
+        }
+        Command::Strings {
+            snap_args,
+            file,
+            min_count,
+        } => {
+            let snap = load_snapshot(&snap_args.to_options(), &file);
+            print::strings::print_duplicate_strings(&snap, min_count);
         }
         Command::Retainers {
             snap_args,

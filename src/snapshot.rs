@@ -11,7 +11,9 @@ use std::collections::BinaryHeap;
 use regex::Regex;
 use rustc_hash::{FxHashMap, FxHashSet};
 
-use crate::types::{AggregateInfo, NodeId, NodeOrdinal, RawHeapSnapshot, Statistics};
+use crate::types::{
+    AggregateInfo, DuplicateStringInfo, NodeId, NodeOrdinal, RawHeapSnapshot, Statistics,
+};
 
 pub const V8_STACK_ROOTS: &str = "(Stack roots)";
 pub const CPPGC_STACK_ROOTS: &str = "C++ native stack roots";
@@ -3117,6 +3119,55 @@ impl HeapSnapshot {
                 }
             }
         }
+    }
+
+    /// Find duplicate strings in the heap. Groups string nodes by their display
+    /// name and returns entries with count >= 2, sorted by wasted bytes descending.
+    pub fn duplicate_strings(&self) -> Vec<DuplicateStringInfo> {
+        let nfc = self.node_field_count;
+        let mut groups: FxHashMap<String, DuplicateStringInfo> = FxHashMap::default();
+
+        for ordinal in 0..self.node_count {
+            let ni = ordinal * nfc;
+            let raw_type = self.nodes[ni + self.node_type_offset];
+            if raw_type != self.node_string_type
+                && raw_type != self.node_cons_string_type
+                && raw_type != self.node_sliced_string_type
+            {
+                continue;
+            }
+
+            let display_name = self.node_display_name(NodeOrdinal(ordinal));
+            if display_name.is_empty() {
+                continue;
+            }
+
+            let self_size = self.nodes[ni + self.node_self_size_offset] as f64;
+            groups
+                .entry(display_name.clone())
+                .and_modify(|e| {
+                    e.count += 1;
+                    e.total_size += self_size;
+                })
+                .or_insert(DuplicateStringInfo {
+                    value: display_name,
+                    count: 1,
+                    instance_size: self_size,
+                    total_size: self_size,
+                });
+        }
+
+        let mut result: Vec<DuplicateStringInfo> = groups
+            .into_values()
+            .filter(|e| e.count >= 2)
+            .collect();
+        result.sort_by(|a, b| {
+            b.wasted_size()
+                .partial_cmp(&a.wasted_size())
+                .unwrap()
+                .then(b.count.cmp(&a.count))
+        });
+        result
     }
 
     fn class_key_string(&self, ordinal: NodeOrdinal) -> String {

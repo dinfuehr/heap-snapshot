@@ -93,6 +93,20 @@ pub struct Statistics {
     pub unreachable_size: f64,
 }
 
+pub struct DuplicateStringInfo {
+    pub value: String,
+    pub count: u32,
+    pub instance_size: f64,
+    pub total_size: f64,
+}
+
+impl DuplicateStringInfo {
+    /// Bytes wasted by duplication: total minus one instance.
+    pub fn wasted_size(&self) -> f64 {
+        self.total_size - self.instance_size
+    }
+}
+
 pub struct AggregateInfo {
     pub count: u32,
     pub distance: Distance,

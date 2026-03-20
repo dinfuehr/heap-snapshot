@@ -7,6 +7,7 @@ pub mod containment;
 pub mod diff;
 pub mod retainers;
 pub mod statistics;
+pub mod strings;
 pub mod summary;
 
 pub const EDGE_PAGE_SIZE: usize = 10;
