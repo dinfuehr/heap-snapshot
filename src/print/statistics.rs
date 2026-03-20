@@ -1,0 +1,22 @@
+use crate::snapshot::HeapSnapshot;
+
+use super::{format_count, format_size};
+
+pub fn print_statistics(snap: &HeapSnapshot) {
+    let stats = snap.get_statistics();
+    println!("Statistics (total {}):", format_size(stats.total));
+    println!("  V8 Heap:        {}", format_size(stats.v8heap_total));
+    println!("    Code:         {}", format_size(stats.code));
+    println!("    Strings:      {}", format_size(stats.strings));
+    println!("    JS Arrays:    {}", format_size(stats.js_arrays));
+    println!("    System:       {}", format_size(stats.system));
+    println!("  Native:         {}", format_size(stats.native_total));
+    println!("    Typed Arrays: {}", format_size(stats.typed_arrays));
+    if stats.unreachable_count > 0 {
+        println!(
+            "  Unreachable:    {} ({} objects)",
+            format_size(stats.unreachable_size),
+            format_count(stats.unreachable_count),
+        );
+    }
+}

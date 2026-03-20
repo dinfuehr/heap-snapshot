@@ -4,7 +4,7 @@ use common::{heap_snapshot_bin, test_dir};
 fn run_unreachable(file: &str, extra: &[&str]) -> String {
     let path = format!("{}/{}", test_dir(), file);
     let mut cmd = heap_snapshot_bin();
-    cmd.arg("unreachable").arg(&path);
+    cmd.arg("summary").arg("--unreachable").arg(&path);
     for arg in extra {
         cmd.arg(arg);
     }
@@ -19,14 +19,5 @@ fn unreachable_no_objects() {
     assert!(
         output.contains("No unreachable objects found"),
         "expected no unreachable message"
-    );
-}
-
-#[test]
-fn unreachable_full_flag_accepted() {
-    let output = run_unreachable("heap-1.heapsnapshot", &["--full"]);
-    assert!(
-        output.contains("No unreachable objects found"),
-        "expected no unreachable message with --full"
     );
 }

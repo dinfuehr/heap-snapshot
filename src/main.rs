@@ -57,6 +57,20 @@ enum Command {
         /// Expand a node's edges: @id, @id:start, or @id:start:count (can be repeated)
         #[arg(short = 'e', long, value_name = "ID")]
         expand: Vec<String>,
+        /// Show only unreachable objects
+        #[arg(long)]
+        unreachable: bool,
+        /// Show only fully unreachable objects (distance U), excluding those
+        /// only reachable from other unreachable objects (U+1, U+2, …)
+        #[arg(long)]
+        really_unreachable: bool,
+    },
+    /// Print heap statistics
+    Statistics {
+        #[command(flatten)]
+        snap_args: SnapshotArgs,
+        /// Path to .heapsnapshot file
+        file: String,
     },
     /// Show retainers for an object
     Retainers {
@@ -113,17 +127,6 @@ enum Command {
         /// Only show objects with at least this reachable size (in MB)
         #[arg(long, value_name = "MB")]
         minimum_reachable_size: Option<f64>,
-    },
-    /// Show unreachable objects (not reachable from GC roots)
-    Unreachable {
-        #[command(flatten)]
-        snap_args: SnapshotArgs,
-        /// Path to .heapsnapshot file
-        file: String,
-        /// Show only fully unreachable objects (distance U), excluding those
-        /// only reachable from other unreachable objects (U+1, U+2, …)
-        #[arg(long)]
-        full: bool,
     },
     /// Compare two heap snapshots
     Diff {
@@ -261,11 +264,27 @@ fn main() {
             depth,
             expand_group,
             expand,
+            unreachable,
+            really_unreachable,
         } => {
             let snap = load_snapshot(&snap_args.to_options(), &file);
             let expand_ctors = parse_expand_group(&expand_group);
             let expand_ids = parse_expand(&expand);
-            print::summary::print_summary(&snap, depth, &expand_ctors, &expand_ids);
+            let mode = if really_unreachable {
+                print::summary::UnreachableMode::RootsOnly
+            } else if unreachable {
+                print::summary::UnreachableMode::All
+            } else {
+                print::summary::UnreachableMode::Off
+            };
+            print::summary::print_summary(&snap, depth, &expand_ctors, &expand_ids, mode);
+        }
+        Command::Statistics {
+            snap_args,
+            file,
+        } => {
+            let snap = load_snapshot(&snap_args.to_options(), &file);
+            print::statistics::print_statistics(&snap);
         }
         Command::Retainers {
             snap_args,
@@ -466,14 +485,6 @@ fn main() {
                 }
             }
             println!("\n{} stack-rooted objects", entries.len());
-        }
-        Command::Unreachable {
-            snap_args,
-            file,
-            full,
-        } => {
-            let snap = load_snapshot(&snap_args.to_options(), &file);
-            print::unreachable::print_unreachable(&snap, full);
         }
         Command::Diff {
             snap_args,

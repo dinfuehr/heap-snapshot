@@ -90,7 +90,12 @@ fn summary_shows_totals_line() {
 
 #[test]
 fn summary_shows_statistics() {
-    let output = run_summary("heap-1.heapsnapshot", &[]);
-    assert!(output.contains("Statistics"), "expected Statistics section");
-    assert!(output.contains("V8 Heap:"), "expected V8 Heap stat");
+    let path = format!("{}/{}", test_dir(), "heap-1.heapsnapshot");
+    let mut cmd = heap_snapshot_bin();
+    cmd.arg("statistics").arg(&path);
+    let output = cmd.output().expect("failed to run heap-snapshot");
+    assert!(output.status.success(), "exit code: {}", output.status);
+    let stdout = String::from_utf8(output.stdout).expect("invalid utf-8");
+    assert!(stdout.contains("Statistics"), "expected Statistics section");
+    assert!(stdout.contains("V8 Heap:"), "expected V8 Heap stat");
 }

@@ -3015,6 +3015,11 @@ impl HeapSnapshot {
         self.build_aggregates(|ordinal| self.node_distances[ordinal].is_unreachable())
     }
 
+    /// Build aggregates for fully unreachable nodes only (distance == UNREACHABLE_BASE).
+    pub fn unreachable_root_aggregates(&self) -> FxHashMap<String, AggregateInfo> {
+        self.build_aggregates(|ordinal| self.node_distances[ordinal].is_unreachable_root())
+    }
+
     fn build_aggregates(&self, filter: impl Fn(usize) -> bool) -> FxHashMap<String, AggregateInfo> {
         let nfc = self.node_field_count;
         let sso = self.node_self_size_offset;

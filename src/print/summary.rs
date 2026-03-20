@@ -8,6 +8,12 @@ use super::{
 use crate::snapshot::HeapSnapshot;
 use crate::types::{Distance, NodeOrdinal};
 
+pub enum UnreachableMode {
+    Off,
+    All,
+    RootsOnly,
+}
+
 fn print_row(
     display: &str,
     dist: Distance,
@@ -34,6 +40,26 @@ fn print_row(
     );
 }
 
+fn print_row_shallow(
+    display: &str,
+    dist: Distance,
+    shallow: f64,
+    total_shallow: f64,
+) {
+    let dist_str = format_distance(dist);
+    let name_col = pad_str(display, COL_NAME_SUMMARY);
+    println!(
+        "{}{:>w_d$}{:>w_s$}{:>w_sp$}",
+        name_col,
+        dist_str,
+        format_size(shallow),
+        pct_str(shallow, total_shallow),
+        w_d = COL_DIST,
+        w_s = COL_SHALLOW,
+        w_sp = COL_SHALLOW_PCT,
+    );
+}
+
 fn walk_edges(
     snap: &HeapSnapshot,
     node_ordinal: NodeOrdinal,
@@ -42,6 +68,7 @@ fn walk_edges(
     base_indent: &str,
     expand: &ExpandMap,
     visited: &mut FxHashSet<NodeOrdinal>,
+    unreachable: bool,
     total_shallow: f64,
     total_retained: f64,
 ) {
@@ -82,14 +109,23 @@ fn walk_edges(
         let label = format!("{base_indent}{marker} {edge_label} :: {child_name} @{child_id}");
         let display = truncate_str(&label, COL_NAME_SUMMARY);
 
-        print_row(
-            &display,
-            snap.node_distance(child_ordinal),
-            snap.node_self_size(child_ordinal) as f64,
-            snap.node_retained_size(child_ordinal),
-            total_shallow,
-            total_retained,
-        );
+        if unreachable {
+            print_row_shallow(
+                &display,
+                snap.node_distance(child_ordinal),
+                snap.node_self_size(child_ordinal) as f64,
+                total_shallow,
+            );
+        } else {
+            print_row(
+                &display,
+                snap.node_distance(child_ordinal),
+                snap.node_self_size(child_ordinal) as f64,
+                snap.node_retained_size(child_ordinal),
+                total_shallow,
+                total_retained,
+            );
+        }
 
         if should_expand {
             visited.insert(child_ordinal);
@@ -102,6 +138,7 @@ fn walk_edges(
                 &child_indent,
                 expand,
                 visited,
+                unreachable,
                 total_shallow,
                 total_retained,
             );
@@ -123,36 +160,75 @@ pub fn print_summary(
     max_depth: usize,
     expand_constructors: &GroupExpandMap,
     expand_ids: &ExpandMap,
+    unreachable_mode: UnreachableMode,
 ) {
+    let unreachable = !matches!(unreachable_mode, UnreachableMode::Off);
+
     println!("Computing aggregates...");
-    let aggregates = snap.aggregates_with_filter();
+    let aggregates = match unreachable_mode {
+        UnreachableMode::Off => snap.aggregates_with_filter(),
+        UnreachableMode::All => snap.unreachable_aggregates(),
+        UnreachableMode::RootsOnly => snap.unreachable_root_aggregates(),
+    };
+
+    if unreachable && aggregates.is_empty() {
+        println!("No unreachable objects found.");
+        return;
+    }
 
     let mut entries: Vec<_> = aggregates.values().collect();
-    entries.sort_by(|a, b| {
-        b.max_ret
-            .partial_cmp(&a.max_ret)
-            .unwrap()
-            .then(a.first_seen.cmp(&b.first_seen))
-    });
+    if unreachable {
+        entries.sort_by(|a, b| {
+            b.self_size
+                .partial_cmp(&a.self_size)
+                .unwrap()
+                .then(a.first_seen.cmp(&b.first_seen))
+        });
+    } else {
+        entries.sort_by(|a, b| {
+            b.max_ret
+                .partial_cmp(&a.max_ret)
+                .unwrap()
+                .then(a.first_seen.cmp(&b.first_seen))
+        });
+    }
 
     let total_shallow: f64 = entries.iter().map(|e| e.self_size).sum();
     let total_retained: f64 = entries.iter().map(|e| e.max_ret).sum();
 
-    println!(
-        "{:<w_name$}{:>w_dist$}{:>w_ss$}{:>w_rs$}",
-        "Constructor",
-        "Distance",
-        "Shallow Size",
-        "Retained Size",
-        w_name = COL_NAME_SUMMARY,
-        w_dist = COL_DIST,
-        w_ss = COL_SHALLOW + COL_SHALLOW_PCT,
-        w_rs = COL_RETAINED + COL_RETAINED_PCT,
-    );
+    let tw = if unreachable {
+        COL_NAME_SUMMARY + COL_DIST + COL_SHALLOW + COL_SHALLOW_PCT
+    } else {
+        total_width(COL_NAME_SUMMARY)
+    };
+
+    if unreachable {
+        println!(
+            "{:<w_name$}{:>w_dist$}{:>w_ss$}",
+            "Constructor",
+            "Distance",
+            "Shallow Size",
+            w_name = COL_NAME_SUMMARY,
+            w_dist = COL_DIST,
+            w_ss = COL_SHALLOW + COL_SHALLOW_PCT,
+        );
+    } else {
+        println!(
+            "{:<w_name$}{:>w_dist$}{:>w_ss$}{:>w_rs$}",
+            "Constructor",
+            "Distance",
+            "Shallow Size",
+            "Retained Size",
+            w_name = COL_NAME_SUMMARY,
+            w_dist = COL_DIST,
+            w_ss = COL_SHALLOW + COL_SHALLOW_PCT,
+            w_rs = COL_RETAINED + COL_RETAINED_PCT,
+        );
+    }
     println!(
         "{}",
         "\u{2500}" /* ─ */
-            .repeat(total_width(COL_NAME_SUMMARY))
+            .repeat(tw)
     );
 
     for entry in &entries {
@@ -178,14 +254,23 @@ pub fn print_summary(
             COL_NAME_SUMMARY,
         );
 
-        print_row(
-            &name_col,
-            entry.distance,
-            entry.self_size,
-            entry.max_ret,
-            total_shallow,
-            total_retained,
-        );
+        if unreachable {
+            print_row_shallow(
+                &name_col,
+                entry.distance,
+                entry.self_size,
+                total_shallow,
+            );
+        } else {
+            print_row(
+                &name_col,
+                entry.distance,
+                entry.self_size,
+                entry.max_ret,
+                total_shallow,
+                total_retained,
+            );
+        }
 
         if is_expanded {
             let total_members = entry.node_ordinals.len();
@@ -205,14 +290,23 @@ pub fn print_summary(
                 let label = format!("  {node_marker} {} @{id}", entry.name);
                 let display = truncate_str(&label, COL_NAME_SUMMARY);
 
-                print_row(
-                    &display,
-                    snap.node_distance(ordinal),
-                    snap.node_self_size(ordinal) as f64,
-                    snap.node_retained_size(ordinal),
-                    total_shallow,
-                    total_retained,
-                );
+                if unreachable {
+                    print_row_shallow(
+                        &display,
+                        snap.node_distance(ordinal),
+                        snap.node_self_size(ordinal) as f64,
+                        total_shallow,
+                    );
+                } else {
+                    print_row(
+                        &display,
+                        snap.node_distance(ordinal),
+                        snap.node_self_size(ordinal) as f64,
+                        snap.node_retained_size(ordinal),
+                        total_shallow,
+                        total_retained,
+                    );
+                }
 
                 if node_expanded {
                     let mut visited: FxHashSet<NodeOrdinal> = FxHashSet::default();
@@ -225,6 +319,7 @@ pub fn print_summary(
                         "    ",
                         expand_ids,
                         &mut visited,
+                        unreachable,
                         total_shallow,
                         total_retained,
                     );
@@ -245,38 +340,35 @@ pub fn print_summary(
     println!(
         "{}",
         "\u{2500}" /* ─ */
-            .repeat(total_width(COL_NAME_SUMMARY))
+            .repeat(tw)
     );
-    println!(
-        "{:<w_name$}{:>w_dist$}{:>w_s$}{:>w_sp$}{:>w_r$}{:>w_rp$}",
-        format!("Total ({} constructors)", entries.len()),
-        "",
-        format_size(total_shallow),
-        "100%",
-        format_size(total_retained),
-        "100%",
-        w_name = COL_NAME_SUMMARY,
-        w_dist = COL_DIST,
-        w_s = COL_SHALLOW,
-        w_sp = COL_SHALLOW_PCT,
-        w_r = COL_RETAINED,
-        w_rp = COL_RETAINED_PCT,
-    );
-
-    let stats = snap.get_statistics();
-    println!("\nStatistics (total {}):", format_size(stats.total));
-    println!("  V8 Heap:        {}", format_size(stats.v8heap_total));
-    println!("    Code:         {}", format_size(stats.code));
-    println!("    Strings:      {}", format_size(stats.strings));
-    println!("    JS Arrays:    {}", format_size(stats.js_arrays));
-    println!("    System:       {}", format_size(stats.system));
-    println!("  Native:         {}", format_size(stats.native_total));
-    println!("    Typed Arrays: {}", format_size(stats.typed_arrays));
-    if stats.unreachable_count > 0 {
+    if unreachable {
         println!(
-            "  Unreachable:    {} ({} objects)",
-            format_size(stats.unreachable_size),
-            format_count(stats.unreachable_count),
+            "{:<w_name$}{:>w_dist$}{:>w_s$}{:>w_sp$}",
+            format!("Total ({} constructors)", entries.len()),
+            "",
+            format_size(total_shallow),
+            "100%",
+            w_name = COL_NAME_SUMMARY,
+            w_dist = COL_DIST,
+            w_s = COL_SHALLOW,
+            w_sp = COL_SHALLOW_PCT,
+        );
+    } else {
+        println!(
+            "{:<w_name$}{:>w_dist$}{:>w_s$}{:>w_sp$}{:>w_r$}{:>w_rp$}",
+            format!("Total ({} constructors)", entries.len()),
+            "",
+            format_size(total_shallow),
+            "100%",
+            format_size(total_retained),
+            "100%",
+            w_name = COL_NAME_SUMMARY,
+            w_dist = COL_DIST,
+            w_s = COL_SHALLOW,
+            w_sp = COL_SHALLOW_PCT,
+            w_r = COL_RETAINED,
+            w_rp = COL_RETAINED_PCT,
         );
     }
 }

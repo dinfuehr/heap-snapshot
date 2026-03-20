@@ -26,6 +26,12 @@ heap-snapshot tui main.heapsnapshot baseline.heapsnapshot
 # Print summary table
 heap-snapshot summary snapshot.heapsnapshot
 
+# Summary of unreachable objects only
+heap-snapshot summary --unreachable snapshot.heapsnapshot
+
+# Print heap statistics
+heap-snapshot statistics snapshot.heapsnapshot
+
 # Show retainers for an object
 heap-snapshot retainers snapshot.heapsnapshot @3005313
 
@@ -37,9 +43,6 @@ heap-snapshot diff main.heapsnapshot baseline.heapsnapshot
 
 # Print stack roots
 heap-snapshot stack snapshot.heapsnapshot
-
-# Show unreachable objects
-heap-snapshot unreachable snapshot.heapsnapshot
 
 # Dump native context info
 heap-snapshot contexts snapshot.heapsnapshot

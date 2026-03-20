@@ -6,8 +6,8 @@ use crate::types::{Distance, NodeId};
 pub mod containment;
 pub mod diff;
 pub mod retainers;
+pub mod statistics;
 pub mod summary;
-pub mod unreachable;
 
 pub const EDGE_PAGE_SIZE: usize = 10;
 
