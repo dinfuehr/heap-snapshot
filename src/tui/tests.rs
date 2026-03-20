@@ -3990,21 +3990,18 @@ fn test_extension_name_replaces_url_in_contexts_label() {
     // Node 0: synthetic root (type=9, name=0, id=1, size=0, edges=1)
     // Node 1: GC roots       (type=9, name=1, id=3, size=0, edges=1)
     // Node 2: NativeContext   (type=0, name=2, id=5, size=100, edges=0)
-    let nodes: Vec<u32> = vec![
-        9, 0, 1, 0, 1,
-        9, 1, 3, 0, 1,
-        0, 2, 5, 100, 0,
-    ];
+    let nodes: Vec<u32> = vec![9, 0, 1, 0, 1, 9, 1, 3, 0, 1, 0, 2, 5, 100, 0];
 
     let node_index = |ordinal: u32| ordinal * 5;
     // Edge from root -> GC roots, edge from GC roots -> NativeContext
-    let edges: Vec<u32> = vec![
-        1, 0, node_index(1),
-        1, 0, node_index(2),
-    ];
+    let edges: Vec<u32> = vec![1, 0, node_index(1), 1, 0, node_index(2)];
 
     let snap = build_snapshot(strings, nodes, edges);
-    assert_eq!(snap.native_contexts().len(), 1, "should find one native context");
+    assert_eq!(
+        snap.native_contexts().len(),
+        1,
+        "should find one native context"
+    );
 
     let (work_tx, _work_rx) = mpsc::channel();
     let (_result_tx, result_rx) = mpsc::channel();
@@ -4052,16 +4049,9 @@ fn test_extension_url_unchanged_when_name_not_resolved() {
     .map(|s| s.to_string())
     .collect();
 
-    let nodes: Vec<u32> = vec![
-        9, 0, 1, 0, 1,
-        9, 1, 3, 0, 1,
-        0, 2, 5, 100, 0,
-    ];
+    let nodes: Vec<u32> = vec![9, 0, 1, 0, 1, 9, 1, 3, 0, 1, 0, 2, 5, 100, 0];
     let node_index = |ordinal: u32| ordinal * 5;
-    let edges: Vec<u32> = vec![
-        1, 0, node_index(1),
-        1, 0, node_index(2),
-    ];
+    let edges: Vec<u32> = vec![1, 0, node_index(1), 1, 0, node_index(2)];
 
     let snap = build_snapshot(strings, nodes, edges);
     let (work_tx, _work_rx) = mpsc::channel();
@@ -4079,7 +4069,10 @@ fn test_extension_url_unchanged_when_name_not_resolved() {
         .expect("should find the native context row");
 
     assert!(
-        ctx_row.render.label.contains("chrome-extension://unknownext/index.html"),
+        ctx_row
+            .render
+            .label
+            .contains("chrome-extension://unknownext/index.html"),
         "URL should remain when no extension name is available, got: {}",
         ctx_row.render.label
     );
@@ -4098,16 +4091,19 @@ fn test_multiple_contexts_same_extension_id_resolved() {
     .collect();
 
     let nodes: Vec<u32> = vec![
-        9, 0, 1, 0, 1,
-        9, 1, 3, 0, 2,
-        0, 2, 5, 100, 0,
-        0, 3, 7, 200, 0,
+        9, 0, 1, 0, 1, 9, 1, 3, 0, 2, 0, 2, 5, 100, 0, 0, 3, 7, 200, 0,
     ];
     let node_index = |ordinal: u32| ordinal * 5;
     let edges: Vec<u32> = vec![
-        1, 0, node_index(1),
-        1, 0, node_index(2),
-        1, 0, node_index(3),
+        1,
+        0,
+        node_index(1),
+        1,
+        0,
+        node_index(2),
+        1,
+        0,
+        node_index(3),
     ];
 
     let snap = build_snapshot(strings, nodes, edges);
@@ -4126,7 +4122,11 @@ fn test_multiple_contexts_same_extension_id_resolved() {
             ext_lookups.push(id);
         }
     }
-    assert_eq!(ext_lookups, vec!["sameid"], "should queue exactly one lookup for the shared extension ID");
+    assert_eq!(
+        ext_lookups,
+        vec!["sameid"],
+        "should queue exactly one lookup for the shared extension ID"
+    );
 
     // Now pre-fill the resolved name and rebuild
     app.extension_names
@@ -4137,7 +4137,9 @@ fn test_multiple_contexts_same_extension_id_resolved() {
     let ctx_rows: Vec<_> = app
         .cached_rows
         .iter()
-        .filter(|r| matches!(r.node_ordinal(), Some(o) if o == NodeOrdinal(2) || o == NodeOrdinal(3)))
+        .filter(
+            |r| matches!(r.node_ordinal(), Some(o) if o == NodeOrdinal(2) || o == NodeOrdinal(3)),
+        )
         .collect();
     assert_eq!(ctx_rows.len(), 2);
     for row in &ctx_rows {
@@ -4165,16 +4167,9 @@ fn test_non_extension_url_not_affected_by_extension_names() {
     .map(|s| s.to_string())
     .collect();
 
-    let nodes: Vec<u32> = vec![
-        9, 0, 1, 0, 1,
-        9, 1, 3, 0, 1,
-        0, 2, 5, 100, 0,
-    ];
+    let nodes: Vec<u32> = vec![9, 0, 1, 0, 1, 9, 1, 3, 0, 1, 0, 2, 5, 100, 0];
     let node_index = |ordinal: u32| ordinal * 5;
-    let edges: Vec<u32> = vec![
-        1, 0, node_index(1),
-        1, 0, node_index(2),
-    ];
+    let edges: Vec<u32> = vec![1, 0, node_index(1), 1, 0, node_index(2)];
 
     let snap = build_snapshot(strings, nodes, edges);
     let (work_tx, work_rx) = mpsc::channel();
@@ -4188,7 +4183,10 @@ fn test_non_extension_url_not_affected_by_extension_names() {
     let ext_lookups: Vec<_> = std::iter::from_fn(|| work_rx.try_recv().ok())
         .filter(|item| matches!(item, WorkItem::ExtensionName(_)))
         .collect();
-    assert!(ext_lookups.is_empty(), "should not queue lookups for non-extension URLs");
+    assert!(
+        ext_lookups.is_empty(),
+        "should not queue lookups for non-extension URLs"
+    );
 
     let ctx_row = app
         .cached_rows
@@ -4214,16 +4212,9 @@ fn test_extension_name_via_drain_results_updates_label() {
     .map(|s| s.to_string())
     .collect();
 
-    let nodes: Vec<u32> = vec![
-        9, 0, 1, 0, 1,
-        9, 1, 3, 0, 1,
-        0, 2, 5, 100, 0,
-    ];
+    let nodes: Vec<u32> = vec![9, 0, 1, 0, 1, 9, 1, 3, 0, 1, 0, 2, 5, 100, 0];
     let node_index = |ordinal: u32| ordinal * 5;
-    let edges: Vec<u32> = vec![
-        1, 0, node_index(1),
-        1, 0, node_index(2),
-    ];
+    let edges: Vec<u32> = vec![1, 0, node_index(1), 1, 0, node_index(2)];
 
     let snap = build_snapshot(strings, nodes, edges);
     let (work_tx, _work_rx) = mpsc::channel();
@@ -4240,7 +4231,10 @@ fn test_extension_name_via_drain_results_updates_label() {
         .find(|r| r.node_ordinal() == Some(NodeOrdinal(2)))
         .expect("should find context row");
     assert!(
-        ctx_row.render.label.contains("chrome-extension://asyncext/bg.html"),
+        ctx_row
+            .render
+            .label
+            .contains("chrome-extension://asyncext/bg.html"),
         "URL should be present before resolution, got: {}",
         ctx_row.render.label
     );

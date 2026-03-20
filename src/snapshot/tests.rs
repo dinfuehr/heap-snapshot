@@ -4832,3 +4832,579 @@ fn test_weak_is_reachable_does_not_promote_non_weak_filtered() {
         "WeakTarget behind weak edge should be promoted to distance 2"
     );
 }
+
+// ── dominator_of ────────────────────────────────────────────────────────
+
+#[test]
+fn test_dominator_of_basic() {
+    let snap = make_test_snapshot();
+    // GC roots (node 1) dominates Object (node 2) and Array (node 4)
+    assert_eq!(snap.dominator_of(NodeOrdinal(2)), NodeOrdinal(1));
+    assert_eq!(snap.dominator_of(NodeOrdinal(4)), NodeOrdinal(1));
+    // Object (node 2) dominates hello (node 3)
+    assert_eq!(snap.dominator_of(NodeOrdinal(3)), NodeOrdinal(2));
+}
+
+#[test]
+fn test_dominator_of_diamond() {
+    // Two paths from GC roots to a shared target:
+    //   root -> GC roots -> A -> shared
+    //   root -> GC roots -> B -> shared
+    // shared's dominator should be GC roots (node 1), not A or B.
+    let nfc = 5u32;
+    let n = |ord: u32| ord * nfc;
+    let snap = build_snapshot(
+        standard_node_fields(),
+        vec![
+            9, 0, 1, 0, 1, // 0: root
+            9, 1, 3, 0, 2, // 1: GC roots
+            3, 2, 5, 10, 1, // 2: A
+            3, 2, 7, 10, 1, // 3: B
+            3, 2, 9, 10, 0, // 4: shared
+        ],
+        vec![
+            1,
+            0,
+            n(1), // root -> GC roots
+            2,
+            2,
+            n(2), // GC roots -> A
+            2,
+            2,
+            n(3), // GC roots -> B
+            2,
+            2,
+            n(4), // A -> shared
+            2,
+            2,
+            n(4), // B -> shared
+        ],
+        s(&["", "(GC roots)", "A", "B", "shared"]),
+    );
+    assert_eq!(
+        snap.dominator_of(NodeOrdinal(4)),
+        NodeOrdinal(1),
+        "shared node dominated by GC roots, not A or B"
+    );
+}
+
+#[test]
+fn test_dominator_of_chain() {
+    // Linear chain: root -> GC roots -> A -> B -> C
+    // Each node is dominated by its parent.
+    let nfc = 5u32;
+    let n = |ord: u32| ord * nfc;
+    let snap = build_snapshot(
+        standard_node_fields(),
+        vec![
+            9, 0, 1, 0, 1, // 0: root
+            9, 1, 3, 0, 1, // 1: GC roots
+            3, 2, 5, 10, 1, // 2: A
+            3, 2, 7, 10, 1, // 3: B
+            3, 2, 9, 10, 0, // 4: C
+        ],
+        vec![
+            1,
+            0,
+            n(1), // root -> GC roots
+            2,
+            2,
+            n(2), // GC roots -> A
+            2,
+            2,
+            n(3), // A -> B
+            2,
+            2,
+            n(4), // B -> C
+        ],
+        s(&["", "(GC roots)", "A", "B", "C"]),
+    );
+    assert_eq!(snap.dominator_of(NodeOrdinal(2)), NodeOrdinal(1));
+    assert_eq!(snap.dominator_of(NodeOrdinal(3)), NodeOrdinal(2));
+    assert_eq!(snap.dominator_of(NodeOrdinal(4)), NodeOrdinal(3));
+}
+
+// ── is_root_holder ──────────────────────────────────────────────────────
+
+#[test]
+fn test_is_root_holder() {
+    let snap = make_test_snapshot();
+    // Node 0 (synthetic root) is not a root holder — it IS the root's parent
+    assert!(!snap.is_root_holder(NodeOrdinal(0)));
+    // Node 1 (GC roots) is the root itself, not a root holder
+    assert!(!snap.is_root_holder(NodeOrdinal(1)));
+    // Node 2 (Object) is directly retained by (GC roots) → root holder
+    assert!(snap.is_root_holder(NodeOrdinal(2)));
+    // Node 3 (hello) is retained by Object, not GC roots → not a root holder
+    assert!(!snap.is_root_holder(NodeOrdinal(3)));
+    // Node 4 (Array) is directly retained by (GC roots) → root holder
+    assert!(snap.is_root_holder(NodeOrdinal(4)));
+}
+
+#[test]
+fn test_is_root_holder_with_mixed_retainers() {
+    // Node retained by both GC roots and another node — still a root holder
+    let nfc = 5u32;
+    let n = |ord: u32| ord * nfc;
+    let snap = build_snapshot(
+        standard_node_fields(),
+        vec![
+            9, 0, 1, 0, 1, // 0: root
+            9, 1, 3, 0, 2, // 1: GC roots
+            3, 2, 5, 10, 1, // 2: A
+            3, 2, 7, 10, 0, // 3: target
+        ],
+        vec![
+            1,
+            0,
+            n(1), // root -> GC roots
+            2,
+            2,
+            n(2), // GC roots -> A
+            2,
+            2,
+            n(3), // GC roots -> target
+            2,
+            2,
+            n(3), // A -> target (second retainer)
+        ],
+        s(&["", "(GC roots)", "A", "target"]),
+    );
+    assert!(
+        snap.is_root_holder(NodeOrdinal(3)),
+        "node with GC roots as one of multiple retainers is still a root holder"
+    );
+}
+
+// ── retainer_count ──────────────────────────────────────────────────────
+
+#[test]
+fn test_retainer_count() {
+    let snap = make_test_snapshot();
+    // Synthetic root has no retainers
+    assert_eq!(snap.retainer_count(NodeOrdinal(0)), 0);
+    // GC roots retained by synthetic root
+    assert_eq!(snap.retainer_count(NodeOrdinal(1)), 1);
+    // Object retained by GC roots
+    assert_eq!(snap.retainer_count(NodeOrdinal(2)), 1);
+    // hello retained by Object
+    assert_eq!(snap.retainer_count(NodeOrdinal(3)), 1);
+    // Array retained by GC roots
+    assert_eq!(snap.retainer_count(NodeOrdinal(4)), 1);
+}
+
+#[test]
+fn test_retainer_count_multiple_retainers() {
+    // Node retained by two different parents
+    let nfc = 5u32;
+    let n = |ord: u32| ord * nfc;
+    let snap = build_snapshot(
+        standard_node_fields(),
+        vec![
+            9, 0, 1, 0, 1, // 0: root
+            9, 1, 3, 0, 2, // 1: GC roots
+            3, 2, 5, 10, 1, // 2: A
+            3, 2, 7, 10, 1, // 3: B
+            3, 2, 9, 10, 0, // 4: shared
+        ],
+        vec![
+            1,
+            0,
+            n(1), // root -> GC roots
+            2,
+            2,
+            n(2), // GC roots -> A
+            2,
+            2,
+            n(3), // GC roots -> B
+            2,
+            2,
+            n(4), // A -> shared
+            2,
+            2,
+            n(4), // B -> shared
+        ],
+        s(&["", "(GC roots)", "A", "B", "shared"]),
+    );
+    assert_eq!(
+        snap.retainer_count(NodeOrdinal(4)),
+        2,
+        "shared has two retainers"
+    );
+    assert_eq!(snap.retainer_count(NodeOrdinal(2)), 1, "A has one retainer");
+}
+
+// ── for_each_retainer ───────────────────────────────────────────────────
+
+#[test]
+fn test_for_each_retainer_matches_get_retainers() {
+    let snap = make_test_snapshot();
+    for ordinal in 0..5 {
+        let ord = NodeOrdinal(ordinal);
+        let expected = snap.get_retainers(ord);
+        let mut actual = Vec::new();
+        snap.for_each_retainer(ord, |edge_idx, node_ord| {
+            actual.push((edge_idx, node_ord));
+        });
+        assert_eq!(
+            actual, expected,
+            "for_each_retainer and get_retainers should return the same results for node {ordinal}"
+        );
+    }
+}
+
+#[test]
+fn test_for_each_retainer_empty_for_root() {
+    let snap = make_test_snapshot();
+    let mut count = 0;
+    snap.for_each_retainer(NodeOrdinal(0), |_, _| {
+        count += 1;
+    });
+    assert_eq!(count, 0, "synthetic root should have no retainers");
+}
+
+#[test]
+fn test_for_each_retainer_multiple_retainers() {
+    // Same diamond snapshot as retainer_count test
+    let nfc = 5u32;
+    let n = |ord: u32| ord * nfc;
+    let snap = build_snapshot(
+        standard_node_fields(),
+        vec![
+            9, 0, 1, 0, 1, // 0: root
+            9, 1, 3, 0, 2, // 1: GC roots
+            3, 2, 5, 10, 1, // 2: A
+            3, 2, 7, 10, 1, // 3: B
+            3, 2, 9, 10, 0, // 4: shared
+        ],
+        vec![
+            1,
+            0,
+            n(1), // root -> GC roots
+            2,
+            2,
+            n(2), // GC roots -> A
+            2,
+            2,
+            n(3), // GC roots -> B
+            2,
+            2,
+            n(4), // A -> shared
+            2,
+            2,
+            n(4), // B -> shared
+        ],
+        s(&["", "(GC roots)", "A", "B", "shared"]),
+    );
+    let mut retainer_ordinals = Vec::new();
+    snap.for_each_retainer(NodeOrdinal(4), |_, node_ord| {
+        retainer_ordinals.push(node_ord);
+    });
+    assert_eq!(retainer_ordinals.len(), 2);
+    assert!(
+        retainer_ordinals.contains(&NodeOrdinal(2)),
+        "A should retain shared"
+    );
+    assert!(
+        retainer_ordinals.contains(&NodeOrdinal(3)),
+        "B should retain shared"
+    );
+}
+
+// ── interface inference ─────────────────────────────────────────────────
+
+#[test]
+fn test_interface_inference_object_with_no_properties() {
+    // An Object with no property edges should stay as "Object"
+    let nfc = 5u32;
+    let n = |ord: u32| ord * nfc;
+    let snap = build_snapshot(
+        standard_node_fields(),
+        vec![
+            9, 0, 1, 0, 1, // 0: root
+            9, 1, 3, 0, 2, // 1: GC roots
+            3, 2, 5, 10, 0, // 2: Object (no edges)
+            3, 2, 7, 10, 0, // 3: Object (no edges)
+        ],
+        vec![1, 0, n(1), 2, 3, n(2), 2, 3, n(3)],
+        s(&["", "(GC roots)", "Object", "obj"]),
+    );
+    assert_eq!(snap.node_class_name(NodeOrdinal(2)), "Object");
+    assert_eq!(snap.node_class_name(NodeOrdinal(3)), "Object");
+}
+
+#[test]
+fn test_interface_inference_only_proto_property() {
+    // Objects with only __proto__ property should stay as "Object"
+    let nfc = 5u32;
+    let n = |ord: u32| ord * nfc;
+    let snap = build_snapshot(
+        standard_node_fields(),
+        vec![
+            9, 0, 1, 0, 1, // 0: root
+            9, 1, 3, 0, 2, // 1: GC roots
+            3, 2, 5, 10, 1, // 2: Object with __proto__
+            3, 2, 7, 10, 1, // 3: Object with __proto__
+            3, 2, 9, 10, 0, // 4: proto target
+        ],
+        vec![
+            1,
+            0,
+            n(1),
+            2,
+            3,
+            n(2),
+            2,
+            3,
+            n(3),
+            2,
+            4,
+            n(4), // node 2 -> proto target via __proto__
+            2,
+            4,
+            n(4), // node 3 -> proto target via __proto__
+        ],
+        s(&["", "(GC roots)", "Object", "obj", "__proto__"]),
+    );
+    assert_eq!(
+        snap.node_class_name(NodeOrdinal(2)),
+        "Object",
+        "Object with only __proto__ should not get interface name"
+    );
+}
+
+#[test]
+fn test_interface_inference_single_instance_below_threshold() {
+    // Only one Object with a given shape — needs at least 2 to be inferred
+    let nfc = 5u32;
+    let n = |ord: u32| ord * nfc;
+    let snap = build_snapshot(
+        standard_node_fields(),
+        vec![
+            9, 0, 1, 0, 1, // 0: root
+            9, 1, 3, 0, 1, // 1: GC roots
+            3, 2, 5, 10, 1, // 2: Object with "x"
+            2, 3, 7, 10, 0, // 3: value
+        ],
+        vec![
+            1,
+            0,
+            n(1),
+            2,
+            4,
+            n(2), // GC roots -> Object
+            2,
+            5,
+            n(3), // Object -> value via "x"
+        ],
+        s(&["", "(GC roots)", "Object", "val", "obj", "x"]),
+    );
+    assert_eq!(
+        snap.node_class_name(NodeOrdinal(2)),
+        "Object",
+        "single instance should not get interface name"
+    );
+}
+
+#[test]
+fn test_interface_inference_two_instances_meet_threshold() {
+    // Two Objects with {x} should get interface name
+    let nfc = 5u32;
+    let n = |ord: u32| ord * nfc;
+    let snap = build_snapshot(
+        standard_node_fields(),
+        vec![
+            9, 0, 1, 0, 1, // 0: root
+            9, 1, 3, 0, 2, // 1: GC roots
+            3, 2, 5, 10, 1, // 2: Object with "x"
+            3, 2, 7, 10, 1, // 3: Object with "x"
+            2, 3, 9, 10, 0, // 4: value
+        ],
+        vec![
+            1,
+            0,
+            n(1),
+            2,
+            4,
+            n(2),
+            2,
+            4,
+            n(3),
+            2,
+            5,
+            n(4), // node 2 -> value via "x"
+            2,
+            5,
+            n(4), // node 3 -> value via "x"
+        ],
+        s(&["", "(GC roots)", "Object", "val", "obj", "x"]),
+    );
+    assert_eq!(snap.node_class_name(NodeOrdinal(2)), "{x}");
+    assert_eq!(snap.node_class_name(NodeOrdinal(3)), "{x}");
+}
+
+#[test]
+fn test_interface_inference_two_different_shapes() {
+    // Two shapes, each with 2 instances
+    let nfc = 5u32;
+    let n = |ord: u32| ord * nfc;
+    let snap = build_snapshot(
+        standard_node_fields(),
+        vec![
+            9, 0, 1, 0, 1, // 0: root
+            9, 1, 3, 0, 4, // 1: GC roots
+            3, 2, 5, 10, 1, // 2: Object with "a"
+            3, 2, 7, 10, 1, // 3: Object with "a"
+            3, 2, 9, 10, 1, // 4: Object with "b"
+            3, 2, 11, 10, 1, // 5: Object with "b"
+            2, 3, 13, 10, 0, // 6: value
+        ],
+        vec![
+            1,
+            0,
+            n(1),
+            2,
+            4,
+            n(2),
+            2,
+            4,
+            n(3),
+            2,
+            4,
+            n(4),
+            2,
+            4,
+            n(5),
+            2,
+            5,
+            n(6), // node 2 -> value via "a"
+            2,
+            5,
+            n(6), // node 3 -> value via "a"
+            2,
+            6,
+            n(6), // node 4 -> value via "b"
+            2,
+            6,
+            n(6), // node 5 -> value via "b"
+        ],
+        s(&["", "(GC roots)", "Object", "val", "obj", "a", "b"]),
+    );
+    assert_eq!(snap.node_class_name(NodeOrdinal(2)), "{a}");
+    assert_eq!(snap.node_class_name(NodeOrdinal(3)), "{a}");
+    assert_eq!(snap.node_class_name(NodeOrdinal(4)), "{b}");
+    assert_eq!(snap.node_class_name(NodeOrdinal(5)), "{b}");
+}
+
+#[test]
+fn test_interface_inference_superset_matches_subset() {
+    // 2 Objects with {x, y} define an interface.
+    // A third Object with {x, y, z} should still match {x, y}.
+    let nfc = 5u32;
+    let n = |ord: u32| ord * nfc;
+    let snap = build_snapshot(
+        standard_node_fields(),
+        vec![
+            9, 0, 1, 0, 1, // 0: root
+            9, 1, 3, 0, 3, // 1: GC roots
+            3, 2, 5, 10, 2, // 2: Object with x, y
+            3, 2, 7, 10, 2, // 3: Object with x, y
+            3, 2, 9, 10, 3, // 4: Object with x, y, z
+            2, 3, 11, 10, 0, // 5: value
+        ],
+        vec![
+            1,
+            0,
+            n(1),
+            2,
+            4,
+            n(2),
+            2,
+            4,
+            n(3),
+            2,
+            4,
+            n(4),
+            2,
+            5,
+            n(5), // node 2 -> value via "x"
+            2,
+            6,
+            n(5), // node 2 -> value via "y"
+            2,
+            5,
+            n(5), // node 3 -> value via "x"
+            2,
+            6,
+            n(5), // node 3 -> value via "y"
+            2,
+            5,
+            n(5), // node 4 -> value via "x"
+            2,
+            6,
+            n(5), // node 4 -> value via "y"
+            2,
+            7,
+            n(5), // node 4 -> value via "z"
+        ],
+        s(&["", "(GC roots)", "Object", "val", "obj", "x", "y", "z"]),
+    );
+    assert_eq!(snap.node_class_name(NodeOrdinal(2)), "{x, y}");
+    assert_eq!(snap.node_class_name(NodeOrdinal(3)), "{x, y}");
+    assert_eq!(
+        snap.node_class_name(NodeOrdinal(4)),
+        "{x, y}",
+        "superset of properties should match the defined interface"
+    );
+}
+
+#[test]
+fn test_interface_inference_non_object_not_affected() {
+    // A non-Object node (e.g. closure) with the same property edges
+    // should not get an interface name
+    let nfc = 5u32;
+    let n = |ord: u32| ord * nfc;
+    let snap = build_snapshot(
+        standard_node_fields(),
+        vec![
+            9, 0, 1, 0, 1, // 0: root
+            9, 1, 3, 0, 3, // 1: GC roots
+            3, 2, 5, 10, 1, // 2: Object with "x"
+            3, 2, 7, 10, 1, // 3: Object with "x"
+            5, 4, 9, 10, 1, // 4: closure with "x" (type 5 = closure)
+            2, 3, 11, 10, 0, // 5: value
+        ],
+        vec![
+            1,
+            0,
+            n(1),
+            2,
+            5,
+            n(2),
+            2,
+            5,
+            n(3),
+            2,
+            5,
+            n(4),
+            2,
+            6,
+            n(5), // node 2 -> value via "x"
+            2,
+            6,
+            n(5), // node 3 -> value via "x"
+            2,
+            6,
+            n(5), // node 4 -> value via "x"
+        ],
+        s(&["", "(GC roots)", "Object", "val", "myFunc", "obj", "x"]),
+    );
+    assert_eq!(snap.node_class_name(NodeOrdinal(2)), "{x}");
+    assert_eq!(snap.node_class_name(NodeOrdinal(3)), "{x}");
+    // Closure should keep its own class name, not get interface name
+    assert_ne!(
+        snap.node_class_name(NodeOrdinal(4)),
+        "{x}",
+        "non-Object nodes should not get interface names"
+    );
+}

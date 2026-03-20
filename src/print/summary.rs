@@ -40,12 +40,7 @@ fn print_row(
     );
 }
 
-fn print_row_shallow(
-    display: &str,
-    dist: Distance,
-    shallow: f64,
-    total_shallow: f64,
-) {
+fn print_row_shallow(display: &str, dist: Distance, shallow: f64, total_shallow: f64) {
     let dist_str = format_distance(dist);
     let name_col = pad_str(display, COL_NAME_SUMMARY);
     println!(
@@ -255,12 +250,7 @@ pub fn print_summary(
         );
 
         if unreachable {
-            print_row_shallow(
-                &name_col,
-                entry.distance,
-                entry.self_size,
-                total_shallow,
-            );
+            print_row_shallow(&name_col, entry.distance, entry.self_size, total_shallow);
         } else {
             print_row(
                 &name_col,

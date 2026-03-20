@@ -382,7 +382,9 @@ impl App {
                         && !self.extension_pending.contains(ext_id)
                     {
                         self.extension_pending.insert(ext_id.to_string());
-                        let _ = self.work_tx.send(WorkItem::ExtensionName(ext_id.to_string()));
+                        let _ = self
+                            .work_tx
+                            .send(WorkItem::ExtensionName(ext_id.to_string()));
                     }
                 }
             }
@@ -549,10 +551,7 @@ pub fn run(
                     }
                     WorkItem::ExtensionName(extension_id) => {
                         let name = crate::resolve_chrome_extension_name(&extension_id);
-                        let _ = result_tx.send(WorkResult::ExtensionName {
-                            extension_id,
-                            name,
-                        });
+                        let _ = result_tx.send(WorkResult::ExtensionName { extension_id, name });
                     }
                 }
             }

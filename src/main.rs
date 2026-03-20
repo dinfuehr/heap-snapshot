@@ -279,10 +279,7 @@ fn main() {
             };
             print::summary::print_summary(&snap, depth, &expand_ctors, &expand_ids, mode);
         }
-        Command::Statistics {
-            snap_args,
-            file,
-        } => {
+        Command::Statistics { snap_args, file } => {
             let snap = load_snapshot(&snap_args.to_options(), &file);
             print::statistics::print_statistics(&snap);
         }

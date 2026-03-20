@@ -12,7 +12,13 @@ pub fn resolve_chrome_extension_name(extension_id: &str) -> Option<String> {
         .timeout_global(Some(Duration::from_secs(2)))
         .build()
         .new_agent();
-    let body: String = agent.get(&url).call().ok()?.body_mut().read_to_string().ok()?;
+    let body: String = agent
+        .get(&url)
+        .call()
+        .ok()?
+        .body_mut()
+        .read_to_string()
+        .ok()?;
     let title_start = body.find("<title>")? + "<title>".len();
     let title_end = body[title_start..].find("</title>")? + title_start;
     let title = &body[title_start..title_end];
