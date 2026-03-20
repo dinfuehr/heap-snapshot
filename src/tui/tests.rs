@@ -102,6 +102,7 @@ fn collect_reachable_work(work_rx: &mpsc::Receiver<WorkItem>) -> Vec<NodeOrdinal
         match item {
             WorkItem::ReachableSize(ordinal) => queued.push(ordinal),
             WorkItem::RetainerPlan(_) => panic!("unexpected retainer plan work item"),
+            WorkItem::ExtensionName(_) => {} // ignore extension lookups in tests
         }
     }
     queued
@@ -610,6 +611,7 @@ fn test_opening_contexts_queues_reachable_for_all_native_contexts() {
         match item {
             WorkItem::ReachableSize(ordinal) => queued.push(ordinal),
             WorkItem::RetainerPlan(_) => panic!("unexpected retainer plan work item"),
+            WorkItem::ExtensionName(_) => {} // ignore extension lookups in tests
         }
     }
 
@@ -3968,5 +3970,306 @@ fn test_weak_root_holder_displays_cyan() {
     assert!(
         holder_row.render.is_root_holder,
         "Holder is directly held by (GC roots)"
+    );
+}
+
+#[test]
+fn test_extension_name_replaces_url_in_contexts_label() {
+    // Strings: 0="", 1="(GC roots)", 2="system / NativeContext / chrome-extension://testid123/page.html"
+    let strings: Vec<String> = [
+        "",
+        "(GC roots)",
+        "system / NativeContext / chrome-extension://testid123/page.html",
+    ]
+    .iter()
+    .map(|s| s.to_string())
+    .collect();
+
+    // Node 0: synthetic root (type=9, name=0, id=1, size=0, edges=1)
+    // Node 1: GC roots       (type=9, name=1, id=3, size=0, edges=1)
+    // Node 2: NativeContext   (type=0, name=2, id=5, size=100, edges=0)
+    let nodes: Vec<u32> = vec![
+        9, 0, 1, 0, 1,
+        9, 1, 3, 0, 1,
+        0, 2, 5, 100, 0,
+    ];
+
+    let node_index = |ordinal: u32| ordinal * 5;
+    // Edge from root -> GC roots, edge from GC roots -> NativeContext
+    let edges: Vec<u32> = vec![
+        1, 0, node_index(1),
+        1, 0, node_index(2),
+    ];
+
+    let snap = build_snapshot(strings, nodes, edges);
+    assert_eq!(snap.native_contexts().len(), 1, "should find one native context");
+
+    let (work_tx, _work_rx) = mpsc::channel();
+    let (_result_tx, result_rx) = mpsc::channel();
+    let mut app = App::new(&snap, Vec::new(), work_tx, result_rx);
+
+    // Pre-fill the extension name (no network request)
+    app.extension_names
+        .insert("testid123".to_string(), "My Test Extension".to_string());
+
+    // Switch to contexts view
+    app.set_view(ViewType::Contexts, &snap);
+    app.rebuild_rows(&snap);
+
+    let ctx_row = app
+        .cached_rows
+        .iter()
+        .find(|r| r.node_ordinal() == Some(NodeOrdinal(2)))
+        .expect("should find the native context row");
+
+    assert!(
+        ctx_row.render.label.contains("My Test Extension"),
+        "expected resolved extension name in label, got: {}",
+        ctx_row.render.label
+    );
+    assert!(
+        ctx_row.render.label.contains("testid123"),
+        "expected extension ID in label, got: {}",
+        ctx_row.render.label
+    );
+    assert!(
+        !ctx_row.render.label.contains("chrome-extension://"),
+        "URL should be replaced by extension name, got: {}",
+        ctx_row.render.label
+    );
+}
+
+#[test]
+fn test_extension_url_unchanged_when_name_not_resolved() {
+    let strings: Vec<String> = [
+        "",
+        "(GC roots)",
+        "system / NativeContext / chrome-extension://unknownext/index.html",
+    ]
+    .iter()
+    .map(|s| s.to_string())
+    .collect();
+
+    let nodes: Vec<u32> = vec![
+        9, 0, 1, 0, 1,
+        9, 1, 3, 0, 1,
+        0, 2, 5, 100, 0,
+    ];
+    let node_index = |ordinal: u32| ordinal * 5;
+    let edges: Vec<u32> = vec![
+        1, 0, node_index(1),
+        1, 0, node_index(2),
+    ];
+
+    let snap = build_snapshot(strings, nodes, edges);
+    let (work_tx, _work_rx) = mpsc::channel();
+    let (_result_tx, result_rx) = mpsc::channel();
+    let mut app = App::new(&snap, Vec::new(), work_tx, result_rx);
+
+    // Do NOT pre-fill extension_names
+    app.set_view(ViewType::Contexts, &snap);
+    app.rebuild_rows(&snap);
+
+    let ctx_row = app
+        .cached_rows
+        .iter()
+        .find(|r| r.node_ordinal() == Some(NodeOrdinal(2)))
+        .expect("should find the native context row");
+
+    assert!(
+        ctx_row.render.label.contains("chrome-extension://unknownext/index.html"),
+        "URL should remain when no extension name is available, got: {}",
+        ctx_row.render.label
+    );
+}
+
+#[test]
+fn test_multiple_contexts_same_extension_id_resolved() {
+    let strings: Vec<String> = [
+        "",
+        "(GC roots)",
+        "system / NativeContext / chrome-extension://sameid/page1.html",
+        "system / NativeContext / chrome-extension://sameid/page2.html",
+    ]
+    .iter()
+    .map(|s| s.to_string())
+    .collect();
+
+    let nodes: Vec<u32> = vec![
+        9, 0, 1, 0, 1,
+        9, 1, 3, 0, 2,
+        0, 2, 5, 100, 0,
+        0, 3, 7, 200, 0,
+    ];
+    let node_index = |ordinal: u32| ordinal * 5;
+    let edges: Vec<u32> = vec![
+        1, 0, node_index(1),
+        1, 0, node_index(2),
+        1, 0, node_index(3),
+    ];
+
+    let snap = build_snapshot(strings, nodes, edges);
+    assert_eq!(snap.native_contexts().len(), 2);
+
+    let (work_tx, work_rx) = mpsc::channel();
+    let (_result_tx, result_rx) = mpsc::channel();
+    let mut app = App::new(&snap, Vec::new(), work_tx, result_rx);
+
+    app.set_view(ViewType::Contexts, &snap);
+
+    // Only one ExtensionName work item should be queued (deduped)
+    let mut ext_lookups = Vec::new();
+    while let Ok(item) = work_rx.try_recv() {
+        if let WorkItem::ExtensionName(id) = item {
+            ext_lookups.push(id);
+        }
+    }
+    assert_eq!(ext_lookups, vec!["sameid"], "should queue exactly one lookup for the shared extension ID");
+
+    // Now pre-fill the resolved name and rebuild
+    app.extension_names
+        .insert("sameid".to_string(), "Shared Extension".to_string());
+    app.rebuild_rows(&snap);
+
+    // Both context rows should show the resolved name
+    let ctx_rows: Vec<_> = app
+        .cached_rows
+        .iter()
+        .filter(|r| matches!(r.node_ordinal(), Some(o) if o == NodeOrdinal(2) || o == NodeOrdinal(3)))
+        .collect();
+    assert_eq!(ctx_rows.len(), 2);
+    for row in &ctx_rows {
+        assert!(
+            row.render.label.contains("Shared Extension"),
+            "expected resolved name in both context rows, got: {}",
+            row.render.label
+        );
+        assert!(
+            !row.render.label.contains("chrome-extension://"),
+            "URL should be replaced in both rows, got: {}",
+            row.render.label
+        );
+    }
+}
+
+#[test]
+fn test_non_extension_url_not_affected_by_extension_names() {
+    let strings: Vec<String> = [
+        "",
+        "(GC roots)",
+        "system / NativeContext / https://example.com/app",
+    ]
+    .iter()
+    .map(|s| s.to_string())
+    .collect();
+
+    let nodes: Vec<u32> = vec![
+        9, 0, 1, 0, 1,
+        9, 1, 3, 0, 1,
+        0, 2, 5, 100, 0,
+    ];
+    let node_index = |ordinal: u32| ordinal * 5;
+    let edges: Vec<u32> = vec![
+        1, 0, node_index(1),
+        1, 0, node_index(2),
+    ];
+
+    let snap = build_snapshot(strings, nodes, edges);
+    let (work_tx, work_rx) = mpsc::channel();
+    let (_result_tx, result_rx) = mpsc::channel();
+    let mut app = App::new(&snap, Vec::new(), work_tx, result_rx);
+
+    app.set_view(ViewType::Contexts, &snap);
+    app.rebuild_rows(&snap);
+
+    // No extension lookups should be queued
+    let ext_lookups: Vec<_> = std::iter::from_fn(|| work_rx.try_recv().ok())
+        .filter(|item| matches!(item, WorkItem::ExtensionName(_)))
+        .collect();
+    assert!(ext_lookups.is_empty(), "should not queue lookups for non-extension URLs");
+
+    let ctx_row = app
+        .cached_rows
+        .iter()
+        .find(|r| r.node_ordinal() == Some(NodeOrdinal(2)))
+        .expect("should find the native context row");
+
+    assert!(
+        ctx_row.render.label.contains("https://example.com/app"),
+        "non-extension URL should remain unchanged, got: {}",
+        ctx_row.render.label
+    );
+}
+
+#[test]
+fn test_extension_name_via_drain_results_updates_label() {
+    let strings: Vec<String> = [
+        "",
+        "(GC roots)",
+        "system / NativeContext / chrome-extension://asyncext/bg.html",
+    ]
+    .iter()
+    .map(|s| s.to_string())
+    .collect();
+
+    let nodes: Vec<u32> = vec![
+        9, 0, 1, 0, 1,
+        9, 1, 3, 0, 1,
+        0, 2, 5, 100, 0,
+    ];
+    let node_index = |ordinal: u32| ordinal * 5;
+    let edges: Vec<u32> = vec![
+        1, 0, node_index(1),
+        1, 0, node_index(2),
+    ];
+
+    let snap = build_snapshot(strings, nodes, edges);
+    let (work_tx, _work_rx) = mpsc::channel();
+    let (result_tx, result_rx) = mpsc::channel();
+    let mut app = App::new(&snap, Vec::new(), work_tx, result_rx);
+
+    app.set_view(ViewType::Contexts, &snap);
+    app.rebuild_rows(&snap);
+
+    // Before resolution: URL should be present
+    let ctx_row = app
+        .cached_rows
+        .iter()
+        .find(|r| r.node_ordinal() == Some(NodeOrdinal(2)))
+        .expect("should find context row");
+    assert!(
+        ctx_row.render.label.contains("chrome-extension://asyncext/bg.html"),
+        "URL should be present before resolution, got: {}",
+        ctx_row.render.label
+    );
+
+    // Simulate background worker completing
+    result_tx
+        .send(WorkResult::ExtensionName {
+            extension_id: "asyncext".to_string(),
+            name: Some("Async Extension".to_string()),
+        })
+        .unwrap();
+
+    let changed = app.drain_results(&snap);
+    assert!(changed, "drain_results should report a change");
+
+    // Rows should be dirty, rebuild them
+    app.rebuild_rows(&snap);
+
+    let ctx_row = app
+        .cached_rows
+        .iter()
+        .find(|r| r.node_ordinal() == Some(NodeOrdinal(2)))
+        .expect("should find context row after resolution");
+    assert!(
+        ctx_row.render.label.contains("Async Extension"),
+        "label should contain resolved name after drain_results, got: {}",
+        ctx_row.render.label
+    );
+    assert!(
+        !ctx_row.render.label.contains("chrome-extension://"),
+        "URL should be replaced after drain_results, got: {}",
+        ctx_row.render.label
     );
 }

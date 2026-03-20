@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use rustc_hash::FxHashMap;
@@ -110,4 +111,50 @@ pub(super) fn save_history(
         let _ = std::fs::create_dir_all(parent);
     }
     let _ = std::fs::write(&hist_path, content);
+}
+
+fn extensions_file_path() -> Option<PathBuf> {
+    dirs::config_dir().map(|d| d.join("heap-snapshot").join("extensions.toml"))
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+struct PersistedExtensions {
+    names: HashMap<String, String>,
+}
+
+pub(super) fn load_extension_names() -> FxHashMap<String, String> {
+    let path = match extensions_file_path() {
+        Some(p) => p,
+        None => return FxHashMap::default(),
+    };
+    let content = match std::fs::read_to_string(&path) {
+        Ok(c) => c,
+        Err(_) => return FxHashMap::default(),
+    };
+    let persisted: PersistedExtensions = match toml::from_str(&content) {
+        Ok(p) => p,
+        Err(_) => return FxHashMap::default(),
+    };
+    persisted.names.into_iter().collect()
+}
+
+pub(super) fn save_extension_names(names: &FxHashMap<String, String>) {
+    if names.is_empty() {
+        return;
+    }
+    let path = match extensions_file_path() {
+        Some(p) => p,
+        None => return,
+    };
+    let persisted = PersistedExtensions {
+        names: names.iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
+    };
+    let content = match toml::to_string(&persisted) {
+        Ok(c) => c,
+        Err(_) => return,
+    };
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let _ = std::fs::write(&path, content);
 }

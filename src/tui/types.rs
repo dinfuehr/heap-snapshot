@@ -219,6 +219,7 @@ pub(super) struct PendingRetainerPlan {
 pub(super) enum WorkItem {
     ReachableSize(NodeOrdinal),
     RetainerPlan(PendingRetainerPlan),
+    ExtensionName(String),
 }
 
 pub(super) enum WorkResult {
@@ -229,6 +230,10 @@ pub(super) enum WorkResult {
     RetainerPlan {
         request: PendingRetainerPlan,
         plan: RetainerAutoExpandPlan,
+    },
+    ExtensionName {
+        extension_id: String,
+        name: Option<String>,
     },
 }
 

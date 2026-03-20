@@ -31,7 +31,7 @@ mod history;
 mod input;
 mod render;
 mod views;
-use history::{load_history, save_history};
+use history::{load_extension_names, load_history, save_extension_names, save_history};
 
 pub mod bench;
 
@@ -168,6 +168,10 @@ struct App {
     reachable_sizes: FxHashMap<NodeOrdinal, f64>,
     // ordinals currently being computed on background threads
     reachable_pending: FxHashSet<NodeOrdinal>,
+    // resolved chrome extension names (extension_id -> name)
+    extension_names: FxHashMap<String, String>,
+    // extension IDs currently being looked up or already resolved
+    extension_pending: FxHashSet<String>,
     // send work to the thread pool
     work_tx: mpsc::Sender<WorkItem>,
     // receive completed results from the thread pool
@@ -307,6 +311,8 @@ impl App {
             contexts_state: TreeState::new(),
             reachable_sizes: FxHashMap::default(),
             reachable_pending: FxHashSet::default(),
+            extension_names: FxHashMap::default(),
+            extension_pending: FxHashSet::default(),
             work_tx,
             result_rx,
             history: Vec::new(),
@@ -360,6 +366,26 @@ impl App {
         self.current_view = view;
         if view == ViewType::Contexts {
             self.queue_contexts_reachable(snap);
+            self.queue_extension_name_lookups(snap);
+        }
+    }
+
+    fn queue_extension_name_lookups(&mut self, snap: &HeapSnapshot) {
+        for &ord in snap.native_contexts() {
+            let ord = NodeOrdinal(ord);
+            if let Some(url) = snap.native_context_url(ord) {
+                if let Some(ext_id) = url
+                    .strip_prefix("chrome-extension://")
+                    .and_then(|s| s.split('/').next())
+                {
+                    if !self.extension_names.contains_key(ext_id)
+                        && !self.extension_pending.contains(ext_id)
+                    {
+                        self.extension_pending.insert(ext_id.to_string());
+                        let _ = self.work_tx.send(WorkItem::ExtensionName(ext_id.to_string()));
+                    }
+                }
+            }
         }
     }
 
@@ -521,6 +547,13 @@ pub fn run(
                         );
                         let _ = result_tx.send(WorkResult::RetainerPlan { request, plan });
                     }
+                    WorkItem::ExtensionName(extension_id) => {
+                        let name = crate::resolve_chrome_extension_name(&extension_id);
+                        let _ = result_tx.send(WorkResult::ExtensionName {
+                            extension_id,
+                            name,
+                        });
+                    }
                 }
             }
         });
@@ -534,6 +567,7 @@ pub fn run(
         app.push_history(*ord);
     }
     app.reachable_sizes = reachable;
+    app.extension_names = load_extension_names();
 
     let mut needs_redraw = true;
 
@@ -564,6 +598,7 @@ pub fn run(
 
     // Persist history and reachable sizes to disk
     save_history(&path, &app.history, &app.reachable_sizes, &snap);
+    save_extension_names(&app.extension_names);
 
     disable_raw_mode()?;
     execute!(terminal.backend_mut(), LeaveAlternateScreen)?;

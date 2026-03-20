@@ -365,6 +365,14 @@ impl App {
                         self.retainers.plan_pending = None;
                     }
                 }
+                WorkResult::ExtensionName { extension_id, name } => {
+                    self.extension_pending.remove(&extension_id);
+                    if let Some(name) = name {
+                        self.extension_names.insert(extension_id, name);
+                        self.mark_rows_dirty();
+                        changed = true;
+                    }
+                }
             }
         }
         changed
