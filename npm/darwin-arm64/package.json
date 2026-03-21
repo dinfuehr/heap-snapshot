@@ -1,6 +1,6 @@
 {
   "name": "@heap-snapshot/darwin-arm64",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "description": "V8 heap snapshot analyzer (macOS ARM64)",
   "license": "MIT",
   "preferUnplugged": true,
