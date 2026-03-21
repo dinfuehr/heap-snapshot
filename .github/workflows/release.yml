@@ -68,6 +68,7 @@ jobs:
             cp target/${{ matrix.target }}/release/heap-snapshot.exe npm/${{ matrix.npm_pkg }}/
           else
             cp target/${{ matrix.target }}/release/heap-snapshot npm/${{ matrix.npm_pkg }}/
+            chmod +x npm/${{ matrix.npm_pkg }}/heap-snapshot
           fi
 
       - uses: actions/upload-artifact@v4
