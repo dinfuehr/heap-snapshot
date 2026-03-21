@@ -1,5 +1,5 @@
 {
-  "name": "heap-snapshot",
+  "name": "@heap-snapshot/cli",
   "version": "0.0.2",
   "description": "V8 heap snapshot analyzer",
   "license": "MIT",
