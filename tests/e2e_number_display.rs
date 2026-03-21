@@ -15,7 +15,11 @@ fn run(subcommand: &str, file: &str, extra: &[&str]) -> String {
 
 #[test]
 fn containment_smi_display_name() {
-    let output = run("containment", "primitives.heapsnapshot", &["@19393", "--depth", "0"]);
+    let output = run(
+        "containment",
+        "primitives.heapsnapshot",
+        &["@19393", "--depth", "0"],
+    );
     assert!(
         output.contains("smi 42"),
         "expected 'smi 42' in output, got:\n{output}"
@@ -24,7 +28,11 @@ fn containment_smi_display_name() {
 
 #[test]
 fn containment_heap_number_display_name() {
-    let output = run("containment", "primitives.heapsnapshot", &["@21089", "--depth", "0"]);
+    let output = run(
+        "containment",
+        "primitives.heapsnapshot",
+        &["@21089", "--depth", "0"],
+    );
     assert!(
         output.contains("double 12.75"),
         "expected 'double 12.75' in output, got:\n{output}"

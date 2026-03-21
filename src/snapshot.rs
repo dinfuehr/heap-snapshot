@@ -2725,7 +2725,11 @@ impl HeapSnapshot {
             let raw_name = self.node_raw_name(ordinal);
             if raw_name == "smi number" || raw_name == "heap number" {
                 if let Some(value_ord) = self.find_edge_target(ordinal, "value") {
-                    let prefix = if raw_name == "smi number" { "smi" } else { "double" };
+                    let prefix = if raw_name == "smi number" {
+                        "smi"
+                    } else {
+                        "double"
+                    };
                     return format!("{prefix} {}", self.node_raw_name(value_ord));
                 }
             }
@@ -3170,10 +3174,8 @@ impl HeapSnapshot {
                 });
         }
 
-        let mut result: Vec<DuplicateStringInfo> = groups
-            .into_values()
-            .filter(|e| e.count >= 2)
-            .collect();
+        let mut result: Vec<DuplicateStringInfo> =
+            groups.into_values().filter(|e| e.count >= 2).collect();
         result.sort_by(|a, b| {
             b.wasted_size()
                 .partial_cmp(&a.wasted_size())

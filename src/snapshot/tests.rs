@@ -570,20 +570,30 @@ fn test_node_display_name_number_types() {
     // Node 4: string, "42" (value target for smi)
     // Node 5: string, "12.75" (value target for heap number)
     let nodes: Vec<u32> = vec![
-        9, 0, 1, 0, 1,    // node 0: synthetic root
-        9, 1, 2, 0, 2,    // node 1: (GC roots), 2 edges to node 2 and 3
-        7, 2, 3, 0, 1,    // node 2: number, "smi number", 1 edge
-        7, 4, 4, 12, 1,   // node 3: number, "heap number", 1 edge
-        2, 3, 5, 0, 0,    // node 4: string, "42"
-        2, 5, 6, 0, 0,    // node 5: string, "12.75"
+        9, 0, 1, 0, 1, // node 0: synthetic root
+        9, 1, 2, 0, 2, // node 1: (GC roots), 2 edges to node 2 and 3
+        7, 2, 3, 0, 1, // node 2: number, "smi number", 1 edge
+        7, 4, 4, 12, 1, // node 3: number, "heap number", 1 edge
+        2, 3, 5, 0, 0, // node 4: string, "42"
+        2, 5, 6, 0, 0, // node 5: string, "12.75"
     ];
 
     let edges: Vec<u32> = vec![
-        1, 0, 1 * nfc as u32,  // root -> (GC roots)
-        3, 6, 2 * nfc as u32,  // (GC roots) -> node 2 (internal)
-        3, 6, 3 * nfc as u32,  // (GC roots) -> node 3 (internal)
-        3, 6, 4 * nfc as u32,  // node 2 -> node 4 (internal "value")
-        3, 6, 5 * nfc as u32,  // node 3 -> node 5 (internal "value")
+        1,
+        0,
+        1 * nfc as u32, // root -> (GC roots)
+        3,
+        6,
+        2 * nfc as u32, // (GC roots) -> node 2 (internal)
+        3,
+        6,
+        3 * nfc as u32, // (GC roots) -> node 3 (internal)
+        3,
+        6,
+        4 * nfc as u32, // node 2 -> node 4 (internal "value")
+        3,
+        6,
+        5 * nfc as u32, // node 3 -> node 5 (internal "value")
     ];
 
     let raw = RawHeapSnapshot {
@@ -5533,16 +5543,12 @@ fn test_duplicate_strings_basic() {
     let snap = build_snapshot(
         standard_node_fields(),
         vec![
-            9, 0, 1, 0, 1,    // 0: root
-            9, 1, 3, 0, 2,    // 1: GC roots
-            2, 2, 5, 40, 0,   // 2: string "hello", 40 bytes
-            2, 2, 7, 40, 0,   // 3: string "hello", 40 bytes
+            9, 0, 1, 0, 1, // 0: root
+            9, 1, 3, 0, 2, // 1: GC roots
+            2, 2, 5, 40, 0, // 2: string "hello", 40 bytes
+            2, 2, 7, 40, 0, // 3: string "hello", 40 bytes
         ],
-        vec![
-            1, 0, n(1),
-            2, 3, n(2),
-            2, 3, n(3),
-        ],
+        vec![1, 0, n(1), 2, 3, n(2), 2, 3, n(3)],
         s(&["", "(GC roots)", "hello", "ref"]),
     );
     let dupes = snap.duplicate_strings();
@@ -5561,16 +5567,12 @@ fn test_duplicate_strings_no_duplicates() {
     let snap = build_snapshot(
         standard_node_fields(),
         vec![
-            9, 0, 1, 0, 1,    // 0: root
-            9, 1, 3, 0, 2,    // 1: GC roots
-            2, 2, 5, 40, 0,   // 2: string "hello"
-            2, 3, 7, 40, 0,   // 3: string "world"
+            9, 0, 1, 0, 1, // 0: root
+            9, 1, 3, 0, 2, // 1: GC roots
+            2, 2, 5, 40, 0, // 2: string "hello"
+            2, 3, 7, 40, 0, // 3: string "world"
         ],
-        vec![
-            1, 0, n(1),
-            2, 4, n(2),
-            2, 4, n(3),
-        ],
+        vec![1, 0, n(1), 2, 4, n(2), 2, 4, n(3)],
         s(&["", "(GC roots)", "hello", "world", "ref"]),
     );
     let dupes = snap.duplicate_strings();
@@ -5585,16 +5587,12 @@ fn test_duplicate_strings_empty_strings_excluded() {
     let snap = build_snapshot(
         standard_node_fields(),
         vec![
-            9, 0, 1, 0, 1,    // 0: root
-            9, 1, 3, 0, 2,    // 1: GC roots
-            2, 0, 5, 10, 0,   // 2: string "" (name index 0 = "")
-            2, 0, 7, 10, 0,   // 3: string ""
+            9, 0, 1, 0, 1, // 0: root
+            9, 1, 3, 0, 2, // 1: GC roots
+            2, 0, 5, 10, 0, // 2: string "" (name index 0 = "")
+            2, 0, 7, 10, 0, // 3: string ""
         ],
-        vec![
-            1, 0, n(1),
-            2, 2, n(2),
-            2, 2, n(3),
-        ],
+        vec![1, 0, n(1), 2, 2, n(2), 2, 2, n(3)],
         s(&["", "(GC roots)", "ref"]),
     );
     let dupes = snap.duplicate_strings();
@@ -5609,16 +5607,12 @@ fn test_duplicate_strings_non_string_nodes_excluded() {
     let snap = build_snapshot(
         standard_node_fields(),
         vec![
-            9, 0, 1, 0, 1,    // 0: root
-            9, 1, 3, 0, 2,    // 1: GC roots
-            3, 2, 5, 40, 0,   // 2: object "Foo" (type 3 = object)
-            3, 2, 7, 40, 0,   // 3: object "Foo"
+            9, 0, 1, 0, 1, // 0: root
+            9, 1, 3, 0, 2, // 1: GC roots
+            3, 2, 5, 40, 0, // 2: object "Foo" (type 3 = object)
+            3, 2, 7, 40, 0, // 3: object "Foo"
         ],
-        vec![
-            1, 0, n(1),
-            2, 3, n(2),
-            2, 3, n(3),
-        ],
+        vec![1, 0, n(1), 2, 3, n(2), 2, 3, n(3)],
         s(&["", "(GC roots)", "Foo", "ref"]),
     );
     let dupes = snap.duplicate_strings();
@@ -5634,21 +5628,33 @@ fn test_duplicate_strings_sorted_by_wasted_size() {
     let snap = build_snapshot(
         standard_node_fields(),
         vec![
-            9, 0, 1, 0, 1,      // 0: root
-            9, 1, 3, 0, 5,      // 1: GC roots
-            2, 2, 5, 100, 0,    // 2: string "big"
-            2, 2, 7, 100, 0,    // 3: string "big"
-            2, 3, 9, 20, 0,     // 4: string "small"
-            2, 3, 11, 20, 0,    // 5: string "small"
-            2, 3, 13, 20, 0,    // 6: string "small"
+            9, 0, 1, 0, 1, // 0: root
+            9, 1, 3, 0, 5, // 1: GC roots
+            2, 2, 5, 100, 0, // 2: string "big"
+            2, 2, 7, 100, 0, // 3: string "big"
+            2, 3, 9, 20, 0, // 4: string "small"
+            2, 3, 11, 20, 0, // 5: string "small"
+            2, 3, 13, 20, 0, // 6: string "small"
         ],
         vec![
-            1, 0, n(1),
-            2, 4, n(2),
-            2, 4, n(3),
-            2, 4, n(4),
-            2, 4, n(5),
-            2, 4, n(6),
+            1,
+            0,
+            n(1),
+            2,
+            4,
+            n(2),
+            2,
+            4,
+            n(3),
+            2,
+            4,
+            n(4),
+            2,
+            4,
+            n(5),
+            2,
+            4,
+            n(6),
         ],
         s(&["", "(GC roots)", "big", "small", "ref"]),
     );
@@ -5668,20 +5674,14 @@ fn test_duplicate_strings_multiple_copies() {
     let snap = build_snapshot(
         standard_node_fields(),
         vec![
-            9, 0, 1, 0, 1,    // 0: root
-            9, 1, 3, 0, 4,    // 1: GC roots
-            2, 2, 5, 50, 0,   // 2: string "dup"
-            2, 2, 7, 50, 0,   // 3: string "dup"
-            2, 2, 9, 50, 0,   // 4: string "dup"
-            2, 2, 11, 50, 0,  // 5: string "dup"
+            9, 0, 1, 0, 1, // 0: root
+            9, 1, 3, 0, 4, // 1: GC roots
+            2, 2, 5, 50, 0, // 2: string "dup"
+            2, 2, 7, 50, 0, // 3: string "dup"
+            2, 2, 9, 50, 0, // 4: string "dup"
+            2, 2, 11, 50, 0, // 5: string "dup"
         ],
-        vec![
-            1, 0, n(1),
-            2, 3, n(2),
-            2, 3, n(3),
-            2, 3, n(4),
-            2, 3, n(5),
-        ],
+        vec![1, 0, n(1), 2, 3, n(2), 2, 3, n(3), 2, 3, n(4), 2, 3, n(5)],
         s(&["", "(GC roots)", "dup", "ref"]),
     );
     let dupes = snap.duplicate_strings();
