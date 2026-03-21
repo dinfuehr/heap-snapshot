@@ -4,8 +4,12 @@
   "description": "V8 heap snapshot analyzer (Windows x64)",
   "license": "MIT",
   "preferUnplugged": true,
-  "os": ["win32"],
-  "cpu": ["x64"],
+  "os": [
+    "win32"
+  ],
+  "cpu": [
+    "x64"
+  ],
   "engines": {
     "node": ">=16"
   }

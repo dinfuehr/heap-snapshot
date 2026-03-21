@@ -4,8 +4,12 @@
   "description": "V8 heap snapshot analyzer (Linux x64)",
   "license": "MIT",
   "preferUnplugged": true,
-  "os": ["linux"],
-  "cpu": ["x64"],
+  "os": [
+    "linux"
+  ],
+  "cpu": [
+    "x64"
+  ],
   "engines": {
     "node": ">=16"
   }

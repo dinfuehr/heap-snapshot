@@ -4,8 +4,12 @@
   "description": "V8 heap snapshot analyzer (macOS ARM64)",
   "license": "MIT",
   "preferUnplugged": true,
-  "os": ["darwin"],
-  "cpu": ["arm64"],
+  "os": [
+    "darwin"
+  ],
+  "cpu": [
+    "arm64"
+  ],
   "engines": {
     "node": ">=16"
   }
