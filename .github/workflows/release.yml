@@ -17,14 +17,19 @@ jobs:
         include:
           - target: aarch64-apple-darwin
             os: macos-latest
+            npm_pkg: darwin-arm64
           - target: x86_64-unknown-linux-gnu
             os: ubuntu-latest
+            npm_pkg: linux-x64
           - target: aarch64-unknown-linux-gnu
             os: ubuntu-latest
+            npm_pkg: linux-arm64
           - target: x86_64-pc-windows-msvc
             os: windows-latest
+            npm_pkg: win32-x64
           - target: aarch64-pc-windows-msvc
             os: windows-latest
+            npm_pkg: win32-arm64
 
     steps:
       - uses: actions/checkout@v4
@@ -56,10 +61,24 @@ jobs:
           cd target/${{ matrix.target }}/release
           7z a ../../../heap-snapshot-${{ matrix.target }}.zip heap-snapshot.exe
 
+      - name: Copy binary into npm package
+        shell: bash
+        run: |
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            cp target/${{ matrix.target }}/release/heap-snapshot.exe npm/${{ matrix.npm_pkg }}/
+          else
+            cp target/${{ matrix.target }}/release/heap-snapshot npm/${{ matrix.npm_pkg }}/
+          fi
+
       - uses: actions/upload-artifact@v4
         with:
           name: heap-snapshot-${{ matrix.target }}
           path: heap-snapshot-${{ matrix.target }}.*
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: npm-${{ matrix.npm_pkg }}
+          path: npm/${{ matrix.npm_pkg }}
 
   release:
     name: Create Release
@@ -68,9 +87,47 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
+          pattern: heap-snapshot-*
           merge-multiple: true
 
       - uses: softprops/action-gh-release@v2
         with:
           files: heap-snapshot-*
           generate_release_notes: true
+
+  npm-publish:
+    name: Publish npm packages
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: https://registry.npmjs.org
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: npm-*
+          path: npm-artifacts
+
+      - name: Publish platform packages
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          for pkg in darwin-arm64 linux-x64 linux-arm64 win32-x64 win32-arm64; do
+            echo "Publishing @heap-snapshot/${pkg}..."
+            cp -r npm-artifacts/npm-${pkg} pkg
+            cd pkg
+            npm publish --access public
+            cd ..
+            rm -rf pkg
+          done
+
+      - name: Publish main package
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          cd npm/heap-snapshot
+          npm publish --access public

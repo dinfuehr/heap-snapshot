@@ -1,0 +1,44 @@
+#!/usr/bin/env node
+
+const { execFileSync } = require("child_process");
+const path = require("path");
+
+const PLATFORMS = {
+  "darwin-arm64": "@heap-snapshot/darwin-arm64",
+  "linux-x64": "@heap-snapshot/linux-x64",
+  "linux-arm64": "@heap-snapshot/linux-arm64",
+  "win32-x64": "@heap-snapshot/win32-x64",
+  "win32-arm64": "@heap-snapshot/win32-arm64",
+};
+
+const key = `${process.platform}-${process.arch}`;
+const pkg = PLATFORMS[key];
+
+if (!pkg) {
+  console.error(
+    `Error: heap-snapshot does not have a prebuilt binary for ${key}.`
+  );
+  process.exit(1);
+}
+
+let binPath;
+try {
+  const exe = process.platform === "win32" ? "heap-snapshot.exe" : "heap-snapshot";
+  binPath = path.join(path.dirname(require.resolve(`${pkg}/package.json`)), exe);
+} catch (e) {
+  console.error(
+    `Error: Could not find the ${pkg} package.\n` +
+      "Make sure it was installed — optional dependencies may have been skipped.\n" +
+      "Try reinstalling with: npm install heap-snapshot"
+  );
+  process.exit(1);
+}
+
+try {
+  execFileSync(binPath, process.argv.slice(2), { stdio: "inherit" });
+} catch (e) {
+  if (e.status !== undefined) {
+    process.exit(e.status);
+  }
+  throw e;
+}
