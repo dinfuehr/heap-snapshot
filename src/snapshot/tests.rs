@@ -502,6 +502,120 @@ fn test_node_display_name() {
 }
 
 #[test]
+fn test_node_display_name_number_types() {
+    // node_fields: type(0), name(1), id(2), self_size(3), edge_count(4)
+    let node_fields: Vec<String> = ["type", "name", "id", "self_size", "edge_count"]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+    let nfc = node_fields.len();
+
+    let node_type_enum: Vec<String> = [
+        "hidden",
+        "array",
+        "string",
+        "object",
+        "code",
+        "closure",
+        "regexp",
+        "number",
+        "native",
+        "synthetic",
+        "concatenated string",
+        "sliced string",
+        "symbol",
+        "bigint",
+    ]
+    .iter()
+    .map(|s| s.to_string())
+    .collect();
+
+    let edge_fields: Vec<String> = ["type", "name_or_index", "to_node"]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+    let efc = edge_fields.len();
+
+    let edge_type_enum: Vec<String> = [
+        "context", "element", "property", "internal", "hidden", "shortcut", "weak",
+    ]
+    .iter()
+    .map(|s| s.to_string())
+    .collect();
+
+    // Strings:
+    // 0: ""           1: "(GC roots)"  2: "smi number"
+    // 3: "42"         4: "heap number" 5: "12.75"
+    // 6: "value"
+    let strings: Vec<String> = [
+        "",
+        "(GC roots)",
+        "smi number",
+        "42",
+        "heap number",
+        "12.75",
+        "value",
+    ]
+    .iter()
+    .map(|s| s.to_string())
+    .collect();
+
+    // type indices: number=7, synthetic=9, string=2
+    // edge types: element=1, internal=3
+    //
+    // Node 0: synthetic root
+    // Node 1: (GC roots)
+    // Node 2: number, "smi number" -- has internal "value" edge to node 4
+    // Node 3: number, "heap number" -- has internal "value" edge to node 5
+    // Node 4: string, "42" (value target for smi)
+    // Node 5: string, "12.75" (value target for heap number)
+    let nodes: Vec<u32> = vec![
+        9, 0, 1, 0, 1,    // node 0: synthetic root
+        9, 1, 2, 0, 2,    // node 1: (GC roots), 2 edges to node 2 and 3
+        7, 2, 3, 0, 1,    // node 2: number, "smi number", 1 edge
+        7, 4, 4, 12, 1,   // node 3: number, "heap number", 1 edge
+        2, 3, 5, 0, 0,    // node 4: string, "42"
+        2, 5, 6, 0, 0,    // node 5: string, "12.75"
+    ];
+
+    let edges: Vec<u32> = vec![
+        1, 0, 1 * nfc as u32,  // root -> (GC roots)
+        3, 6, 2 * nfc as u32,  // (GC roots) -> node 2 (internal)
+        3, 6, 3 * nfc as u32,  // (GC roots) -> node 3 (internal)
+        3, 6, 4 * nfc as u32,  // node 2 -> node 4 (internal "value")
+        3, 6, 5 * nfc as u32,  // node 3 -> node 5 (internal "value")
+    ];
+
+    let raw = RawHeapSnapshot {
+        snapshot: SnapshotHeader {
+            meta: SnapshotMeta {
+                node_fields,
+                node_type_enum,
+                edge_fields,
+                edge_type_enum,
+                location_fields: vec![],
+                sample_fields: vec![],
+                trace_function_info_fields: vec![],
+                trace_node_fields: vec![],
+            },
+            node_count: nodes.len() / nfc,
+            edge_count: edges.len() / efc,
+            trace_function_count: 0,
+            root_index: Some(0),
+            extra_native_bytes: None,
+        },
+        nodes,
+        edges,
+        strings,
+        locations: vec![],
+    };
+
+    let snap = HeapSnapshot::new(raw);
+    assert_eq!(snap.node_display_name(NodeOrdinal(2)), "smi 42");
+    assert_eq!(snap.node_display_name(NodeOrdinal(3)), "double 12.75");
+}
+
+#[test]
 fn test_normalize_constructor_type_for_js_globals() {
     assert_eq!(
         HeapSnapshot::normalize_constructor_type("Window (global*)"),

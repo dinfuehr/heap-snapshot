@@ -70,6 +70,7 @@ pub struct HeapSnapshot {
     node_synthetic_type: u32,
     node_closure_type: u32,
     node_regexp_type: u32,
+    node_number_type: u32,
 
     // Edge type constants
     edge_types: Vec<String>,
@@ -190,6 +191,7 @@ impl HeapSnapshot {
         let node_synthetic_type = find_node_type("synthetic");
         let node_closure_type = find_node_type("closure");
         let node_regexp_type = find_node_type("regexp");
+        let node_number_type = find_node_type("number");
 
         // Edge field offsets
         let edge_fields_count = meta.edge_fields.len();
@@ -279,6 +281,7 @@ impl HeapSnapshot {
             node_synthetic_type,
             node_closure_type,
             node_regexp_type,
+            node_number_type,
             edge_types,
             edge_element_type,
             edge_hidden_type,
@@ -2715,6 +2718,16 @@ impl HeapSnapshot {
             let raw_name = self.node_raw_name(ordinal);
             if raw_name == "Object" {
                 return self.plain_object_name(ordinal);
+            }
+        }
+
+        if raw_type == self.node_number_type {
+            let raw_name = self.node_raw_name(ordinal);
+            if raw_name == "smi number" || raw_name == "heap number" {
+                if let Some(value_ord) = self.find_edge_target(ordinal, "value") {
+                    let prefix = if raw_name == "smi number" { "smi" } else { "double" };
+                    return format!("{prefix} {}", self.node_raw_name(value_ord));
+                }
             }
         }
 
