@@ -1,6 +1,6 @@
 {
   "name": "@heap-snapshot/linux-arm64",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "V8 heap snapshot analyzer (Linux ARM64)",
   "license": "MIT",
   "preferUnplugged": true,
