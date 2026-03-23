@@ -4,6 +4,7 @@
 # dependencies = ["psutil"]
 # ///
 
+import os
 import sys
 import time
 import psutil
@@ -13,7 +14,7 @@ def main():
     max_rss: dict[int, float] = {}
     # PIDs we've seen that are no longer alive — keep to show "exited" line.
     exited: dict[int, float] = {}
-    prev_lines = 0
+    prev_rows = 0
 
     while True:
         alive_pids: set[int] = set()
@@ -49,13 +50,16 @@ def main():
             lines.append("(no heap-snapshot processes found)")
 
         # Move cursor up to overwrite previous output.
-        if prev_lines > 0:
-            sys.stdout.write(f"\033[{prev_lines}A\033[J")
+        if prev_rows > 0:
+            sys.stdout.write(f"\033[{prev_rows}A\033[J")
 
         output = "\n".join(lines)
         sys.stdout.write(output + "\n")
         sys.stdout.flush()
-        prev_lines = len(lines)
+
+        # Count physical terminal rows consumed (lines that wrap use >1 row).
+        cols = os.get_terminal_size(sys.stdout.fileno()).columns
+        prev_rows = sum((max(len(line), 1) - 1) // cols + 1 for line in lines)
 
         time.sleep(1)
 
