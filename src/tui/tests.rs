@@ -880,7 +880,10 @@ fn test_edge_filter_resets_edge_paging_and_is_unavailable_in_retainers() {
     let children = app
         .containment_state
         .children_map
-        .get(&ChildrenKey::Edges(app.containment_root_id, snap.synthetic_root_ordinal()))
+        .get(&ChildrenKey::Edges(
+            app.containment_root_id,
+            snap.synthetic_root_ordinal(),
+        ))
         .unwrap();
     assert!(
         children
@@ -4270,6 +4273,121 @@ fn test_extension_name_via_drain_results_updates_label() {
     );
 }
 
+/// Build a three-level chain: root → (GC roots) → Parent → Child → Grandchild
+fn make_chain_for_collapse_snapshot() -> HeapSnapshot {
+    let strings: Vec<String> = [
+        "",           // 0
+        "(GC roots)", // 1
+        "Parent",     // 2
+        "Child",      // 3
+        "Grandchild", // 4
+        "child",      // 5  (edge name)
+        "grandchild", // 6  (edge name)
+    ]
+    .iter()
+    .map(|s| s.to_string())
+    .collect();
+
+    let node_index = |ordinal: u32| ordinal * 5;
+
+    let nodes: Vec<u32> = vec![
+        9, 0, 1, 0, 1, // [0] synthetic root
+        9, 1, 2, 0, 1, // [1] (GC roots)
+        3, 2, 3, 100, 1, // [2] Parent  (1 edge → Child)
+        3, 3, 4, 50, 1, // [3] Child   (1 edge → Grandchild)
+        3, 4, 5, 10, 0, // [4] Grandchild (leaf)
+    ];
+
+    let edges: Vec<u32> = vec![
+        1, 0, node_index(1), // root → (GC roots)
+        1, 0, node_index(2), // (GC roots) → Parent
+        2, 5, node_index(3), // Parent → Child
+        2, 6, node_index(4), // Child → Grandchild
+    ];
+
+    build_snapshot(strings, nodes, edges)
+}
+
+/// Collapsing a node must evict children_map and edge_windows entries for
+/// the collapsed node and all its descendants.
+#[test]
+fn collapse_evicts_children_map_and_edge_windows() {
+    let snap = make_chain_for_collapse_snapshot();
+    let (work_tx, _work_rx) = mpsc::channel();
+    let (_result_tx, result_rx) = mpsc::channel();
+    let mut app = App::new(&snap, Vec::new(), work_tx, result_rx);
+    app.current_view = ViewType::Containment;
+    app.rebuild_rows(&snap);
+
+    // Expand (GC roots) → Parent becomes visible
+    let gcr_idx = find_row_index_by_ordinal(&app, NodeOrdinal(1));
+    let gcr_id = app.cached_rows[gcr_idx].nav.id;
+    let gcr_ck = app.cached_rows[gcr_idx].nav.children_key.clone();
+    app.expand(gcr_id, gcr_ck.clone(), &snap);
+    app.rebuild_rows(&snap);
+
+    // Expand Parent → Child becomes visible
+    let parent_idx = find_row_index_by_ordinal(&app, NodeOrdinal(2));
+    let parent_id = app.cached_rows[parent_idx].nav.id;
+    let parent_ck = app.cached_rows[parent_idx].nav.children_key.clone();
+    app.expand(parent_id, parent_ck.clone(), &snap);
+    app.rebuild_rows(&snap);
+
+    // Expand Child → Grandchild becomes visible
+    let child_idx = find_row_index_by_ordinal(&app, NodeOrdinal(3));
+    let child_id = app.cached_rows[child_idx].nav.id;
+    let child_ck = app.cached_rows[child_idx].nav.children_key.clone();
+    app.expand(child_id, child_ck.clone(), &snap);
+    app.rebuild_rows(&snap);
+
+    // Insert a custom edge_window for Child to verify it gets cleaned up.
+    app.containment_state
+        .edge_windows
+        .insert(child_id, EdgeWindow { start: 0, count: 5 });
+
+    // Verify caches are populated.
+    let parent_ck = parent_ck.unwrap();
+    let child_ck = child_ck.unwrap();
+    assert!(
+        app.containment_state.children_map.contains_key(&parent_ck),
+        "parent children should be cached before collapse"
+    );
+    assert!(
+        app.containment_state.children_map.contains_key(&child_ck),
+        "child children should be cached before collapse"
+    );
+    assert!(
+        app.containment_state.edge_windows.contains_key(&child_id),
+        "child edge_window should exist before collapse"
+    );
+
+    // Collapse (GC roots) — should evict everything under it.
+    app.collapse(gcr_id);
+    app.rebuild_rows(&snap);
+
+    // children_map entries for Parent and Child should be gone.
+    assert!(
+        !app.containment_state.children_map.contains_key(&parent_ck),
+        "parent children_map entry should be evicted after collapse"
+    );
+    assert!(
+        !app.containment_state.children_map.contains_key(&child_ck),
+        "child children_map entry should be evicted after collapse"
+    );
+    // The (GC roots) own children entry should also be evicted.
+    let gcr_ck = gcr_ck.unwrap();
+    assert!(
+        !app.containment_state.children_map.contains_key(&gcr_ck),
+        "collapsed node's own children_map entry should be evicted"
+    );
+
+    // edge_windows for descendant rows should be evicted too.
+    assert!(
+        !app.containment_state.edge_windows.contains_key(&child_id),
+        "descendant edge_window should be evicted after collapse"
+    );
+}
+
 /// Build a snapshot where a node has an edge pointing back to itself.
 ///
 ///   [0] synthetic root  --element-->  [1] (GC roots)  --element-->  [2] SelfRef
@@ -4301,10 +4419,18 @@ fn make_self_cycle_snapshot() -> HeapSnapshot {
 
     // Edges: [type, name_or_index, to_node]
     let edges: Vec<u32> = vec![
-        1, 0, node_index(1), // root -> (GC roots)
-        1, 0, node_index(2), // (GC roots) -> SelfRef
-        2, 4, node_index(2), // SelfRef -> SelfRef  (SELF-CYCLE)
-        2, 5, node_index(3), // SelfRef -> Leaf
+        1,
+        0,
+        node_index(1), // root -> (GC roots)
+        1,
+        0,
+        node_index(2), // (GC roots) -> SelfRef
+        2,
+        4,
+        node_index(2), // SelfRef -> SelfRef  (SELF-CYCLE)
+        2,
+        5,
+        node_index(3), // SelfRef -> Leaf
     ];
 
     build_snapshot(strings, nodes, edges)
@@ -4339,7 +4465,10 @@ fn self_cycle_does_not_cause_infinite_expansion() {
     // Find the first occurrence of SelfRef (ordinal 2).
     let self_ref_ord = NodeOrdinal(2);
     let idx = find_row_index_by_ordinal(&app, self_ref_ord);
-    let (id, ck) = (app.cached_rows[idx].nav.id, app.cached_rows[idx].nav.children_key.clone());
+    let (id, ck) = (
+        app.cached_rows[idx].nav.id,
+        app.cached_rows[idx].nav.children_key.clone(),
+    );
 
     // Expand it — this computes children for SelfRef, which includes itself.
     app.expand(id, ck, &snap);

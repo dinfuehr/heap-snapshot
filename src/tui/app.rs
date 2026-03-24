@@ -795,7 +795,17 @@ impl App {
     }
 
     pub(super) fn collapse(&mut self, id: NodeId) {
-        let to_remove: Vec<NodeId> = self
+        // Collect info from the subtree rows before taking a mutable borrow.
+        struct SubtreeRow {
+            id: NodeId,
+            children_key: Option<ChildrenKey>,
+        }
+        let collapsed_children_key: Option<ChildrenKey> = self
+            .cached_rows
+            .iter()
+            .find(|r| r.nav.id == id)
+            .and_then(|r| r.nav.children_key.clone());
+        let subtree: Vec<SubtreeRow> = self
             .cached_rows
             .iter()
             .position(|r| r.nav.id == id)
@@ -803,14 +813,28 @@ impl App {
                 let end_idx = self.subtree_end_index(idx);
                 self.cached_rows[idx + 1..=end_idx]
                     .iter()
-                    .map(|r| r.nav.id)
+                    .map(|r| SubtreeRow {
+                        id: r.nav.id,
+                        children_key: r.nav.children_key.clone(),
+                    })
                     .collect()
             })
             .unwrap_or_default();
         let state = self.current_tree_state_mut();
         state.expanded.remove(&id);
-        for d in to_remove {
-            state.expanded.remove(&d);
+        state.edge_windows.remove(&id);
+        // Evict the collapsed node's own children and all descendant entries
+        // from children_map / edge_windows so we don't retain stale data
+        // indefinitely.
+        if let Some(ck) = collapsed_children_key {
+            state.children_map.remove(&ck);
+        }
+        for row in &subtree {
+            state.expanded.remove(&row.id);
+            state.edge_windows.remove(&row.id);
+            if let Some(ref ck) = row.children_key {
+                state.children_map.remove(ck);
+            }
         }
         self.mark_rows_dirty();
     }
