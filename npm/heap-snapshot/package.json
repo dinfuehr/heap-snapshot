@@ -1,17 +1,17 @@
 {
   "name": "@heap-snapshot/cli",
-  "version": "0.0.5",
+  "version": "0.0.6",
   "description": "V8 heap snapshot analyzer",
   "license": "MIT",
   "bin": {
     "heap-snapshot": "bin/heap-snapshot"
   },
   "optionalDependencies": {
-    "@heap-snapshot/darwin-arm64": "0.0.5",
-    "@heap-snapshot/linux-x64": "0.0.5",
-    "@heap-snapshot/linux-arm64": "0.0.5",
-    "@heap-snapshot/win32-x64": "0.0.5",
-    "@heap-snapshot/win32-arm64": "0.0.5"
+    "@heap-snapshot/darwin-arm64": "0.0.6",
+    "@heap-snapshot/linux-x64": "0.0.6",
+    "@heap-snapshot/linux-arm64": "0.0.6",
+    "@heap-snapshot/win32-x64": "0.0.6",
+    "@heap-snapshot/win32-arm64": "0.0.6"
   },
   "engines": {
     "node": ">=16"
