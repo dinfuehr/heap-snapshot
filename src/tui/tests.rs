@@ -880,7 +880,7 @@ fn test_edge_filter_resets_edge_paging_and_is_unavailable_in_retainers() {
     let children = app
         .containment_state
         .children_map
-        .get(&ChildrenKey::Edges(snap.synthetic_root_ordinal()))
+        .get(&ChildrenKey::Edges(app.containment_root_id, snap.synthetic_root_ordinal()))
         .unwrap();
     assert!(
         children
@@ -1564,7 +1564,7 @@ fn test_shift_edge_window_respects_enlarged_page_size() {
     app.rebuild_rows(&snap);
 
     // Default page: 1–EDGE_PAGE_SIZE
-    let ck = ChildrenKey::Edges(NodeOrdinal(1));
+    let ck = ChildrenKey::Edges(gcr_id, NodeOrdinal(1));
     let children = app.containment_state.children_map.get(&ck).unwrap();
     let status = &children.last().unwrap().label;
     assert!(
@@ -4267,5 +4267,117 @@ fn test_extension_name_via_drain_results_updates_label() {
         !ctx_row.render.label.contains("chrome-extension://"),
         "URL should be replaced after drain_results, got: {}",
         ctx_row.render.label
+    );
+}
+
+/// Build a snapshot where a node has an edge pointing back to itself.
+///
+///   [0] synthetic root  --element-->  [1] (GC roots)  --element-->  [2] SelfRef
+///                                                                        |
+///                                                                        +--property "self"--> [2] SelfRef  (self-cycle)
+///                                                                        +--property "leaf"--> [3] Leaf
+fn make_self_cycle_snapshot() -> HeapSnapshot {
+    let strings: Vec<String> = [
+        "",           // 0
+        "(GC roots)", // 1
+        "SelfRef",    // 2
+        "Leaf",       // 3
+        "self",       // 4
+        "leaf",       // 5
+    ]
+    .iter()
+    .map(|s| s.to_string())
+    .collect();
+
+    let node_index = |ordinal: u32| ordinal * 5;
+
+    // Nodes: [type, name, id, self_size, edge_count]
+    let nodes: Vec<u32> = vec![
+        9, 0, 1, 0, 1, // [0] synthetic root (1 edge to GC roots)
+        9, 1, 2, 0, 1, // [1] (GC roots) (1 edge to SelfRef)
+        3, 2, 3, 100, 2, // [2] SelfRef (2 edges: self + leaf)
+        3, 3, 4, 50, 0, // [3] Leaf (no edges)
+    ];
+
+    // Edges: [type, name_or_index, to_node]
+    let edges: Vec<u32> = vec![
+        1, 0, node_index(1), // root -> (GC roots)
+        1, 0, node_index(2), // (GC roots) -> SelfRef
+        2, 4, node_index(2), // SelfRef -> SelfRef  (SELF-CYCLE)
+        2, 5, node_index(3), // SelfRef -> Leaf
+    ];
+
+    build_snapshot(strings, nodes, edges)
+}
+
+/// Expanding a self-referencing node must not cause unbounded row growth.
+///
+/// Before the fix, `ChildrenKey::Edges` was keyed by `NodeOrdinal` alone, so
+/// the parent and self-child shared the same cache entry. Expanding the child
+/// re-entered the same cached children vector, producing infinite recursion
+/// (or OOM). Now `Edges` is keyed by `(NodeId, NodeOrdinal)`, so each row
+/// gets its own cache slot.
+#[test]
+fn self_cycle_does_not_cause_infinite_expansion() {
+    let snap = make_self_cycle_snapshot();
+    let (work_tx, _work_rx) = mpsc::channel();
+    let (_result_tx, result_rx) = mpsc::channel();
+    let mut app = App::new(&snap, Vec::new(), work_tx, result_rx);
+    app.current_view = ViewType::Containment;
+    app.rebuild_rows(&snap);
+
+    // First expand (GC roots) so SelfRef becomes visible.
+    let gcr_ord = NodeOrdinal(1);
+    let gcr_idx = find_row_index_by_ordinal(&app, gcr_ord);
+    let (gcr_id, gcr_ck) = (
+        app.cached_rows[gcr_idx].nav.id,
+        app.cached_rows[gcr_idx].nav.children_key.clone(),
+    );
+    app.expand(gcr_id, gcr_ck, &snap);
+    app.rebuild_rows(&snap);
+
+    // Find the first occurrence of SelfRef (ordinal 2).
+    let self_ref_ord = NodeOrdinal(2);
+    let idx = find_row_index_by_ordinal(&app, self_ref_ord);
+    let (id, ck) = (app.cached_rows[idx].nav.id, app.cached_rows[idx].nav.children_key.clone());
+
+    // Expand it — this computes children for SelfRef, which includes itself.
+    app.expand(id, ck, &snap);
+    app.rebuild_rows(&snap);
+
+    let rows_after_first = app.cached_rows.len();
+
+    // Find the self-child (second occurrence of ordinal 2, nested under the first).
+    let child_idx = app
+        .cached_rows
+        .iter()
+        .enumerate()
+        .find(|&(i, row)| i != idx && row.node_ordinal() == Some(self_ref_ord))
+        .expect("self-child row should exist after expanding parent")
+        .0;
+    let child_id = app.cached_rows[child_idx].nav.id;
+    let child_ck = app.cached_rows[child_idx].nav.children_key.clone();
+
+    // The child must have a *different* ChildrenKey from the parent so it
+    // gets its own cache entry.
+    let parent_ck = app.cached_rows[idx].nav.children_key.clone();
+    assert!(
+        parent_ck != child_ck,
+        "parent and self-child should have different ChildrenKey"
+    );
+
+    // Expand the self-child.
+    app.expand(child_id, child_ck, &snap);
+    app.rebuild_rows(&snap);
+
+    let rows_after_second = app.cached_rows.len();
+
+    // The second expansion should add a bounded number of new rows (the
+    // children of the self-child: another SelfRef + Leaf + possibly a
+    // status row), NOT an unbounded explosion.
+    let new_rows = rows_after_second - rows_after_first;
+    assert!(
+        new_rows <= 10,
+        "expanding self-child should add a small number of rows, got {new_rows}"
     );
 }

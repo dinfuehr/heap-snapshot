@@ -34,7 +34,7 @@ pub(super) fn compute_children(
                 next_id,
             )
         }
-        ChildrenKey::Edges(ord) => {
+        ChildrenKey::Edges(_, ord) => {
             let w = edge_windows.get(&row_id).copied().unwrap_or_default();
             let filter = edge_filters.get(ord).map(|s| s.as_str()).unwrap_or("");
             compute_edges(snap, *ord, w, filter, next_id)
@@ -44,7 +44,7 @@ pub(super) fn compute_children(
             compute_retainers(snap, *ord, w, retainer_path_edges, next_id)
         }
         ChildrenKey::DominatedChildren(ord) => compute_dominated_children(snap, *ord, next_id),
-        ChildrenKey::CompareEdges(_) | ChildrenKey::DiffMembers(_) => {
+        ChildrenKey::CompareEdges(..) | ChildrenKey::DiffMembers(_) => {
             // CompareEdges/DiffMembers handled specially in expand().
             Vec::new()
         }
@@ -97,8 +97,9 @@ pub(super) fn compute_class_members(
                 let name = snap.node_display_name(ordinal);
                 let node_id = snap.node_id(ordinal);
                 let has_children = snap.node_edge_count(ordinal) > 0;
+                let id = mint_id(next_id);
                 ChildNode {
-                    id: mint_id(next_id),
+                    id,
                     label: format!("{name} @{node_id}").into(),
                     distance: Some(snap.node_distance(ordinal)),
                     shallow_size: snap.node_self_size(ordinal) as f64,
@@ -106,7 +107,7 @@ pub(super) fn compute_class_members(
                     node_ordinal: Some(ordinal),
                     has_children,
                     children_key: if has_children {
-                        Some(ChildrenKey::Edges(ordinal))
+                        Some(ChildrenKey::Edges(id, ordinal))
                     } else {
                         None
                     },
@@ -148,8 +149,9 @@ pub(super) fn compute_class_members(
             let name = snap.node_display_name(ordinal);
             let node_id = snap.node_id(ordinal);
             let has_children = snap.node_edge_count(ordinal) > 0;
+            let id = mint_id(next_id);
             ChildNode {
-                id: mint_id(next_id),
+                id,
                 label: format!("{name} @{node_id}").into(),
                 distance: Some(snap.node_distance(ordinal)),
                 shallow_size: snap.node_self_size(ordinal) as f64,
@@ -157,7 +159,7 @@ pub(super) fn compute_class_members(
                 node_ordinal: Some(ordinal),
                 has_children,
                 children_key: if has_children {
-                    Some(ChildrenKey::Edges(ordinal))
+                    Some(ChildrenKey::Edges(id, ordinal))
                 } else {
                     None
                 },
@@ -208,8 +210,9 @@ fn edge_to_child_node(
         format!("{edge_name} :: {display_name} @{node_id}")
     };
     let has_children = snap.node_edge_count(child_ord) > 0;
+    let id = mint_id(next_id);
     ChildNode {
-        id: mint_id(next_id),
+        id,
         label: label.into(),
         distance: Some(snap.node_distance(child_ord)),
         shallow_size: snap.node_self_size(child_ord) as f64,
@@ -217,7 +220,7 @@ fn edge_to_child_node(
         node_ordinal: Some(child_ord),
         has_children,
         children_key: if has_children {
-            Some(ChildrenKey::Edges(child_ord))
+            Some(ChildrenKey::Edges(id, child_ord))
         } else {
             None
         },
@@ -381,8 +384,8 @@ pub(super) fn compute_compare_edges(
 ) -> Vec<ChildNode> {
     let mut children = compute_edges(snap, ord, w, filter, next_id);
     for child in &mut children {
-        if let Some(ChildrenKey::Edges(o)) = &child.children_key {
-            child.children_key = Some(ChildrenKey::CompareEdges(*o));
+        if let Some(ChildrenKey::Edges(id, o)) = &child.children_key {
+            child.children_key = Some(ChildrenKey::CompareEdges(*id, *o));
         }
     }
     children

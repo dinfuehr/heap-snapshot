@@ -215,7 +215,7 @@ impl App {
         // Pre-populate containment root children
         let containment_root_id = mint_id(&next_id);
         let mut containment_state = TreeState::new();
-        let root_key = ChildrenKey::Edges(snap.synthetic_root_ordinal());
+        let root_key = ChildrenKey::Edges(containment_root_id, snap.synthetic_root_ordinal());
         let root_children = compute_children(
             &root_key,
             containment_root_id,

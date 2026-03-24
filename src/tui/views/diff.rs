@@ -80,8 +80,9 @@ impl App {
         for (node_id, self_size) in &d.new_objects {
             let ordinal = snap.node_for_snapshot_object_id(*node_id);
             let has_edges = ordinal.is_some_and(|o| snap.node_edge_count(o) > 0);
+            let id = mint_id(&self.next_id);
             children.push(ChildNode {
-                id: mint_id(&self.next_id),
+                id,
                 label: format!("+ {} @{node_id}", d.name).into(),
                 distance: ordinal.map(|o| snap.node_distance(o)),
                 shallow_size: *self_size as f64,
@@ -89,7 +90,7 @@ impl App {
                 node_ordinal: ordinal,
                 has_children: has_edges,
                 children_key: if has_edges {
-                    ordinal.map(ChildrenKey::Edges)
+                    ordinal.map(|o| ChildrenKey::Edges(id, o))
                 } else {
                     None
                 },
@@ -104,8 +105,9 @@ impl App {
             let ordinal = compare_snap.and_then(|cs| cs.node_for_snapshot_object_id(*node_id));
             let has_edges =
                 ordinal.is_some_and(|o| compare_snap.is_some_and(|cs| cs.node_edge_count(o) > 0));
+            let id = mint_id(&self.next_id);
             children.push(ChildNode {
-                id: mint_id(&self.next_id),
+                id,
                 label: format!("\u{2212} {} @{node_id}", d.name).into(),
                 distance: ordinal.and_then(|o| compare_snap.map(|cs| cs.node_distance(o))),
                 shallow_size: 0.0,
@@ -113,7 +115,7 @@ impl App {
                 node_ordinal: ordinal,
                 has_children: has_edges,
                 children_key: if has_edges {
-                    ordinal.map(ChildrenKey::CompareEdges)
+                    ordinal.map(|o| ChildrenKey::CompareEdges(id, o))
                 } else {
                     None
                 },

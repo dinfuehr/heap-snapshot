@@ -622,7 +622,7 @@ impl App {
         for i in 0..path.len() - 1 {
             let parent_ord = path[i];
             let child_ord = path[i + 1];
-            let ck = ChildrenKey::Edges(parent_ord);
+            let ck = ChildrenKey::Edges(parent_id, parent_ord);
 
             // Find the child's 0-based position in the rendered edge order.
             // We must use compute_edges (with a full window) so that sorting
@@ -735,7 +735,7 @@ impl App {
             let children = if needs_compute {
                 match &ck {
                     ChildrenKey::DiffMembers(i) => Some(self.compute_diff_members(*i, snap)),
-                    ChildrenKey::CompareEdges(ord) => {
+                    ChildrenKey::CompareEdges(_, ord) => {
                         let cs = &self.diff.compare_snapshots[self.diff.current_idx];
                         let state = self.current_tree_state();
                         let w = state.edge_windows.get(&id).copied().unwrap_or_default();
@@ -823,14 +823,14 @@ impl App {
         let row = self.current_row()?;
 
         match &row.nav.children_key {
-            Some(ChildrenKey::Edges(ord)) if row.nav.is_expanded => {
+            Some(ChildrenKey::Edges(_, ord)) if row.nav.is_expanded => {
                 return Some(PagedChildrenParent::Edges {
                     id: row.nav.id,
                     ordinal: *ord,
                     is_compare: false,
                 });
             }
-            Some(ChildrenKey::CompareEdges(ord)) if row.nav.is_expanded => {
+            Some(ChildrenKey::CompareEdges(_, ord)) if row.nav.is_expanded => {
                 return Some(PagedChildrenParent::Edges {
                     id: row.nav.id,
                     ordinal: *ord,
@@ -853,12 +853,12 @@ impl App {
                 .cached_rows
                 .get(parent_row)
                 .and_then(|r| match &r.nav.children_key {
-                    Some(ChildrenKey::Edges(ord)) => Some(PagedChildrenParent::Edges {
+                    Some(ChildrenKey::Edges(_, ord)) => Some(PagedChildrenParent::Edges {
                         id: r.nav.id,
                         ordinal: *ord,
                         is_compare: false,
                     }),
-                    Some(ChildrenKey::CompareEdges(ord)) => Some(PagedChildrenParent::Edges {
+                    Some(ChildrenKey::CompareEdges(_, ord)) => Some(PagedChildrenParent::Edges {
                         id: r.nav.id,
                         ordinal: *ord,
                         is_compare: true,
@@ -914,14 +914,14 @@ impl App {
         self.rebuild_rows(snap);
         let target_key = match parent {
             PagedChildrenParent::Edges {
+                id,
                 ordinal,
                 is_compare,
-                ..
             } => {
                 if is_compare {
-                    ChildrenKey::CompareEdges(ordinal)
+                    ChildrenKey::CompareEdges(id, ordinal)
                 } else {
-                    ChildrenKey::Edges(ordinal)
+                    ChildrenKey::Edges(id, ordinal)
                 }
             }
             PagedChildrenParent::Retainers { id, ordinal } => ChildrenKey::Retainers(id, ordinal),
@@ -1113,9 +1113,9 @@ impl App {
                 is_compare,
             } => {
                 let ck = if is_compare {
-                    ChildrenKey::CompareEdges(ord)
+                    ChildrenKey::CompareEdges(id, ord)
                 } else {
-                    ChildrenKey::Edges(ord)
+                    ChildrenKey::Edges(id, ord)
                 };
                 let w = self
                     .current_tree_state()

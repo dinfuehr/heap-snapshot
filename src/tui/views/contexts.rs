@@ -34,7 +34,7 @@ impl App {
                 ord,
                 label.into(),
                 if has_children {
-                    Some(ChildrenKey::Edges(ord))
+                    Some(ChildrenKey::Edges(id, ord))
                 } else {
                     None
                 },

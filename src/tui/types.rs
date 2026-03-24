@@ -111,8 +111,11 @@ impl FlatRow {
 #[derive(Clone, Hash, Eq, PartialEq)]
 pub(super) enum ChildrenKey {
     ClassMembers(usize),
-    Edges(NodeOrdinal),
-    CompareEdges(NodeOrdinal),
+    /// Edge children for a specific row.  Keyed by the owning row's unique
+    /// `NodeId` so each occurrence of the same ordinal gets its own children
+    /// — prevents infinite recursion when a node references itself.
+    Edges(NodeId, NodeOrdinal),
+    CompareEdges(NodeId, NodeOrdinal),
     /// Retainer children for a specific row.  Keyed by the owning row's
     /// unique `NodeId` so each occurrence of the same ordinal gets its own
     /// children — keeps the tree a proper tree with no shared subtrees.
