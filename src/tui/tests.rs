@@ -4299,10 +4299,18 @@ fn make_chain_for_collapse_snapshot() -> HeapSnapshot {
     ];
 
     let edges: Vec<u32> = vec![
-        1, 0, node_index(1), // root → (GC roots)
-        1, 0, node_index(2), // (GC roots) → Parent
-        2, 5, node_index(3), // Parent → Child
-        2, 6, node_index(4), // Child → Grandchild
+        1,
+        0,
+        node_index(1), // root → (GC roots)
+        1,
+        0,
+        node_index(2), // (GC roots) → Parent
+        2,
+        5,
+        node_index(3), // Parent → Child
+        2,
+        6,
+        node_index(4), // Child → Grandchild
     ];
 
     build_snapshot(strings, nodes, edges)

@@ -390,23 +390,23 @@ fn test_get_edges() {
     let snap = make_test_snapshot();
 
     // Synthetic root -> (GC roots)
-    let root_edges = snap.get_edges(NodeOrdinal(0));
+    let root_edges: Vec<_> = snap.iter_edges(NodeOrdinal(0)).collect();
     assert_eq!(root_edges.len(), 1);
     assert_eq!(root_edges[0].1, NodeOrdinal(1)); // -> (GC roots)
 
     // (GC roots) -> Object, Array
-    let gc_edges = snap.get_edges(NodeOrdinal(1));
+    let gc_edges: Vec<_> = snap.iter_edges(NodeOrdinal(1)).collect();
     assert_eq!(gc_edges.len(), 2);
     assert_eq!(gc_edges[0].1, NodeOrdinal(2)); // -> Object
     assert_eq!(gc_edges[1].1, NodeOrdinal(4)); // -> Array
 
     // Object -> hello
-    let n2_edges = snap.get_edges(NodeOrdinal(2));
+    let n2_edges: Vec<_> = snap.iter_edges(NodeOrdinal(2)).collect();
     assert_eq!(n2_edges.len(), 1);
     assert_eq!(n2_edges[0].1, NodeOrdinal(3)); // -> hello
 
-    assert!(snap.get_edges(NodeOrdinal(3)).is_empty());
-    assert!(snap.get_edges(NodeOrdinal(4)).is_empty());
+    assert_eq!(snap.iter_edges(NodeOrdinal(3)).count(), 0);
+    assert_eq!(snap.iter_edges(NodeOrdinal(4)).count(), 0);
 }
 
 #[test]
@@ -442,12 +442,12 @@ fn test_edge_name() {
     let snap = make_test_snapshot();
 
     // (GC roots) edges
-    let gc_edges = snap.get_edges(NodeOrdinal(1));
+    let gc_edges: Vec<_> = snap.iter_edges(NodeOrdinal(1)).collect();
     assert_eq!(snap.edge_name(gc_edges[0].0), "global");
     assert_eq!(snap.edge_name(gc_edges[1].0), "arr");
 
     // Object edges
-    let n2_edges = snap.get_edges(NodeOrdinal(2));
+    let n2_edges: Vec<_> = snap.iter_edges(NodeOrdinal(2)).collect();
     assert_eq!(snap.edge_name(n2_edges[0].0), "str");
 }
 
@@ -455,10 +455,10 @@ fn test_edge_name() {
 fn test_edge_type_name() {
     let snap = make_test_snapshot();
     // Synthetic root -> (GC roots) is element type
-    let root_edges = snap.get_edges(NodeOrdinal(0));
+    let root_edges: Vec<_> = snap.iter_edges(NodeOrdinal(0)).collect();
     assert_eq!(snap.edge_type_name(root_edges[0].0), "element");
     // (GC roots) -> Object, Array are property type
-    let gc_edges = snap.get_edges(NodeOrdinal(1));
+    let gc_edges: Vec<_> = snap.iter_edges(NodeOrdinal(1)).collect();
     assert_eq!(snap.edge_type_name(gc_edges[0].0), "property");
     assert_eq!(snap.edge_type_name(gc_edges[1].0), "property");
 }
@@ -466,7 +466,7 @@ fn test_edge_type_name() {
 #[test]
 fn test_is_invisible_edge() {
     let snap = make_test_snapshot();
-    let gc_edges = snap.get_edges(NodeOrdinal(1));
+    let gc_edges: Vec<_> = snap.iter_edges(NodeOrdinal(1)).collect();
     assert!(!snap.is_invisible_edge(gc_edges[0].0));
     assert!(!snap.is_invisible_edge(gc_edges[1].0));
 }

@@ -431,7 +431,7 @@ fn main() {
             let mut entries: Vec<StackEntry> = Vec::new();
             for container in &stack_containers {
                 let source_name = snap.node_raw_name(*container);
-                for (_ei, obj_ord) in snap.get_edges(*container) {
+                for (_ei, obj_ord) in snap.iter_edges(*container) {
                     let name = snap.node_display_name(obj_ord);
                     let node_id = snap.node_id(obj_ord);
                     let det = snap.node_detachedness(obj_ord);

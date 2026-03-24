@@ -404,7 +404,7 @@ impl App {
                 if let Some(row) = self.current_row() {
                     if let Some(ordinal) = row.node_ordinal() {
                         self.queue_reachable(ordinal);
-                        for (_, child_ord) in snap.get_edges(ordinal) {
+                        for (_, child_ord) in snap.iter_edges(ordinal) {
                             self.queue_reachable(child_ord);
                         }
                     }

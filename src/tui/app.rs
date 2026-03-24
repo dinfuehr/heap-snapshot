@@ -1056,8 +1056,7 @@ impl App {
                     .cloned()
                     .unwrap_or_default();
                 the_snap
-                    .get_edges(ord)
-                    .into_iter()
+                    .iter_edges(ord)
                     .filter(|&(ei, _)| !the_snap.is_invisible_edge(ei))
                     .filter(|&(edge_idx, child_ord)| {
                         if filter.is_empty() {

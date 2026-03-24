@@ -73,17 +73,20 @@ pub fn print_containment(
             return;
         }
         let w = edge_window(snap, node_ordinal, expand);
-        let edges: Vec<_> = snap
-            .get_edges(node_ordinal)
-            .into_iter()
+        let total_edges = snap
+            .iter_edges(node_ordinal)
             .filter(|&(edge_idx, _)| !snap.is_invisible_edge(edge_idx))
-            .collect();
-        let total_edges = edges.len();
+            .count();
         let start = w.start.min(total_edges);
         let end = (start + w.count).min(total_edges);
         let shown = end - start;
 
-        for (edge_idx, child_ordinal) in edges.into_iter().skip(start).take(w.count) {
+        for (edge_idx, child_ordinal) in snap
+            .iter_edges(node_ordinal)
+            .filter(|&(edge_idx, _)| !snap.is_invisible_edge(edge_idx))
+            .skip(start)
+            .take(w.count)
+        {
             let edge_name = snap.edge_name(edge_idx);
             let edge_type = snap.edge_type_name(edge_idx);
             let child_id = snap.node_id(child_ordinal);

@@ -924,7 +924,7 @@ impl HeapSnapshot {
         let mut common: Option<FxHashSet<String>> = None;
         for &ord in ordinals {
             let mut fields = FxHashSet::default();
-            for (edge_idx, _) in self.get_edges(NodeOrdinal(ord)) {
+            for (edge_idx, _) in self.iter_edges(NodeOrdinal(ord)) {
                 let edge_type = self.edges[edge_idx + self.edge_type_offset];
                 if edge_type != self.edge_element_type
                     && edge_type != self.edge_hidden_type
@@ -2385,8 +2385,7 @@ impl HeapSnapshot {
             return Vec::new();
         };
         let mut unique: Vec<String> = self
-            .get_edges(global)
-            .into_iter()
+            .iter_edges(global)
             .filter_map(|(edge_idx, _)| {
                 let edge_type = self.edges[edge_idx + self.edge_type_offset];
                 if edge_type == self.edge_element_type || edge_type == self.edge_hidden_type {
@@ -2413,13 +2412,13 @@ impl HeapSnapshot {
         };
         let mut vars = Vec::new();
         // The ScriptContextTable has hidden edges to Context objects.
-        for (edge_idx, child_ord) in self.get_edges(table) {
+        for (edge_idx, child_ord) in self.iter_edges(table) {
             let edge_type = self.edges[edge_idx + self.edge_type_offset];
             if edge_type != self.edge_hidden_type && edge_type != self.edge_element_type {
                 continue;
             }
             // Each Context has "context"-typed edges for its variables.
-            for (ctx_edge_idx, _) in self.get_edges(child_ord) {
+            for (ctx_edge_idx, _) in self.iter_edges(child_ord) {
                 let ctx_edge_type = self.edges[ctx_edge_idx + self.edge_type_offset];
                 if ctx_edge_type != self.edge_context_type {
                     continue;
@@ -2609,7 +2608,7 @@ impl HeapSnapshot {
     /// Find the target node of a named internal edge from `ordinal`.
     /// Find a child node by its node name (not edge name).
     pub fn find_child_by_node_name(&self, ordinal: NodeOrdinal, name: &str) -> Option<NodeOrdinal> {
-        for (_, child_ord) in self.get_edges(ordinal) {
+        for (_, child_ord) in self.iter_edges(ordinal) {
             if self.node_raw_name(child_ord) == name {
                 return Some(child_ord);
             }
@@ -2954,20 +2953,19 @@ impl HeapSnapshot {
         self.edges[edge_index + self.edge_type_offset] == self.edge_invisible_type
     }
 
-    pub fn get_edges(&self, ordinal: NodeOrdinal) -> Vec<(usize, NodeOrdinal)> {
-        let efc = self.edge_fields_count;
-        let nfc = self.node_field_count;
+    /// Returns a zero-allocation iterator over the outgoing edges of `ordinal`.
+    /// Each item is `(edge_index, child_ordinal)`.
+    pub fn iter_edges(&self, ordinal: NodeOrdinal) -> EdgeIter<'_> {
         let first = self.first_edge_indexes[ordinal.0] as usize;
         let last = self.first_edge_indexes[ordinal.0 + 1] as usize;
-        let mut result = Vec::new();
-        let mut ei = first;
-        while ei < last {
-            let child_index = self.edges[ei + self.edge_to_node_offset] as usize;
-            let child_ordinal = NodeOrdinal(child_index / nfc);
-            result.push((ei, child_ordinal));
-            ei += efc;
+        EdgeIter {
+            edges: &self.edges,
+            edge_fields_count: self.edge_fields_count,
+            edge_to_node_offset: self.edge_to_node_offset,
+            node_field_count: self.node_field_count,
+            current: first,
+            end: last,
         }
-        result
     }
 
     pub fn retainer_count(&self, ordinal: NodeOrdinal) -> usize {
@@ -3194,6 +3192,43 @@ impl HeapSnapshot {
         }
     }
 }
+
+pub struct EdgeIter<'a> {
+    edges: &'a [u32],
+    edge_fields_count: usize,
+    edge_to_node_offset: usize,
+    node_field_count: usize,
+    current: usize,
+    end: usize,
+}
+
+impl<'a> Iterator for EdgeIter<'a> {
+    type Item = (usize, NodeOrdinal);
+
+    #[inline]
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.current >= self.end {
+            return None;
+        }
+        let ei = self.current;
+        let child_index = self.edges[ei + self.edge_to_node_offset] as usize;
+        let child_ordinal = NodeOrdinal(child_index / self.node_field_count);
+        self.current += self.edge_fields_count;
+        Some((ei, child_ordinal))
+    }
+
+    #[inline]
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let remaining = if self.current >= self.end {
+            0
+        } else {
+            (self.end - self.current) / self.edge_fields_count
+        };
+        (remaining, Some(remaining))
+    }
+}
+
+impl<'a> ExactSizeIterator for EdgeIter<'a> {}
 
 #[derive(Hash, Eq, PartialEq, Clone)]
 enum ClassKey {

@@ -240,21 +240,23 @@ pub(super) fn compute_edges(
     let needs_sort = is_native_ctx || snap.is_js_global_object(ord) || snap.is_js_global_proxy(ord);
 
     // Fast path: no filter and no custom sort — page raw edges directly,
-    // only build labels for the visible slice.
+    // only build labels for the visible slice.  Two passes over the edge
+    // array (count + skip/take) avoids allocating a Vec for all edges.
     if filter.is_empty() && !needs_sort {
-        let visible_edges: Vec<(usize, NodeOrdinal)> = snap
-            .get_edges(ord)
-            .into_iter()
+        let total = snap
+            .iter_edges(ord)
             .filter(|&(edge_idx, _)| !snap.is_invisible_edge(edge_idx))
-            .collect();
-        let total = visible_edges.len();
+            .count();
         let start = w.start.min(total);
         let end = (start + w.count).min(total);
         let visible = end - start;
 
-        let mut children: Vec<ChildNode> = visible_edges[start..end]
-            .iter()
-            .map(|&(edge_idx, child_ord)| edge_to_child_node(snap, edge_idx, child_ord, next_id))
+        let mut children: Vec<ChildNode> = snap
+            .iter_edges(ord)
+            .filter(|&(edge_idx, _)| !snap.is_invisible_edge(edge_idx))
+            .skip(start)
+            .take(w.count)
+            .map(|(edge_idx, child_ord)| edge_to_child_node(snap, edge_idx, child_ord, next_id))
             .collect();
 
         if visible < total {
@@ -281,8 +283,7 @@ pub(super) fn compute_edges(
 
     // Slow path: filter or custom sort requires building all labels first.
     let mut all: Vec<(String, ChildNode)> = snap
-        .get_edges(ord)
-        .into_iter()
+        .iter_edges(ord)
         .filter(|&(edge_idx, _)| !snap.is_invisible_edge(edge_idx))
         .map(|(edge_idx, child_ord)| {
             let edge_name = snap.edge_name(edge_idx);
