@@ -1217,13 +1217,12 @@ impl HeapSnapshot {
     fn is_essential_edge(&self, node_index: usize, edge_index: usize, weak_map_re: &Regex) -> bool {
         let edge_type = self.edges[edge_index + self.edge_type_offset];
 
-        // WeakMap ephemeron edges: V8 emits the same named edge from both
-        // the key and the table to the value. DevTools marks the table→value
-        // edge non-essential (node_id == table_id), keeping the key→value
-        // edge. We do the opposite: we mark the key→value edge non-essential
-        // (node_id != table_id) so that the table dominates the value. This
-        // prevents keys from inflating their retained size with values they
-        // don't actually own.
+        // Difference from DevTools:
+        // WeakMap ephemeron edges are emitted twice: key→value and table→value.
+        // DevTools keeps key→value as essential and drops table→value. We do
+        // the opposite so the WeakMap table, not the key, dominates the value.
+        // That keeps retained sizes from charging ephemeron values to keys that
+        // do not actually own them.
         if edge_type == self.edge_internal_type {
             let edge_name_index = self.edges[edge_index + self.edge_name_offset] as usize;
             let edge_name = &self.strings[edge_name_index];
@@ -1252,19 +1251,28 @@ impl HeapSnapshot {
 
         let nfc = self.node_field_count;
         if node_index != self.gc_roots_ordinal * nfc {
-            // Shortcuts at non-root are not essential
+            // Similar to DevTools, shortcut edges only have root-entry meaning
+            // at the top of the root set, so non-root shortcuts are ignored.
             if edge_type == self.edge_shortcut_type {
                 return false;
             }
         }
 
-        // All edges from the synthetic root are non-essential.  The
-        // synthetic root is a format artifact; its children (user roots,
-        // system roots) should be dominated by (GC roots) directly, not
-        // via the synthetic root.
+        // Difference from DevTools:
+        // DevTools builds dominators from the synthetic root and therefore
+        // keeps synthetic-root entry edges meaningful. We instead treat the
+        // synthetic root as a serialization artifact and root dominators at
+        // `(GC roots)`, so every outgoing edge from the synthetic root is
+        // marked non-essential.
         if node_index == self.root_node_index {
             return false;
         }
+
+        // Difference from DevTools:
+        // DevTools also filters non-page→page edges here using the
+        // `pageObject` flag populated by `markPageOwnedNodes()`. We omit that
+        // branch because our target snapshots do not have user-root/page-owned
+        // structure, so the flag would never be meaningfully set.
 
         true
     }
