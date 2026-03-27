@@ -5691,3 +5691,453 @@ fn test_duplicate_strings_multiple_copies() {
     assert_eq!(dupes[0].instance_size, 50.0);
     assert_eq!(dupes[0].wasted_size(), 150.0);
 }
+
+// ── dominator tree root ────────────────────────────────────────────────
+
+#[test]
+fn test_dominator_rooted_at_gc_roots_not_synthetic_root() {
+    // The synthetic root has children: (GC roots) and a synthetic system
+    // sub-root.  Both point to the same Object.
+    //
+    //   synthetic root ---> (GC roots) --------> Object ---> leaf
+    //        \----------> (System sub-root) ---> Object
+    //
+    // If dominators were rooted at the synthetic root, Object's dominator
+    // would be the synthetic root (two paths converge there).
+    // Since we root at (GC roots), Object's dominator must be (GC roots).
+    let nfc = 5u32;
+    let n = |ord: u32| ord * nfc;
+    let snap = build_snapshot(
+        standard_node_fields(),
+        vec![
+            9, 0, 1, 0, 2,   // 0: synthetic root, 2 edges
+            9, 1, 3, 0, 1,   // 1: (GC roots), 1 edge
+            9, 4, 5, 0, 1,   // 2: (System sub-root), synthetic, 1 edge
+            3, 2, 7, 100, 1, // 3: Object, 1 edge
+            2, 3, 9, 50, 0,  // 4: leaf
+        ],
+        vec![
+            1, 0, n(1), // root -> (GC roots)
+            1, 0, n(2), // root -> (System sub-root)
+            2, 2, n(3), // (GC roots) -> Object
+            2, 2, n(3), // (System sub-root) -> Object
+            2, 3, n(4), // Object -> leaf
+        ],
+        s(&["", "(GC roots)", "Object", "leaf", "(System sub-root)"]),
+    );
+    assert_eq!(
+        snap.dominator_of(NodeOrdinal(3)),
+        NodeOrdinal(1),
+        "Object's dominator must be (GC roots), not synthetic root"
+    );
+    assert_eq!(
+        snap.dominator_of(NodeOrdinal(4)),
+        NodeOrdinal(3),
+        "leaf's dominator must be Object"
+    );
+}
+
+#[test]
+fn test_dominator_ignores_system_roots() {
+    // The synthetic root has children: (GC roots) and a system root
+    // "(Persistent roots)" (synthetic).  Both point to the same Object.
+    //
+    //   synthetic root ---> (GC roots) ---------> Object
+    //        \----------> (Persistent roots) ---> Object
+    //
+    // Because dominators are rooted at (GC roots), the system root's edge
+    // is irrelevant.  Object's dominator must be (GC roots).
+    let nfc = 5u32;
+    let n = |ord: u32| ord * nfc;
+    let snap = build_snapshot(
+        standard_node_fields(),
+        vec![
+            9, 0, 1, 0, 2,   // 0: synthetic root, 2 edges
+            9, 1, 3, 0, 1,   // 1: (GC roots), 1 edge
+            9, 4, 5, 0, 1,   // 2: (Persistent roots), synthetic, 1 edge
+            3, 5, 7, 100, 0, // 3: Object
+        ],
+        vec![
+            1, 0, n(1), // root -> (GC roots)
+            1, 0, n(2), // root -> (Persistent roots)
+            2, 5, n(3), // (GC roots) -> Object
+            2, 5, n(3), // (Persistent roots) -> Object
+        ],
+        s(&["", "(GC roots)", "Object", "leaf", "(Persistent roots)", "obj"]),
+    );
+    assert_eq!(
+        snap.dominator_of(NodeOrdinal(3)),
+        NodeOrdinal(1),
+        "Object's dominator must be (GC roots), not the system root"
+    );
+    // Object is distance 1 from (GC roots), regardless of the system root path.
+    assert_eq!(
+        snap.node_distance(NodeOrdinal(3)),
+        Distance(1),
+        "Object reached via (GC roots) at distance 1"
+    );
+    // (Persistent roots) is seeded at distance 1 in the system root phase.
+    assert_eq!(
+        snap.node_distance(NodeOrdinal(2)),
+        Distance(1),
+        "(Persistent roots) seeded at distance 1 as system root"
+    );
+}
+
+#[test]
+fn test_dominator_system_root_only_node_attached_via_fallback() {
+    // A node reachable ONLY from a system root (not from GC roots).
+    // All edges from the synthetic root are non-essential, so during the
+    // main DFS from (GC roots) nodes 2 and 4 are unreachable.  The
+    // fallback phase parents them directly to (GC roots).
+    let nfc = 5u32;
+    let n = |ord: u32| ord * nfc;
+    let snap = build_snapshot(
+        standard_node_fields(),
+        vec![
+            9, 0, 1, 0, 2,   // 0: synthetic root, 2 edges
+            9, 1, 3, 0, 1,   // 1: (GC roots), 1 edge
+            9, 4, 5, 0, 1,   // 2: (Persistent roots), synthetic, 1 edge
+            3, 5, 7, 100, 0, // 3: reachable from GC roots
+            3, 5, 9, 200, 0, // 4: only reachable from system root
+        ],
+        vec![
+            1, 0, n(1), // root -> (GC roots)
+            1, 0, n(2), // root -> (Persistent roots)
+            2, 5, n(3), // (GC roots) -> node 3
+            2, 5, n(4), // (Persistent roots) -> node 4
+        ],
+        s(&["", "(GC roots)", "Object", "leaf", "(Persistent roots)", "obj"]),
+    );
+    assert_eq!(
+        snap.dominator_of(NodeOrdinal(3)),
+        NodeOrdinal(1),
+        "GC-reachable node dominated by (GC roots)"
+    );
+    // (Persistent roots) is dominated by (GC roots) — the synthetic
+    // root's edge is non-essential.
+    assert_eq!(
+        snap.dominator_of(NodeOrdinal(2)),
+        NodeOrdinal(1),
+        "(Persistent roots) dominated by (GC roots)"
+    );
+    // Node 4 is only reachable via (Persistent roots), so its immediate
+    // dominator is (Persistent roots).
+    assert_eq!(
+        snap.dominator_of(NodeOrdinal(4)),
+        NodeOrdinal(2),
+        "system-root-only node dominated by (Persistent roots)"
+    );
+    // GC-reachable node gets distance 1 from (GC roots).
+    assert_eq!(
+        snap.node_distance(NodeOrdinal(3)),
+        Distance(1),
+        "node 3 reached from (GC roots) at distance 1"
+    );
+    // (Persistent roots) is seeded at distance 1 in the system root phase.
+    assert_eq!(
+        snap.node_distance(NodeOrdinal(2)),
+        Distance(1),
+        "(Persistent roots) seeded at distance 1"
+    );
+    // Node 4 is reached via (Persistent roots) BFS at distance 2.
+    assert_eq!(
+        snap.node_distance(NodeOrdinal(4)),
+        Distance(2),
+        "system-root-only node at distance 2 via (Persistent roots)"
+    );
+}
+
+#[test]
+fn test_unreachable_node_dominated_by_gc_roots() {
+    // Node 3 is only retained by a weak edge from node 2, so it is
+    // unreachable from (GC roots) in the essential-edge graph.  The
+    // fallback phase of the dominator algorithm parents it to (GC roots).
+    let nfc = 5u32;
+    let n = |ord: u32| ord * nfc;
+    let snap = build_snapshot(
+        standard_node_fields(),
+        vec![
+            9, 0, 1, 0, 1,   // 0: synthetic root, 1 edge
+            9, 1, 3, 0, 1,   // 1: (GC roots), 1 edge
+            3, 2, 5, 100, 1, // 2: reachable Object, 1 edge
+            3, 2, 7, 200, 0, // 3: unreachable Object (only weak retainer)
+        ],
+        vec![
+            1, 0, n(1), // root -> (GC roots)
+            2, 2, n(2), // (GC roots) -> node 2
+            6, 2, n(3), // node 2 -> node 3 (weak edge, type 6)
+        ],
+        s(&["", "(GC roots)", "Object", "weak_ref"]),
+    );
+    assert_eq!(
+        snap.dominator_of(NodeOrdinal(2)),
+        NodeOrdinal(1),
+        "reachable node dominated by (GC roots)"
+    );
+    assert_eq!(
+        snap.dominator_of(NodeOrdinal(3)),
+        NodeOrdinal(1),
+        "unreachable node dominated by (GC roots)"
+    );
+}
+
+#[test]
+fn test_isolated_node_dominated_by_gc_roots() {
+    // Node 3 has no incoming or outgoing edges — completely isolated.
+    // It should still be placed in the dominator tree under (GC roots).
+    let nfc = 5u32;
+    let n = |ord: u32| ord * nfc;
+    let snap = build_snapshot(
+        standard_node_fields(),
+        vec![
+            9, 0, 1, 0, 1,   // 0: synthetic root, 1 edge
+            9, 1, 3, 0, 1,   // 1: (GC roots), 1 edge
+            3, 2, 5, 100, 0, // 2: reachable Object
+            3, 2, 7, 200, 0, // 3: isolated Object (no edges at all)
+        ],
+        vec![
+            1, 0, n(1), // root -> (GC roots)
+            2, 2, n(2), // (GC roots) -> node 2
+        ],
+        s(&["", "(GC roots)", "Object"]),
+    );
+    assert_eq!(
+        snap.dominator_of(NodeOrdinal(2)),
+        NodeOrdinal(1),
+        "reachable node dominated by (GC roots)"
+    );
+    assert_eq!(
+        snap.dominator_of(NodeOrdinal(3)),
+        NodeOrdinal(1),
+        "isolated node dominated by (GC roots)"
+    );
+}
+
+#[test]
+fn test_unreachable_group_dominated_by_gc_roots() {
+    // Nodes 3, 4, 5 form a connected subgraph that is unreachable from
+    // (GC roots).  Node 3 is the entry point (no essential incoming edges
+    // from reachable nodes), while 4 and 5 are reachable from 3.
+    //
+    //   (GC roots) --> node 2
+    //   node 3 --> node 4 --> node 5
+    //       \---------^  (diamond)
+    //
+    // In the fallback phase, node 3 gets parented to (GC roots).  Nodes
+    // 4 and 5 are discovered via DFS from 3, so they keep their internal
+    // dominator structure: 4 is dominated by 3, 5 is dominated by 3
+    // (diamond converges at 3).
+    let nfc = 5u32;
+    let n = |ord: u32| ord * nfc;
+    let snap = build_snapshot(
+        standard_node_fields(),
+        vec![
+            9, 0, 1, 0, 1,   // 0: synthetic root, 1 edge
+            9, 1, 3, 0, 1,   // 1: (GC roots), 1 edge
+            3, 2, 5, 100, 0, // 2: reachable Object
+            3, 2, 7, 10, 2,  // 3: unreachable A, 2 edges
+            3, 2, 9, 20, 1,  // 4: unreachable B, 1 edge
+            3, 2, 11, 30, 0, // 5: unreachable C, 0 edges
+        ],
+        vec![
+            1, 0, n(1), // root -> (GC roots)
+            2, 2, n(2), // (GC roots) -> node 2
+            2, 2, n(4), // node 3 -> node 4
+            2, 2, n(5), // node 3 -> node 5
+            2, 2, n(5), // node 4 -> node 5
+        ],
+        s(&["", "(GC roots)", "Object"]),
+    );
+    assert_eq!(
+        snap.dominator_of(NodeOrdinal(2)),
+        NodeOrdinal(1),
+        "reachable node dominated by (GC roots)"
+    );
+    assert_eq!(
+        snap.dominator_of(NodeOrdinal(3)),
+        NodeOrdinal(1),
+        "unreachable group root dominated by (GC roots)"
+    );
+    assert_eq!(
+        snap.dominator_of(NodeOrdinal(4)),
+        NodeOrdinal(3),
+        "node 4 dominated by node 3"
+    );
+    assert_eq!(
+        snap.dominator_of(NodeOrdinal(5)),
+        NodeOrdinal(3),
+        "node 5 dominated by node 3 (diamond converges)"
+    );
+}
+
+// ── user roots ──────────────────────────────────────────────────────────
+
+#[test]
+fn test_user_roots_do_not_affect_dominator_tree() {
+    // The synthetic root has children: (GC roots) and a user root
+    // (non-synthetic NativeContext).  Both (GC roots) and the user root
+    // point to the same Object.
+    //
+    //   synthetic root ---> (GC roots) ---> Object
+    //        \----------> NativeContext ---> Object
+    //
+    // The synthetic root's edge to the user root is non-essential, so the
+    // user root's path doesn't participate in dominator computation.
+    // Object's dominator must be (GC roots).
+    let nfc = 5u32;
+    let n = |ord: u32| ord * nfc;
+    let snap = build_snapshot(
+        standard_node_fields(),
+        vec![
+            9, 0, 1, 0, 2,   // 0: synthetic root, 2 edges
+            9, 1, 3, 0, 1,   // 1: (GC roots), 1 edge
+            3, 2, 5, 0, 1,   // 2: NativeContext (user root), 1 edge
+            3, 3, 7, 100, 0, // 3: Object
+        ],
+        vec![
+            1, 0, n(1), // root -> (GC roots)
+            1, 0, n(2), // root -> NativeContext
+            2, 3, n(3), // (GC roots) -> Object
+            2, 3, n(3), // NativeContext -> Object
+        ],
+        s(&["", "(GC roots)", "NativeContext", "Object"]),
+    );
+    assert!(
+        snap.is_user_root(NodeOrdinal(2)),
+        "NativeContext should be identified as a user root"
+    );
+    assert!(
+        !snap.is_user_root(NodeOrdinal(1)),
+        "(GC roots) is synthetic, not a user root"
+    );
+    assert_eq!(
+        snap.dominator_of(NodeOrdinal(3)),
+        NodeOrdinal(1),
+        "Object's dominator must be (GC roots), not affected by user root"
+    );
+}
+
+#[test]
+fn test_user_root_reachable_from_gc_roots_dominated_by_gc_roots() {
+    // NativeContext (node 2) is both a user root (direct non-synthetic
+    // child of the synthetic root) and reachable from (GC roots).  Its
+    // dominator must be (GC roots), not affected by the synthetic root's
+    // structural edge.
+    let nfc = 5u32;
+    let n = |ord: u32| ord * nfc;
+    let snap = build_snapshot(
+        standard_node_fields(),
+        vec![
+            9, 0, 1, 0, 2,   // 0: synthetic root, 2 edges
+            9, 1, 3, 0, 1,   // 1: (GC roots), 1 edge
+            3, 2, 5, 0, 1,   // 2: NativeContext (user root), 1 edge
+            3, 3, 7, 100, 0, // 3: Object
+        ],
+        vec![
+            1, 0, n(1), // root -> (GC roots)
+            1, 0, n(2), // root -> NativeContext
+            2, 2, n(2), // (GC roots) -> NativeContext
+            2, 3, n(3), // NativeContext -> Object
+        ],
+        s(&["", "(GC roots)", "NativeContext", "Object"]),
+    );
+    assert!(snap.is_user_root(NodeOrdinal(2)));
+    assert_eq!(
+        snap.dominator_of(NodeOrdinal(2)),
+        NodeOrdinal(1),
+        "user root dominated by (GC roots)"
+    );
+    assert_eq!(
+        snap.dominator_of(NodeOrdinal(3)),
+        NodeOrdinal(2),
+        "Object dominated by NativeContext"
+    );
+}
+
+#[test]
+fn test_user_root_dominated_by_intermediate_object() {
+    // NativeContext (node 4) is a user root but only reachable from
+    // (GC roots) through A -> B -> NativeContext.  Its dominator
+    // should be B, not (GC roots).
+    //
+    //   synthetic root --> (GC roots) --> A --> B --> NativeContext
+    //        \-------> NativeContext  (non-essential, user root edge)
+    let nfc = 5u32;
+    let n = |ord: u32| ord * nfc;
+    let snap = build_snapshot(
+        standard_node_fields(),
+        vec![
+            9, 0, 1, 0, 2,  // 0: synthetic root, 2 edges
+            9, 1, 3, 0, 1,  // 1: (GC roots), 1 edge
+            3, 2, 5, 10, 1, // 2: A, 1 edge
+            3, 2, 7, 20, 1, // 3: B, 1 edge
+            3, 3, 9, 0, 0,  // 4: NativeContext (user root), 0 edges
+        ],
+        vec![
+            1, 0, n(1), // root -> (GC roots)
+            1, 0, n(4), // root -> NativeContext (non-essential)
+            2, 2, n(2), // (GC roots) -> A
+            2, 2, n(3), // A -> B
+            2, 3, n(4), // B -> NativeContext
+        ],
+        s(&["", "(GC roots)", "Object", "NativeContext"]),
+    );
+    assert!(snap.is_user_root(NodeOrdinal(4)));
+    assert_eq!(
+        snap.dominator_of(NodeOrdinal(2)),
+        NodeOrdinal(1),
+        "A dominated by (GC roots)"
+    );
+    assert_eq!(
+        snap.dominator_of(NodeOrdinal(3)),
+        NodeOrdinal(2),
+        "B dominated by A"
+    );
+    assert_eq!(
+        snap.dominator_of(NodeOrdinal(4)),
+        NodeOrdinal(3),
+        "NativeContext dominated by B"
+    );
+}
+
+#[test]
+fn test_root_kinds() {
+    //   0: synthetic root  --> (GC roots), (Persistent roots), NativeContext
+    //   1: (GC roots)      --> Object
+    //   2: (Persistent roots) [synthetic]
+    //   3: NativeContext    [non-synthetic, user root]
+    //   4: Object           [non-root]
+    let nfc = 5u32;
+    let n = |ord: u32| ord * nfc;
+    let snap = build_snapshot(
+        standard_node_fields(),
+        vec![
+            9, 0, 1, 0, 3,   // 0: synthetic root, 3 edges
+            9, 1, 3, 0, 1,   // 1: (GC roots), 1 edge
+            9, 4, 5, 0, 0,   // 2: (Persistent roots), synthetic, 0 edges
+            3, 5, 7, 0, 0,   // 3: NativeContext (object), 0 edges
+            3, 6, 9, 100, 0, // 4: Object, 0 edges
+        ],
+        vec![
+            1, 0, n(1), // root -> (GC roots)
+            1, 0, n(2), // root -> (Persistent roots)
+            1, 0, n(3), // root -> NativeContext
+            2, 6, n(4), // (GC roots) -> Object
+        ],
+        s(&[
+            "",
+            "(GC roots)",
+            "Object",
+            "leaf",
+            "(Persistent roots)",
+            "NativeContext",
+            "obj",
+        ]),
+    );
+    assert_eq!(snap.root_kind(NodeOrdinal(0)), RootKind::SyntheticRoot);
+    assert_eq!(snap.root_kind(NodeOrdinal(1)), RootKind::SystemRoot);
+    assert_eq!(snap.root_kind(NodeOrdinal(2)), RootKind::SystemRoot);
+    assert_eq!(snap.root_kind(NodeOrdinal(3)), RootKind::UserRoot);
+    assert_eq!(snap.root_kind(NodeOrdinal(4)), RootKind::NonRoot);
+}

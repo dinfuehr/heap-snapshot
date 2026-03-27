@@ -24,6 +24,15 @@ const BITMASK_FOR_DOM_LINK_STATE: u32 = (1 << SHIFT_FOR_CLASS_INDEX) - 1;
 const MAX_INTERFACE_NAME_LENGTH: usize = 60;
 const MIN_INTERFACE_PROPERTY_COUNT: usize = 1;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(u8)]
+pub enum RootKind {
+    NonRoot = 0,
+    SyntheticRoot = 1,
+    SystemRoot = 2,
+    UserRoot = 3,
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct SnapshotOptions {
     /// Treat weak edges as reachable when computing distances.
@@ -103,6 +112,9 @@ pub struct HeapSnapshot {
 
     // Flags (for page-owned nodes tracking)
     flags: Vec<u8>,
+
+    // Root classification for each node ordinal.
+    root_kinds: Vec<RootKind>,
 
     // Class index per node (separate array if detachedness offset not present)
     detachedness_and_class_index: Vec<u32>,
@@ -305,6 +317,7 @@ impl HeapSnapshot {
             retaining_edges: vec![0u32; edge_count],
             first_retainer_index: vec![0u32; node_count + 1],
             flags: vec![0u8; node_count],
+            root_kinds: vec![RootKind::NonRoot; node_count],
             detachedness_and_class_index: Vec::new(),
             use_separate_class_index: false,
             native_contexts: Vec::new(),
@@ -372,6 +385,36 @@ impl HeapSnapshot {
                 );
             }
         };
+
+        // Classify root kinds for direct children of the synthetic root.
+        {
+            let nfc = snap.node_field_count;
+            let efc = snap.edge_fields_count;
+            let root_ord = snap.root_node_index / nfc;
+            snap.root_kinds[root_ord] = RootKind::SyntheticRoot;
+            let first = snap.first_edge_indexes[root_ord] as usize;
+            let last = snap.first_edge_indexes[root_ord + 1] as usize;
+            let mut ei = first;
+            while ei < last {
+                let child_index = snap.edges[ei + snap.edge_to_node_offset] as usize;
+                let child_ordinal = child_index / nfc;
+                let child_type = snap.nodes[child_index + snap.node_type_offset];
+                if child_type != snap.node_synthetic_type {
+                    // Non-synthetic child of the synthetic root is a user root.
+                    snap.root_kinds[child_ordinal] = RootKind::UserRoot;
+                } else {
+                    let name = &snap.strings
+                        [snap.nodes[child_index + snap.node_name_offset] as usize];
+                    if name == "(Document DOM trees)" {
+                        // "(Document DOM trees)" is synthetic but treated as a user root.
+                        snap.root_kinds[child_ordinal] = RootKind::UserRoot;
+                    } else {
+                        snap.root_kinds[child_ordinal] = RootKind::SystemRoot;
+                    }
+                }
+                ei += efc;
+            }
+        }
 
         // Build retainers
         snap.build_retainers();
@@ -973,13 +1016,18 @@ impl HeapSnapshot {
             first_retainer_index[to_ord as usize] += 1;
         }
 
-        // Prefix sum
+        // Prefix sum — also stash each node's retainer count into
+        // retaining_nodes[first_unused] so the fill phase can decrement it.
+        // Skip the write when count is 0 to avoid an OOB access when
+        // first_unused == edge_count (happens with isolated nodes).
         let mut retaining_nodes = vec![0u32; edge_count];
         let mut first_unused = 0u32;
         for i in 0..self.node_count {
             let count = first_retainer_index[i];
             first_retainer_index[i] = first_unused;
-            retaining_nodes[first_unused as usize] = count;
+            if count > 0 {
+                retaining_nodes[first_unused as usize] = count;
+            }
             first_unused += count;
         }
         first_retainer_index[self.node_count] = retaining_nodes.len() as u32;
@@ -1138,17 +1186,6 @@ impl HeapSnapshot {
         }
     }
 
-    fn is_user_root_ordinal(&self, ordinal: NodeOrdinal) -> bool {
-        // User root = not synthetic, OR is "(Document DOM trees)"
-        let node_index = ordinal.0 * self.node_field_count;
-        let node_type = self.nodes[node_index + self.node_type_offset];
-        if node_type != self.node_synthetic_type {
-            return true; // isUserRoot = !isSynthetic
-        }
-        // Check for "(Document DOM trees)"
-        let name = &self.strings[self.nodes[node_index + self.node_name_offset] as usize];
-        name == "(Document DOM trees)"
-    }
 
     fn init_essential_edges(&self) -> Vec<bool> {
         let nfc = self.node_field_count;
@@ -1221,6 +1258,14 @@ impl HeapSnapshot {
             }
         }
 
+        // All edges from the synthetic root are non-essential.  The
+        // synthetic root is a format artifact; its children (user roots,
+        // system roots) should be dominated by (GC roots) directly, not
+        // via the synthetic root.
+        if node_index == self.root_node_index {
+            return false;
+        }
+
         true
     }
 
@@ -1228,6 +1273,12 @@ impl HeapSnapshot {
         let nfc = self.node_field_count;
         let efc = self.edge_fields_count;
         let node_count = self.node_count;
+        // DevTools builds the dominator tree from the snapshot's synthetic
+        // root and does not mirror the user-root/system-root split it uses for
+        // distance BFS. We intentionally root dominators at `(GC roots)`
+        // instead, because that node is the logical GC liveness root in our
+        // model; anything not reached from it is later attached back to this
+        // same root.
         let root_ordinal = self.gc_roots_ordinal;
 
         // Build edge_to_node_ordinals
@@ -1607,7 +1658,7 @@ impl HeapSnapshot {
             let child_index = self.edges[ei + self.edge_to_node_offset] as usize;
             let child_ordinal = child_index / nfc;
             if self.node_distances[child_ordinal] == Distance::NONE
-                && !self.is_user_root_ordinal(NodeOrdinal(child_ordinal))
+                && self.root_kinds[child_ordinal] != RootKind::UserRoot
             {
                 self.node_distances[child_ordinal] = Distance(1);
                 nodes_to_visit[visit_len] = child_index as u32;
@@ -2481,6 +2532,16 @@ impl HeapSnapshot {
     /// containment that want to show `(GC roots)` as a visible child.
     pub fn synthetic_root_ordinal(&self) -> NodeOrdinal {
         NodeOrdinal(self.root_node_index / self.node_field_count)
+    }
+
+    /// Returns true when `ordinal` is a user root — a non-synthetic direct
+    /// child of the synthetic root (typically a NativeContext).
+    pub fn is_user_root(&self, ordinal: NodeOrdinal) -> bool {
+        self.root_kinds[ordinal.0] == RootKind::UserRoot
+    }
+
+    pub fn root_kind(&self, ordinal: NodeOrdinal) -> RootKind {
+        self.root_kinds[ordinal.0]
     }
 
     #[allow(dead_code)]
