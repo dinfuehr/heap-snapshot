@@ -5710,18 +5710,28 @@ fn test_dominator_rooted_at_gc_roots_not_synthetic_root() {
     let snap = build_snapshot(
         standard_node_fields(),
         vec![
-            9, 0, 1, 0, 2,   // 0: synthetic root, 2 edges
-            9, 1, 3, 0, 1,   // 1: (GC roots), 1 edge
-            9, 4, 5, 0, 1,   // 2: (System sub-root), synthetic, 1 edge
+            9, 0, 1, 0, 2, // 0: synthetic root, 2 edges
+            9, 1, 3, 0, 1, // 1: (GC roots), 1 edge
+            9, 4, 5, 0, 1, // 2: (System sub-root), synthetic, 1 edge
             3, 2, 7, 100, 1, // 3: Object, 1 edge
-            2, 3, 9, 50, 0,  // 4: leaf
+            2, 3, 9, 50, 0, // 4: leaf
         ],
         vec![
-            1, 0, n(1), // root -> (GC roots)
-            1, 0, n(2), // root -> (System sub-root)
-            2, 2, n(3), // (GC roots) -> Object
-            2, 2, n(3), // (System sub-root) -> Object
-            2, 3, n(4), // Object -> leaf
+            1,
+            0,
+            n(1), // root -> (GC roots)
+            1,
+            0,
+            n(2), // root -> (System sub-root)
+            2,
+            2,
+            n(3), // (GC roots) -> Object
+            2,
+            2,
+            n(3), // (System sub-root) -> Object
+            2,
+            3,
+            n(4), // Object -> leaf
         ],
         s(&["", "(GC roots)", "Object", "leaf", "(System sub-root)"]),
     );
@@ -5752,18 +5762,33 @@ fn test_dominator_ignores_system_roots() {
     let snap = build_snapshot(
         standard_node_fields(),
         vec![
-            9, 0, 1, 0, 2,   // 0: synthetic root, 2 edges
-            9, 1, 3, 0, 1,   // 1: (GC roots), 1 edge
-            9, 4, 5, 0, 1,   // 2: (Persistent roots), synthetic, 1 edge
+            9, 0, 1, 0, 2, // 0: synthetic root, 2 edges
+            9, 1, 3, 0, 1, // 1: (GC roots), 1 edge
+            9, 4, 5, 0, 1, // 2: (Persistent roots), synthetic, 1 edge
             3, 5, 7, 100, 0, // 3: Object
         ],
         vec![
-            1, 0, n(1), // root -> (GC roots)
-            1, 0, n(2), // root -> (Persistent roots)
-            2, 5, n(3), // (GC roots) -> Object
-            2, 5, n(3), // (Persistent roots) -> Object
+            1,
+            0,
+            n(1), // root -> (GC roots)
+            1,
+            0,
+            n(2), // root -> (Persistent roots)
+            2,
+            5,
+            n(3), // (GC roots) -> Object
+            2,
+            5,
+            n(3), // (Persistent roots) -> Object
         ],
-        s(&["", "(GC roots)", "Object", "leaf", "(Persistent roots)", "obj"]),
+        s(&[
+            "",
+            "(GC roots)",
+            "Object",
+            "leaf",
+            "(Persistent roots)",
+            "obj",
+        ]),
     );
     assert_eq!(
         snap.dominator_of(NodeOrdinal(3)),
@@ -5795,19 +5820,34 @@ fn test_dominator_system_root_only_node_attached_via_fallback() {
     let snap = build_snapshot(
         standard_node_fields(),
         vec![
-            9, 0, 1, 0, 2,   // 0: synthetic root, 2 edges
-            9, 1, 3, 0, 1,   // 1: (GC roots), 1 edge
-            9, 4, 5, 0, 1,   // 2: (Persistent roots), synthetic, 1 edge
+            9, 0, 1, 0, 2, // 0: synthetic root, 2 edges
+            9, 1, 3, 0, 1, // 1: (GC roots), 1 edge
+            9, 4, 5, 0, 1, // 2: (Persistent roots), synthetic, 1 edge
             3, 5, 7, 100, 0, // 3: reachable from GC roots
             3, 5, 9, 200, 0, // 4: only reachable from system root
         ],
         vec![
-            1, 0, n(1), // root -> (GC roots)
-            1, 0, n(2), // root -> (Persistent roots)
-            2, 5, n(3), // (GC roots) -> node 3
-            2, 5, n(4), // (Persistent roots) -> node 4
+            1,
+            0,
+            n(1), // root -> (GC roots)
+            1,
+            0,
+            n(2), // root -> (Persistent roots)
+            2,
+            5,
+            n(3), // (GC roots) -> node 3
+            2,
+            5,
+            n(4), // (Persistent roots) -> node 4
         ],
-        s(&["", "(GC roots)", "Object", "leaf", "(Persistent roots)", "obj"]),
+        s(&[
+            "",
+            "(GC roots)",
+            "Object",
+            "leaf",
+            "(Persistent roots)",
+            "obj",
+        ]),
     );
     assert_eq!(
         snap.dominator_of(NodeOrdinal(3)),
@@ -5858,15 +5898,21 @@ fn test_unreachable_node_dominated_by_gc_roots() {
     let snap = build_snapshot(
         standard_node_fields(),
         vec![
-            9, 0, 1, 0, 1,   // 0: synthetic root, 1 edge
-            9, 1, 3, 0, 1,   // 1: (GC roots), 1 edge
+            9, 0, 1, 0, 1, // 0: synthetic root, 1 edge
+            9, 1, 3, 0, 1, // 1: (GC roots), 1 edge
             3, 2, 5, 100, 1, // 2: reachable Object, 1 edge
             3, 2, 7, 200, 0, // 3: unreachable Object (only weak retainer)
         ],
         vec![
-            1, 0, n(1), // root -> (GC roots)
-            2, 2, n(2), // (GC roots) -> node 2
-            6, 2, n(3), // node 2 -> node 3 (weak edge, type 6)
+            1,
+            0,
+            n(1), // root -> (GC roots)
+            2,
+            2,
+            n(2), // (GC roots) -> node 2
+            6,
+            2,
+            n(3), // node 2 -> node 3 (weak edge, type 6)
         ],
         s(&["", "(GC roots)", "Object", "weak_ref"]),
     );
@@ -5891,14 +5937,18 @@ fn test_isolated_node_dominated_by_gc_roots() {
     let snap = build_snapshot(
         standard_node_fields(),
         vec![
-            9, 0, 1, 0, 1,   // 0: synthetic root, 1 edge
-            9, 1, 3, 0, 1,   // 1: (GC roots), 1 edge
+            9, 0, 1, 0, 1, // 0: synthetic root, 1 edge
+            9, 1, 3, 0, 1, // 1: (GC roots), 1 edge
             3, 2, 5, 100, 0, // 2: reachable Object
             3, 2, 7, 200, 0, // 3: isolated Object (no edges at all)
         ],
         vec![
-            1, 0, n(1), // root -> (GC roots)
-            2, 2, n(2), // (GC roots) -> node 2
+            1,
+            0,
+            n(1), // root -> (GC roots)
+            2,
+            2,
+            n(2), // (GC roots) -> node 2
         ],
         s(&["", "(GC roots)", "Object"]),
     );
@@ -5933,19 +5983,29 @@ fn test_unreachable_group_dominated_by_gc_roots() {
     let snap = build_snapshot(
         standard_node_fields(),
         vec![
-            9, 0, 1, 0, 1,   // 0: synthetic root, 1 edge
-            9, 1, 3, 0, 1,   // 1: (GC roots), 1 edge
+            9, 0, 1, 0, 1, // 0: synthetic root, 1 edge
+            9, 1, 3, 0, 1, // 1: (GC roots), 1 edge
             3, 2, 5, 100, 0, // 2: reachable Object
-            3, 2, 7, 10, 2,  // 3: unreachable A, 2 edges
-            3, 2, 9, 20, 1,  // 4: unreachable B, 1 edge
+            3, 2, 7, 10, 2, // 3: unreachable A, 2 edges
+            3, 2, 9, 20, 1, // 4: unreachable B, 1 edge
             3, 2, 11, 30, 0, // 5: unreachable C, 0 edges
         ],
         vec![
-            1, 0, n(1), // root -> (GC roots)
-            2, 2, n(2), // (GC roots) -> node 2
-            2, 2, n(4), // node 3 -> node 4
-            2, 2, n(5), // node 3 -> node 5
-            2, 2, n(5), // node 4 -> node 5
+            1,
+            0,
+            n(1), // root -> (GC roots)
+            2,
+            2,
+            n(2), // (GC roots) -> node 2
+            2,
+            2,
+            n(4), // node 3 -> node 4
+            2,
+            2,
+            n(5), // node 3 -> node 5
+            2,
+            2,
+            n(5), // node 4 -> node 5
         ],
         s(&["", "(GC roots)", "Object"]),
     );
@@ -5990,16 +6050,24 @@ fn test_user_roots_do_not_affect_dominator_tree() {
     let snap = build_snapshot(
         standard_node_fields(),
         vec![
-            9, 0, 1, 0, 2,   // 0: synthetic root, 2 edges
-            9, 1, 3, 0, 1,   // 1: (GC roots), 1 edge
-            3, 2, 5, 0, 1,   // 2: NativeContext (user root), 1 edge
+            9, 0, 1, 0, 2, // 0: synthetic root, 2 edges
+            9, 1, 3, 0, 1, // 1: (GC roots), 1 edge
+            3, 2, 5, 0, 1, // 2: NativeContext (user root), 1 edge
             3, 3, 7, 100, 0, // 3: Object
         ],
         vec![
-            1, 0, n(1), // root -> (GC roots)
-            1, 0, n(2), // root -> NativeContext
-            2, 3, n(3), // (GC roots) -> Object
-            2, 3, n(3), // NativeContext -> Object
+            1,
+            0,
+            n(1), // root -> (GC roots)
+            1,
+            0,
+            n(2), // root -> NativeContext
+            2,
+            3,
+            n(3), // (GC roots) -> Object
+            2,
+            3,
+            n(3), // NativeContext -> Object
         ],
         s(&["", "(GC roots)", "NativeContext", "Object"]),
     );
@@ -6029,16 +6097,24 @@ fn test_user_root_reachable_from_gc_roots_dominated_by_gc_roots() {
     let snap = build_snapshot(
         standard_node_fields(),
         vec![
-            9, 0, 1, 0, 2,   // 0: synthetic root, 2 edges
-            9, 1, 3, 0, 1,   // 1: (GC roots), 1 edge
-            3, 2, 5, 0, 1,   // 2: NativeContext (user root), 1 edge
+            9, 0, 1, 0, 2, // 0: synthetic root, 2 edges
+            9, 1, 3, 0, 1, // 1: (GC roots), 1 edge
+            3, 2, 5, 0, 1, // 2: NativeContext (user root), 1 edge
             3, 3, 7, 100, 0, // 3: Object
         ],
         vec![
-            1, 0, n(1), // root -> (GC roots)
-            1, 0, n(2), // root -> NativeContext
-            2, 2, n(2), // (GC roots) -> NativeContext
-            2, 3, n(3), // NativeContext -> Object
+            1,
+            0,
+            n(1), // root -> (GC roots)
+            1,
+            0,
+            n(2), // root -> NativeContext
+            2,
+            2,
+            n(2), // (GC roots) -> NativeContext
+            2,
+            3,
+            n(3), // NativeContext -> Object
         ],
         s(&["", "(GC roots)", "NativeContext", "Object"]),
     );
@@ -6068,18 +6144,28 @@ fn test_user_root_dominated_by_intermediate_object() {
     let snap = build_snapshot(
         standard_node_fields(),
         vec![
-            9, 0, 1, 0, 2,  // 0: synthetic root, 2 edges
-            9, 1, 3, 0, 1,  // 1: (GC roots), 1 edge
+            9, 0, 1, 0, 2, // 0: synthetic root, 2 edges
+            9, 1, 3, 0, 1, // 1: (GC roots), 1 edge
             3, 2, 5, 10, 1, // 2: A, 1 edge
             3, 2, 7, 20, 1, // 3: B, 1 edge
-            3, 3, 9, 0, 0,  // 4: NativeContext (user root), 0 edges
+            3, 3, 9, 0, 0, // 4: NativeContext (user root), 0 edges
         ],
         vec![
-            1, 0, n(1), // root -> (GC roots)
-            1, 0, n(4), // root -> NativeContext (non-essential)
-            2, 2, n(2), // (GC roots) -> A
-            2, 2, n(3), // A -> B
-            2, 3, n(4), // B -> NativeContext
+            1,
+            0,
+            n(1), // root -> (GC roots)
+            1,
+            0,
+            n(4), // root -> NativeContext (non-essential)
+            2,
+            2,
+            n(2), // (GC roots) -> A
+            2,
+            2,
+            n(3), // A -> B
+            2,
+            3,
+            n(4), // B -> NativeContext
         ],
         s(&["", "(GC roots)", "Object", "NativeContext"]),
     );
@@ -6113,17 +6199,25 @@ fn test_root_kinds() {
     let snap = build_snapshot(
         standard_node_fields(),
         vec![
-            9, 0, 1, 0, 3,   // 0: synthetic root, 3 edges
-            9, 1, 3, 0, 1,   // 1: (GC roots), 1 edge
-            9, 4, 5, 0, 0,   // 2: (Persistent roots), synthetic, 0 edges
-            3, 5, 7, 0, 0,   // 3: NativeContext (object), 0 edges
+            9, 0, 1, 0, 3, // 0: synthetic root, 3 edges
+            9, 1, 3, 0, 1, // 1: (GC roots), 1 edge
+            9, 4, 5, 0, 0, // 2: (Persistent roots), synthetic, 0 edges
+            3, 5, 7, 0, 0, // 3: NativeContext (object), 0 edges
             3, 6, 9, 100, 0, // 4: Object, 0 edges
         ],
         vec![
-            1, 0, n(1), // root -> (GC roots)
-            1, 0, n(2), // root -> (Persistent roots)
-            1, 0, n(3), // root -> NativeContext
-            2, 6, n(4), // (GC roots) -> Object
+            1,
+            0,
+            n(1), // root -> (GC roots)
+            1,
+            0,
+            n(2), // root -> (Persistent roots)
+            1,
+            0,
+            n(3), // root -> NativeContext
+            2,
+            6,
+            n(4), // (GC roots) -> Object
         ],
         s(&[
             "",

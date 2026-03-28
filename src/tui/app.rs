@@ -28,6 +28,7 @@ impl App {
         // gets a unique NodeId so the TUI tree has no shared subtrees.
         fn build_subtree(
             snap: &HeapSnapshot,
+            retainer_ord: NodeOrdinal,
             plan_edges: &[RetainerPathEdge],
             state: &mut TreeState,
             next_id: &std::cell::Cell<u64>,
@@ -50,7 +51,7 @@ impl App {
 
                 let children_key = if !pe.children.is_empty() && has_children {
                     let ck = ChildrenKey::Retainers(id, pe.retainer);
-                    let sub = build_subtree(snap, &pe.children, state, next_id);
+                    let sub = build_subtree(snap, pe.retainer, &pe.children, state, next_id);
                     state.expanded.insert(id);
                     state.children_map.insert(ck.clone(), sub);
                     Some(ck)
@@ -71,6 +72,22 @@ impl App {
                     children_key,
                     is_weak,
                     is_root_holder: snap.is_root_holder(pe.retainer),
+                });
+            }
+            let selected = children.len();
+            let total = snap.retainer_count(retainer_ord);
+            if selected > 0 && selected < total {
+                children.push(ChildNode {
+                    id: mint_id(next_id),
+                    label: format!("{selected} selected of {total} retainers").into(),
+                    distance: None,
+                    shallow_size: 0.0,
+                    retained_size: 0.0,
+                    node_ordinal: None,
+                    has_children: false,
+                    children_key: None,
+                    is_weak: false,
+                    is_root_holder: false,
                 });
             }
             children
@@ -129,6 +146,7 @@ impl App {
                     let ck = ChildrenKey::Retainers(id, ret_ord);
                     let sub = build_subtree(
                         snap,
+                        ret_ord,
                         &pe.children,
                         &mut self.retainers.tree_state,
                         &self.next_id,
@@ -170,9 +188,11 @@ impl App {
             root_children.push(ChildNode {
                 id: mint_id(&self.next_id),
                 label: if visible < total {
-                    format!("{shown_start}\u{2013}{shown_end} of {total} refs  (n/p: page, a: all)")
+                    format!(
+                        "{shown_start}\u{2013}{shown_end} of {total} retainers  (n/p: page, a: all)"
+                    )
                 } else {
-                    format!("{shown_start}\u{2013}{shown_end} of {total} refs")
+                    format!("{shown_start}\u{2013}{shown_end} of {total} retainers")
                 }
                 .into(),
                 distance: None,
@@ -211,6 +231,7 @@ impl App {
 
         fn build_children(
             snap: &HeapSnapshot,
+            retainer_ord: NodeOrdinal,
             plan_edges: &[RetainerPathEdge],
             state: &mut TreeState,
             next_id: &std::cell::Cell<u64>,
@@ -233,7 +254,7 @@ impl App {
 
                 let children_key = if !pe.children.is_empty() && has_children {
                     let ck = ChildrenKey::Retainers(id, pe.retainer);
-                    let sub = build_children(snap, &pe.children, state, next_id);
+                    let sub = build_children(snap, pe.retainer, &pe.children, state, next_id);
                     state.expanded.insert(id);
                     state.children_map.insert(ck.clone(), sub);
                     Some(ck)
@@ -256,35 +277,35 @@ impl App {
                     is_root_holder: snap.is_root_holder(pe.retainer),
                 });
             }
+            let selected = children.len();
+            let total = snap.retainer_count(retainer_ord);
+            if selected > 0 && selected < total {
+                children.push(ChildNode {
+                    id: mint_id(next_id),
+                    label: format!("{selected} selected of {total} retainers").into(),
+                    distance: None,
+                    shallow_size: 0.0,
+                    retained_size: 0.0,
+                    node_ordinal: None,
+                    has_children: false,
+                    children_key: None,
+                    is_weak: false,
+                    is_root_holder: false,
+                });
+            }
             children
         }
 
         // Drop old cached children for this subtree.
         self.retainers.tree_state.children_map.remove(&children_key);
 
-        let mut root_children = build_children(
+        let root_children = build_children(
             snap,
+            ordinal,
             &plan.tree,
             &mut self.retainers.tree_state,
             &self.next_id,
         );
-
-        let total = snap.retainer_count(ordinal);
-        let selected = root_children.len();
-        if selected < total {
-            root_children.push(ChildNode {
-                id: mint_id(&self.next_id),
-                label: format!("{selected} selected of {total} refs").into(),
-                distance: None,
-                shallow_size: 0.0,
-                retained_size: 0.0,
-                node_ordinal: None,
-                has_children: false,
-                children_key: None,
-                is_weak: false,
-                is_root_holder: false,
-            });
-        }
 
         self.retainers
             .tree_state

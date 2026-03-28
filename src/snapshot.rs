@@ -403,8 +403,8 @@ impl HeapSnapshot {
                     // Non-synthetic child of the synthetic root is a user root.
                     snap.root_kinds[child_ordinal] = RootKind::UserRoot;
                 } else {
-                    let name = &snap.strings
-                        [snap.nodes[child_index + snap.node_name_offset] as usize];
+                    let name =
+                        &snap.strings[snap.nodes[child_index + snap.node_name_offset] as usize];
                     if name == "(Document DOM trees)" {
                         // "(Document DOM trees)" is synthetic but treated as a user root.
                         snap.root_kinds[child_ordinal] = RootKind::UserRoot;
@@ -1185,7 +1185,6 @@ impl HeapSnapshot {
             }
         }
     }
-
 
     fn init_essential_edges(&self) -> Vec<bool> {
         let nfc = self.node_field_count;

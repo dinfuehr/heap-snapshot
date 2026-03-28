@@ -646,7 +646,92 @@ fn test_opening_retainers_only_caches_first_page() {
     assert!(children[0].label.starts_with("ref in Holder @"));
     assert_eq!(
         children.last().unwrap().label,
-        Rc::<str>::from("1–20 of 25 refs  (n/p: page, a: all)")
+        Rc::<str>::from("1–20 of 25 retainers  (n/p: page, a: all)")
+    );
+}
+
+#[test]
+fn test_pressing_a_on_retainers_status_line_shows_all() {
+    let snap = make_many_retainers_snapshot(25);
+    let (work_tx, _work_rx) = mpsc::channel();
+    let (_result_tx, result_rx) = mpsc::channel();
+    let mut app = App::new(&snap, Vec::new(), work_tx, result_rx);
+
+    app.set_retainers_target(NodeOrdinal(2), &snap);
+    app.rebuild_rows(&snap);
+
+    // Move cursor to the status line (last row).
+    let status_idx = app
+        .cached_rows
+        .iter()
+        .position(|r| r.render.label.contains("of 25 retainers"))
+        .expect("status line should exist");
+    app.retainers.tree_state.cursor = status_idx;
+
+    // Press 'a' to show all retainers.
+    app.handle_normal_key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE), &snap);
+    app.rebuild_rows(&snap);
+
+    // All 25 retainers should now be visible (plus a status line showing the full range).
+    let retainer_rows: Vec<_> = app
+        .cached_rows
+        .iter()
+        .filter(|r| r.node_ordinal().is_some())
+        .collect();
+    assert_eq!(retainer_rows.len(), 25, "all 25 retainers should be visible");
+
+    // No "(n/p: page, a: all)" hint should remain.
+    let has_paging_hint = app
+        .cached_rows
+        .iter()
+        .any(|r| r.render.label.contains("n/p: page"));
+    assert!(
+        !has_paging_hint,
+        "paging hint should be gone after showing all"
+    );
+}
+
+#[test]
+fn test_pressing_a_on_selected_of_status_line_shows_all_retainers() {
+    // After auto-expansion, an intermediate node shows "1 selected of 2 retainers".
+    // Pressing 'a' on that status line should show all retainers for that node.
+    let snap = make_nested_retainers_snapshot(0);
+    let (work_tx, _work_rx) = mpsc::channel();
+    let (_result_tx, result_rx) = mpsc::channel();
+    let mut app = App::new(&snap, Vec::new(), work_tx, result_rx);
+
+    app.set_retainers_target(NodeOrdinal(2), &snap);
+    let plan = plan_gc_root_retainer_paths(
+        &snap,
+        NodeOrdinal(2),
+        RetainerAutoExpandLimits {
+            max_depth: 8,
+            max_nodes: 64,
+        },
+    );
+    app.apply_retainers_plan(NodeOrdinal(2), plan, &snap);
+    app.rebuild_rows(&snap);
+
+    // Find the "selected of" status line and move cursor there.
+    let status_idx = app
+        .cached_rows
+        .iter()
+        .position(|r| r.render.label.contains("1 selected of 2 retainers"))
+        .expect("'selected of' status line should exist");
+    app.retainers.tree_state.cursor = status_idx;
+
+    // Press 'a' to show all retainers for the intermediate node.
+    app.handle_normal_key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE), &snap);
+    app.rebuild_rows(&snap);
+
+    // The "selected of" status line should be gone.
+    let has_selected = app
+        .cached_rows
+        .iter()
+        .any(|r| r.render.label.contains("selected of"));
+    assert!(
+        !has_selected,
+        "'selected of' status line should be gone after pressing 'a'"
     );
 }
 
@@ -682,14 +767,22 @@ fn test_plan_tree_uses_retainer_path_keys() {
 
     // Only RootHolder is on the GC-root path (DetachedHolder is off-path,
     // connected only via the synthetic root, not (GC roots)).
+    // A status line is appended because only 1 of 2 retainers is selected.
     let holder_children = app
         .retainers
         .tree_state
         .children_map
         .get(holder_key.as_ref().unwrap())
         .unwrap();
-    assert_eq!(holder_children.len(), 1);
+    assert_eq!(holder_children.len(), 2);
     assert!(holder_children[0].label.contains("RootHolder"));
+    assert!(
+        holder_children[1]
+            .label
+            .contains("1 selected of 2 retainers"),
+        "expected status line, got: {:?}",
+        holder_children[1].label,
+    );
 
     // Manual expand on a Retainers-keyed node at the plan tree leaf
     // should show unfiltered retainers (bypass gc_root_path_edges).
@@ -747,7 +840,7 @@ fn test_nested_retainer_paging_updates_child_window_only() {
         .unwrap();
     assert_eq!(
         children.last().unwrap().label,
-        Rc::<str>::from("21–26 of 26 refs  (n/p: page, a: all)")
+        Rc::<str>::from("21–26 of 26 retainers  (n/p: page, a: all)")
     );
 }
 
@@ -788,7 +881,7 @@ fn test_nested_retainer_page_shift_clamps_cursor_on_partial_last_page() {
         .unwrap();
     assert_eq!(
         children.last().unwrap().label,
-        Rc::<str>::from("21–26 of 26 refs  (n/p: page, a: all)")
+        Rc::<str>::from("21–26 of 26 retainers  (n/p: page, a: all)")
     );
 }
 
@@ -840,7 +933,7 @@ fn test_search_id_opening_retainers_keeps_retainer_cache_paged() {
     assert_eq!(children.len(), EDGE_PAGE_SIZE + 1);
     assert_eq!(
         children.last().unwrap().label,
-        Rc::<str>::from("1–20 of 25 refs  (n/p: page, a: all)")
+        Rc::<str>::from("1–20 of 25 retainers  (n/p: page, a: all)")
     );
 }
 
@@ -2521,7 +2614,7 @@ fn test_apply_plan_sorts_on_path_retainers_first() {
 
 #[test]
 fn test_apply_plan_no_selected_status_line() {
-    // After applying a plan, we should NOT see "X selected of Y refs"
+    // After applying a plan, we should NOT see "X selected of Y retainers"
     // since all retainers are shown.
     let snap = make_mixed_retainers_snapshot();
     let (work_tx, _work_rx) = mpsc::channel();
@@ -2547,6 +2640,118 @@ fn test_apply_plan_no_selected_status_line() {
     assert!(
         !has_selected_line,
         "Should not have a 'selected of' status line — all retainers are shown"
+    );
+}
+
+#[test]
+fn test_apply_plan_intermediate_status_line() {
+    // make_nested_retainers_snapshot(0) creates:
+    //   root(0) -> (GC roots)(1) -> root_holder(4) -> holder(3) -> target(2)
+    //   root(0) -> detached_holder(5) -> holder(3)
+    //
+    // The plan for target(2) selects: holder(3) -> root_holder(4) -> (GC roots).
+    // holder(3) has 2 retainers (root_holder and detached_holder) but only
+    // root_holder is on the plan.  The status line "1 selected of 2 retainers"
+    // should appear under holder(3) in the flattened rows.
+    let snap = make_nested_retainers_snapshot(0);
+    let (work_tx, _work_rx) = mpsc::channel();
+    let (_result_tx, result_rx) = mpsc::channel();
+    let mut app = App::new(&snap, Vec::new(), work_tx, result_rx);
+
+    app.set_retainers_target(NodeOrdinal(2), &snap);
+    let plan = plan_gc_root_retainer_paths(
+        &snap,
+        NodeOrdinal(2),
+        RetainerAutoExpandLimits {
+            max_depth: 8,
+            max_nodes: 64,
+        },
+    );
+    app.apply_retainers_plan(NodeOrdinal(2), plan, &snap);
+    app.rebuild_rows(&snap);
+
+    // Find the status line under the auto-expanded holder node.
+    let status_row = app
+        .cached_rows
+        .iter()
+        .find(|r| r.render.label.contains("selected of"));
+    assert!(
+        status_row.is_some(),
+        "expected 'selected of' status line under auto-expanded intermediate node"
+    );
+    assert!(
+        status_row
+            .unwrap()
+            .render
+            .label
+            .contains("1 selected of 2 retainers"),
+        "status line should show '1 selected of 2 retainers', got: {:?}",
+        status_row.unwrap().render.label,
+    );
+}
+
+#[test]
+fn test_apply_plan_intermediate_status_line_with_extra_retainers() {
+    // With extra_retainers=5, holder(3) has 7 retainers total
+    // (root_holder + detached_holder + 5 extras), but the plan
+    // only selects root_holder.
+    let snap = make_nested_retainers_snapshot(5);
+    let (work_tx, _work_rx) = mpsc::channel();
+    let (_result_tx, result_rx) = mpsc::channel();
+    let mut app = App::new(&snap, Vec::new(), work_tx, result_rx);
+
+    app.set_retainers_target(NodeOrdinal(2), &snap);
+    let plan = plan_gc_root_retainer_paths(
+        &snap,
+        NodeOrdinal(2),
+        RetainerAutoExpandLimits {
+            max_depth: 8,
+            max_nodes: 64,
+        },
+    );
+    app.apply_retainers_plan(NodeOrdinal(2), plan, &snap);
+    app.rebuild_rows(&snap);
+
+    let status_row = app
+        .cached_rows
+        .iter()
+        .find(|r| r.render.label.contains("selected of"));
+    assert!(status_row.is_some(), "expected 'selected of' status line");
+    assert!(
+        status_row
+            .unwrap()
+            .render
+            .label
+            .contains("1 selected of 7 retainers"),
+        "status line should show '1 selected of 7 retainers', got: {:?}",
+        status_row.unwrap().render.label,
+    );
+}
+
+#[test]
+fn test_apply_plan_root_level_status_line_when_paged() {
+    // make_nested_retainers_snapshot with extra_retainers creates many
+    // retainers of holder(3).  At the ROOT level (target's retainers),
+    // there's only 1 retainer (holder), so no root-level status line.
+    // But we can test the root level with make_many_retainers_snapshot
+    // which has many retainers for the target.
+    let snap = make_many_retainers_snapshot(25);
+    let (work_tx, _work_rx) = mpsc::channel();
+    let (_result_tx, result_rx) = mpsc::channel();
+    let mut app = App::new(&snap, Vec::new(), work_tx, result_rx);
+
+    app.set_retainers_target(NodeOrdinal(2), &snap);
+
+    // Before the plan is applied, the initial paged view should have a
+    // status line like "1-20 of 25 retainers".
+    app.rebuild_rows(&snap);
+    let paging_row = app
+        .cached_rows
+        .iter()
+        .find(|r| r.render.label.contains("of 25 retainers"));
+    assert!(
+        paging_row.is_some(),
+        "expected paging status line for 25 retainers"
     );
 }
 
@@ -3785,9 +3990,12 @@ fn test_show_in_containment_status_line_present_when_paged() {
     let target = NodeOrdinal(2 + count - 1);
     app.show_in_containment(target, &snap);
 
-    // There should be a status row (no node_ordinal, label mentions "refs").
+    // There should be a status row with "X of Y refs" paging info.
     let has_status = app.cached_rows.iter().any(|r| {
-        r.node_ordinal().is_none() && r.render.label.contains("refs") && !r.nav.has_children
+        r.node_ordinal().is_none()
+            && r.render.label.contains("of")
+            && r.render.label.contains("refs")
+            && !r.nav.has_children
     });
     assert!(has_status, "paging status line should be present");
 }

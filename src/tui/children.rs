@@ -469,9 +469,11 @@ pub(super) fn compute_retainers(
             children.push(ChildNode {
                 id: mint_id(next_id),
                 label: if visible < total {
-                    format!("{shown_start}\u{2013}{shown_end} of {total} refs  (n/p: page, a: all)")
+                    format!(
+                        "{shown_start}\u{2013}{shown_end} of {total} retainers  (n/p: page, a: all)"
+                    )
                 } else {
-                    format!("{shown_start}\u{2013}{shown_end} of {total} refs")
+                    format!("{shown_start}\u{2013}{shown_end} of {total} retainers")
                 }
                 .into(),
                 distance: None,
@@ -506,9 +508,11 @@ pub(super) fn compute_retainers(
         children.push(ChildNode {
             id: mint_id(next_id),
             label: if visible < total {
-                format!("{shown_start}\u{2013}{shown_end} of {total} refs  (n/p: page, a: all)")
+                format!(
+                    "{shown_start}\u{2013}{shown_end} of {total} retainers  (n/p: page, a: all)"
+                )
             } else {
-                format!("{shown_start}\u{2013}{shown_end} of {total} refs")
+                format!("{shown_start}\u{2013}{shown_end} of {total} retainers")
             }
             .into(),
             distance: None,
