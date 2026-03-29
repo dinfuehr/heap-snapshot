@@ -67,6 +67,7 @@ export interface SummaryObject {
   name: string;
   self_size: number;
   retained_size: number;
+  detachedness: number;
 }
 
 export interface SummaryExpanded {
@@ -95,6 +96,7 @@ export interface NativeContext {
   detachedness: string;
   self_size: number;
   retained_size: number;
+  vars: string;
 }
 
 export interface ReachableSizeInfo {

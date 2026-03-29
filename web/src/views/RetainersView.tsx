@@ -5,16 +5,11 @@ import type {
   Retainer,
   RetainingPaths,
   RetainingPath,
-  ReachableSizeInfo,
 } from '../types.ts';
 import type { SnapshotCall } from '../worker/use-snapshot.ts';
 import type { NavigateOptions } from '../components/ObjectLink.tsx';
-import {
-  TreeTableShell,
-  TreeTableRow,
-  TreeTableMore,
-  type RowSelection,
-} from '../components/TreeTable.tsx';
+import { TreeTableShell, TreeTableRow } from '../components/TreeTable.tsx';
+import { TreeTablePager } from '../components/TreeTablePager.tsx';
 import { formatBytes } from '../components/format.ts';
 
 interface Props {
@@ -22,27 +17,20 @@ interface Props {
   nodeId: number | null;
   onNavigate: (opts: NavigateOptions) => void;
   onContextMenu: (e: React.MouseEvent, nodeId: number) => void;
-  reachableSizes: Map<number, ReachableSizeInfo>;
-  selection: RowSelection | null;
-  onSelect: (sel: RowSelection) => void;
 }
+
+const PAGE_SIZE = 100;
 
 function PathNode({
   path,
   depth,
   onNavigate,
   onContextMenu,
-  reachableSizes,
-  selection,
-  onSelect,
 }: {
   path: RetainingPath;
   depth: number;
   onNavigate: Props['onNavigate'];
   onContextMenu: Props['onContextMenu'];
-  reachableSizes: Map<number, ReachableSizeInfo>;
-  selection: RowSelection | null;
-  onSelect: (sel: RowSelection) => void;
 }) {
   const label = (
     <>
@@ -58,13 +46,10 @@ function PathNode({
       linkId={path.node.id}
       onNavigate={onNavigate}
       onContextMenu={onContextMenu}
-      onSelect={onSelect}
-      selection={selection}
-      distance={path.node.distance}
       detachedness={path.node.detachedness}
+      distance={path.node.distance}
       selfSize={path.node.self_size}
       retainedSize={path.node.retained_size}
-      reachableInfo={reachableSizes.get(path.node.id)}
     >
       {path.children.map((child, i) => (
         <PathNode
@@ -73,9 +58,6 @@ function PathNode({
           depth={depth + 1}
           onNavigate={onNavigate}
           onContextMenu={onContextMenu}
-          reachableSizes={reachableSizes}
-          selection={selection}
-          onSelect={onSelect}
         />
       ))}
     </TreeTableRow>
@@ -87,23 +69,38 @@ function RetainerRow({
   call,
   onNavigate,
   onContextMenu,
-  reachableSizes,
-  selection,
-  onSelect,
   depth,
 }: {
   retainer: Retainer;
   call: SnapshotCall;
   onNavigate: Props['onNavigate'];
   onContextMenu: Props['onContextMenu'];
-  reachableSizes: Map<number, ReachableSizeInfo>;
-  selection: RowSelection | null;
-  onSelect: (sel: RowSelection) => void;
   depth: number;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [children, setChildren] = useState<Retainer[] | null>(null);
   const [total, setTotal] = useState(0);
+  const [offset, setOffset] = useState(0);
+  const [limit, setLimit] = useState(PAGE_SIZE);
+  const [filter, setFilter] = useState('');
+
+  const loadRetainers = useCallback(
+    async (o: number, l: number, f: string) => {
+      const result = await call<Retainers>({
+        type: 'getRetainers',
+        nodeId: retainer.source.id,
+        offset: o,
+        limit: l,
+        filter: f,
+      });
+      setChildren(result.retainers);
+      setTotal(result.total);
+      setOffset(o);
+      setLimit(l);
+      setFilter(f);
+    },
+    [call, retainer.source.id],
+  );
 
   const toggle = useCallback(async () => {
     if (expanded) {
@@ -112,16 +109,9 @@ function RetainerRow({
     }
     setExpanded(true);
     if (!children) {
-      const result = await call<Retainers>({
-        type: 'getRetainers',
-        nodeId: retainer.source.id,
-        offset: 0,
-        limit: 50,
-      });
-      setChildren(result.retainers);
-      setTotal(result.total);
+      await loadRetainers(0, PAGE_SIZE, '');
     }
-  }, [expanded, children, call, retainer.source.id]);
+  }, [expanded, children, loadRetainers]);
 
   const label = (
     <>
@@ -141,13 +131,10 @@ function RetainerRow({
       linkId={retainer.source.id}
       onNavigate={onNavigate}
       onContextMenu={onContextMenu}
-      onSelect={onSelect}
-      selection={selection}
-      distance={retainer.source.distance}
       detachedness={retainer.source.detachedness}
+      distance={retainer.source.distance}
       selfSize={retainer.source.self_size}
       retainedSize={retainer.source.retained_size}
-      reachableInfo={reachableSizes.get(retainer.source.id)}
     >
       {expanded && children && (
         <>
@@ -158,17 +145,18 @@ function RetainerRow({
               call={call}
               onNavigate={onNavigate}
               onContextMenu={onContextMenu}
-              reachableSizes={reachableSizes}
-              selection={selection}
-              onSelect={onSelect}
               depth={depth + 1}
             />
           ))}
-          <TreeTableMore
+          <TreeTablePager
             depth={depth + 1}
             shown={children.length}
             total={total}
-            label="retainers"
+            offset={offset}
+            filter={filter}
+            onPageChange={(o, l) => loadRetainers(o, l, filter)}
+            onFilterChange={(f) => loadRetainers(0, limit, f)}
+            onShowAll={() => loadRetainers(0, 999999, filter)}
           />
         </>
       )}
@@ -181,12 +169,12 @@ export function RetainersView({
   nodeId,
   onNavigate,
   onContextMenu,
-  reachableSizes,
-  selection,
-  onSelect,
 }: Props) {
   const [nodeInfo, setNodeInfo] = useState<NodeInfo | null>(null);
   const [retainers, setRetainers] = useState<Retainers | null>(null);
+  const [retOffset, setRetOffset] = useState(0);
+  const [retLimit, setRetLimit] = useState(PAGE_SIZE);
+  const [retFilter, setRetFilter] = useState('');
   const [paths, setPaths] = useState<RetainingPaths | null>(null);
   const [inputId, setInputId] = useState(nodeId ? `@${nodeId}` : '');
   const [activeId, setActiveId] = useState<number | null>(nodeId);
@@ -198,19 +186,31 @@ export function RetainersView({
     }
   }, [nodeId]);
 
+  const loadRetainers = useCallback(
+    async (id: number, o: number, l: number, f: string) => {
+      const result = await call<Retainers>({
+        type: 'getRetainers',
+        nodeId: id,
+        offset: o,
+        limit: l,
+        filter: f,
+      });
+      setRetainers(result);
+      setRetOffset(o);
+      setRetLimit(l);
+      setRetFilter(f);
+    },
+    [call],
+  );
+
   useEffect(() => {
     if (activeId === null) return;
     setPaths(null);
     setRetainers(null);
     setNodeInfo(null);
     call<NodeInfo>({ type: 'getNodeInfo', nodeId: activeId }).then(setNodeInfo);
-    call<Retainers>({
-      type: 'getRetainers',
-      nodeId: activeId,
-      offset: 0,
-      limit: 50,
-    }).then(setRetainers);
-  }, [activeId, call]);
+    loadRetainers(activeId, 0, PAGE_SIZE, '');
+  }, [activeId, call, loadRetainers]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -257,7 +257,7 @@ export function RetainersView({
         </div>
       )}
 
-      {retainers && (
+      {retainers && activeId !== null && (
         <>
           <h3 style={{ fontSize: 14, margin: '0 0 8px' }}>
             Direct Retainers ({retainers.total})
@@ -270,17 +270,18 @@ export function RetainersView({
                 call={call}
                 onNavigate={onNavigate}
                 onContextMenu={onContextMenu}
-                reachableSizes={reachableSizes}
-                selection={selection}
-                onSelect={onSelect}
                 depth={0}
               />
             ))}
-            <TreeTableMore
+            <TreeTablePager
               depth={0}
               shown={retainers.retainers.length}
               total={retainers.total}
-              label="retainers"
+              offset={retOffset}
+              filter={retFilter}
+              onPageChange={(o, l) => loadRetainers(activeId, o, l, retFilter)}
+              onFilterChange={(f) => loadRetainers(activeId, 0, retLimit, f)}
+              onShowAll={() => loadRetainers(activeId, 0, 999999, retFilter)}
             />
           </TreeTableShell>
         </>
@@ -303,9 +304,6 @@ export function RetainersView({
                     depth={0}
                     onNavigate={onNavigate}
                     onContextMenu={onContextMenu}
-                    reachableSizes={reachableSizes}
-                    selection={selection}
-                    onSelect={onSelect}
                   />
                 ))}
               </TreeTableShell>

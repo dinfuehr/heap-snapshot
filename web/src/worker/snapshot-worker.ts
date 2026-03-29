@@ -75,6 +75,7 @@ self.onmessage = async (e: MessageEvent<WorkerMsg>) => {
               msg.nodeId as number,
               msg.offset as number,
               msg.limit as number,
+              (msg.filter as string) || '',
             ),
           ),
         );
@@ -87,6 +88,7 @@ self.onmessage = async (e: MessageEvent<WorkerMsg>) => {
               msg.nodeId as number,
               msg.offset as number,
               msg.limit as number,
+              (msg.filter as string) || '',
             ),
           ),
         );

@@ -1,20 +1,16 @@
 import { useEffect, useState, useMemo } from 'react';
-import type {
-  AggregateEntry,
-  SummaryExpanded,
-  ReachableSizeInfo,
-} from '../types.ts';
+import type { AggregateEntry, SummaryExpanded } from '../types.ts';
 import type { SnapshotCall } from '../worker/use-snapshot.ts';
 import type { NavigateOptions } from '../components/ObjectLink.tsx';
 import { ObjectLink } from '../components/ObjectLink.tsx';
 import { formatBytes } from '../components/format.ts';
+import { useReachableSizes } from '../components/SelectionContext.tsx';
 
 interface Props {
   call: SnapshotCall;
   onNavigate: (opts: NavigateOptions) => void;
   onContextMenu: (e: React.MouseEvent, nodeId: number) => void;
   highlightNodeId: number | null;
-  reachableSizes: Map<number, ReachableSizeInfo>;
 }
 
 export function SummaryView({
@@ -22,13 +18,13 @@ export function SummaryView({
   onNavigate,
   onContextMenu,
   highlightNodeId,
-  reachableSizes,
 }: Props) {
   const [entries, setEntries] = useState<AggregateEntry[] | null>(null);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [objects, setObjects] = useState<SummaryExpanded | null>(null);
   const [filter, setFilter] = useState('');
   const [lastHighlight, setLastHighlight] = useState<number | null>(null);
+  const reachableSizes = useReachableSizes();
 
   useEffect(() => {
     if (
@@ -123,6 +119,7 @@ export function SummaryView({
           <col style={{ width: 100 }} />
           <col style={{ width: 110 }} />
           <col style={{ width: 120 }} />
+          <col style={{ width: 75 }} />
         </colgroup>
         <thead>
           <tr style={{ textAlign: 'left', borderBottom: '1px solid #ccc' }}>
@@ -162,6 +159,15 @@ export function SummaryView({
               }}
             >
               Reachable Size
+            </th>
+            <th
+              style={{
+                padding: '4px 8px',
+                textAlign: 'right',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              Status
             </th>
           </tr>
         </thead>
@@ -224,10 +230,11 @@ export function SummaryView({
                 >
                   {'\u2014'}
                 </td>
+                <td />
               </tr>
               {expanded === entry.key && objects && (
                 <tr key={entry.key + '-expanded'}>
-                  <td colSpan={5} style={{ padding: '4px 24px' }}>
+                  <td colSpan={6} style={{ padding: '4px 24px' }}>
                     <table
                       style={{
                         borderCollapse: 'collapse',
@@ -241,6 +248,7 @@ export function SummaryView({
                         <col style={{ width: 90 }} />
                         <col style={{ width: 100 }} />
                         <col style={{ width: 120 }} />
+                        <col style={{ width: 75 }} />
                       </colgroup>
                       <tbody>
                         {objects.objects.map((obj) => (
@@ -303,6 +311,27 @@ export function SummaryView({
                               {reachableSizes.get(obj.id)
                                 ? formatBytes(reachableSizes.get(obj.id)!.size)
                                 : '\u2014'}
+                            </td>
+                            <td
+                              style={{
+                                padding: '1px 8px',
+                                textAlign: 'right',
+                                whiteSpace: 'nowrap',
+                                color:
+                                  obj.detachedness === 2
+                                    ? '#ef4444'
+                                    : obj.detachedness === 1
+                                      ? '#10b981'
+                                      : '#888',
+                                fontWeight:
+                                  obj.detachedness === 2 ? 600 : undefined,
+                              }}
+                            >
+                              {obj.detachedness === 2
+                                ? 'detached'
+                                : obj.detachedness === 1
+                                  ? 'attached'
+                                  : ''}
                             </td>
                           </tr>
                         ))}

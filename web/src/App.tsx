@@ -4,8 +4,11 @@ import { FileLoader } from './components/FileLoader.tsx';
 import { TabNav } from './components/TabNav.tsx';
 import { ContextMenu } from './components/ContextMenu.tsx';
 import type { NavigateOptions } from './components/ObjectLink.tsx';
-import type { RowSelection } from './components/TreeTable.tsx';
-import type { ReachableSizeInfo } from './types.ts';
+import {
+  SelectionProvider,
+  ReachableSizesProvider,
+} from './components/SelectionContext.tsx';
+import type { ReachableSizeInfo, NodeInfo } from './types.ts';
 import { StatisticsView } from './views/StatisticsView.tsx';
 import { SummaryView } from './views/SummaryView.tsx';
 import { ContainmentView } from './views/ContainmentView.tsx';
@@ -13,7 +16,6 @@ import { RetainersView } from './views/RetainersView.tsx';
 import { DominatorsView } from './views/DominatorsView.tsx';
 import { ContextsView } from './views/ContextsView.tsx';
 import { HistoryView } from './views/HistoryView.tsx';
-import type { NodeInfo } from './types.ts';
 
 const TABS = [
   'Summary',
@@ -40,15 +42,10 @@ export function App() {
   const [reachableSizes, setReachableSizes] = useState<
     Map<number, ReachableSizeInfo>
   >(new Map());
-  const [selection, setSelection] = useState<RowSelection | null>(null);
   const [history, setHistory] = useState<NodeInfo[]>([]);
 
   const pushHistory = useCallback(
     async (nodeId: number) => {
-      setHistory((prev) => {
-        if (prev.length > 0 && prev[prev.length - 1].id === nodeId) return prev;
-        return prev; // will be updated after fetch
-      });
       const info = await snapshot.call<NodeInfo>({
         type: 'getNodeInfo',
         nodeId,
@@ -78,9 +75,15 @@ export function App() {
     [pushHistory],
   );
 
+  const handleContextMenu = useCallback(
+    (e: React.MouseEvent, nodeId: number) => {
+      setMenu({ x: e.clientX, y: e.clientY, nodeId });
+    },
+    [],
+  );
+
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      // Don't intercept when typing in an input
       if (
         e.target instanceof HTMLInputElement ||
         e.target instanceof HTMLTextAreaElement
@@ -94,13 +97,6 @@ export function App() {
     document.addEventListener('keydown', handler);
     return () => document.removeEventListener('keydown', handler);
   }, []);
-
-  const handleContextMenu = useCallback(
-    (e: React.MouseEvent, nodeId: number) => {
-      setMenu({ x: e.clientX, y: e.clientY, nodeId });
-    },
-    [],
-  );
 
   const computeReachableSize = useCallback(
     async (nodeId: number) => {
@@ -159,139 +155,116 @@ export function App() {
     );
   }
 
-  return (
-    <div style={{ fontFamily: 'system-ui, sans-serif', padding: 16 }}>
-      <TabNav tabs={TABS} active={tab} onChange={setTab} />
-      <div
-        style={{
-          marginTop: 16,
-          display: tab === 'Summary' ? undefined : 'none',
-        }}
-      >
-        <SummaryView
-          call={snapshot.call}
-          onNavigate={navigate}
-          onContextMenu={handleContextMenu}
-          highlightNodeId={summaryHighlight}
-          reachableSizes={reachableSizes}
-        />
-      </div>
-      <div
-        style={{
-          marginTop: 16,
-          display: tab === 'Containment' ? undefined : 'none',
-        }}
-      >
-        <ContainmentView
-          call={snapshot.call}
-          onNavigate={navigate}
-          onContextMenu={handleContextMenu}
-          reachableSizes={reachableSizes}
-          selection={selection}
-          onSelect={setSelection}
-        />
-      </div>
-      <div
-        style={{
-          marginTop: 16,
-          display: tab === 'Dominators' ? undefined : 'none',
-        }}
-      >
-        <DominatorsView
-          call={snapshot.call}
-          onNavigate={navigate}
-          onContextMenu={handleContextMenu}
-          focusNodeId={dominatorsNodeId}
-          reachableSizes={reachableSizes}
-          selection={selection}
-          onSelect={setSelection}
-        />
-      </div>
-      <div
-        style={{
-          marginTop: 16,
-          display: tab === 'Retainers' ? undefined : 'none',
-        }}
-      >
-        <RetainersView
-          call={snapshot.call}
-          nodeId={retainersNodeId}
-          onNavigate={navigate}
-          onContextMenu={handleContextMenu}
-          reachableSizes={reachableSizes}
-          selection={selection}
-          onSelect={setSelection}
-        />
-      </div>
-      <div
-        style={{
-          marginTop: 16,
-          display: tab === 'Contexts' ? undefined : 'none',
-        }}
-      >
-        <ContextsView
-          call={snapshot.call}
-          onNavigate={navigate}
-          onContextMenu={handleContextMenu}
-        />
-      </div>
-      <div
-        style={{
-          marginTop: 16,
-          display: tab === 'History' ? undefined : 'none',
-        }}
-      >
-        <HistoryView
-          call={snapshot.call}
-          history={history}
-          onNavigate={navigate}
-          onContextMenu={handleContextMenu}
-          reachableSizes={reachableSizes}
-          selection={selection}
-          onSelect={setSelection}
-        />
-      </div>
-      <div
-        style={{
-          marginTop: 16,
-          display: tab === 'Statistics' ? undefined : 'none',
-        }}
-      >
-        <StatisticsView call={snapshot.call} />
-      </div>
+  const viewProps = {
+    call: snapshot.call,
+    onNavigate: navigate,
+    onContextMenu: handleContextMenu,
+  };
 
-      {menu && (
-        <ContextMenu
-          x={menu.x}
-          y={menu.y}
-          onClose={() => setMenu(null)}
-          items={[
-            {
-              label: 'Show retainers',
-              action: () =>
-                navigate({ nodeId: menu.nodeId, target: 'Retainers' }),
-            },
-            {
-              label: 'Show in dominators',
-              action: () =>
-                navigate({ nodeId: menu.nodeId, target: 'Dominators' }),
-            },
-            {
-              label: 'Show in summary',
-              action: () =>
-                navigate({ nodeId: menu.nodeId, target: 'Summary' }),
-            },
-            {
-              label: 'Compute reachable size',
-              action: () => computeReachableSize(menu.nodeId),
-            },
-            {
-              label: 'Compute reachable size w/ children',
-              action: () => computeReachableSizeWithChildren(menu.nodeId),
-            },
-          ]}
-        />
-      )}
-    </div>
+  return (
+    <ReachableSizesProvider value={reachableSizes}>
+      <div style={{ fontFamily: 'system-ui, sans-serif', padding: 16 }}>
+        <TabNav tabs={TABS} active={tab} onChange={setTab} />
+        <div
+          style={{
+            marginTop: 16,
+            display: tab === 'Summary' ? undefined : 'none',
+          }}
+        >
+          <SummaryView {...viewProps} highlightNodeId={summaryHighlight} />
+        </div>
+        <div
+          style={{
+            marginTop: 16,
+            display: tab === 'Containment' ? undefined : 'none',
+          }}
+        >
+          <SelectionProvider>
+            <ContainmentView {...viewProps} />
+          </SelectionProvider>
+        </div>
+        <div
+          style={{
+            marginTop: 16,
+            display: tab === 'Dominators' ? undefined : 'none',
+          }}
+        >
+          <SelectionProvider>
+            <DominatorsView {...viewProps} focusNodeId={dominatorsNodeId} />
+          </SelectionProvider>
+        </div>
+        <div
+          style={{
+            marginTop: 16,
+            display: tab === 'Retainers' ? undefined : 'none',
+          }}
+        >
+          <SelectionProvider>
+            <RetainersView {...viewProps} nodeId={retainersNodeId} />
+          </SelectionProvider>
+        </div>
+        <div
+          style={{
+            marginTop: 16,
+            display: tab === 'Contexts' ? undefined : 'none',
+          }}
+        >
+          <SelectionProvider>
+            <ContextsView {...viewProps} />
+          </SelectionProvider>
+        </div>
+        <div
+          style={{
+            marginTop: 16,
+            display: tab === 'History' ? undefined : 'none',
+          }}
+        >
+          <SelectionProvider>
+            <HistoryView {...viewProps} history={history} />
+          </SelectionProvider>
+        </div>
+        <div
+          style={{
+            marginTop: 16,
+            display: tab === 'Statistics' ? undefined : 'none',
+          }}
+        >
+          <StatisticsView call={snapshot.call} />
+        </div>
+
+        {menu && (
+          <ContextMenu
+            x={menu.x}
+            y={menu.y}
+            onClose={() => setMenu(null)}
+            items={[
+              {
+                label: 'Show retainers',
+                action: () =>
+                  navigate({ nodeId: menu.nodeId, target: 'Retainers' }),
+              },
+              {
+                label: 'Show in dominators',
+                action: () =>
+                  navigate({ nodeId: menu.nodeId, target: 'Dominators' }),
+              },
+              {
+                label: 'Show in summary',
+                action: () =>
+                  navigate({ nodeId: menu.nodeId, target: 'Summary' }),
+              },
+              {
+                label: 'Compute reachable size',
+                action: () => computeReachableSize(menu.nodeId),
+              },
+              {
+                label: 'Compute reachable size w/ children',
+                action: () => computeReachableSizeWithChildren(menu.nodeId),
+              },
+            ]}
+          />
+        )}
+      </div>
+    </ReachableSizesProvider>
   );
 }

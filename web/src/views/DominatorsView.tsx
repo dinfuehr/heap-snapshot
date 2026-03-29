@@ -1,50 +1,51 @@
 import { useEffect, useState, useCallback } from 'react';
-import type {
-  NodeInfo,
-  DominatedChildren,
-  ReachableSizeInfo,
-} from '../types.ts';
+import type { NodeInfo, DominatedChildren } from '../types.ts';
 import type { SnapshotCall } from '../worker/use-snapshot.ts';
 import type { NavigateOptions } from '../components/ObjectLink.tsx';
-import {
-  TreeTableShell,
-  TreeTableRow,
-  TreeTableMore,
-  type RowSelection,
-} from '../components/TreeTable.tsx';
+import { TreeTableShell, TreeTableRow } from '../components/TreeTable.tsx';
+import { TreeTablePager } from '../components/TreeTablePager.tsx';
 
 interface Props {
   call: SnapshotCall;
   onNavigate: (opts: NavigateOptions) => void;
   onContextMenu: (e: React.MouseEvent, nodeId: number) => void;
   focusNodeId: number | null;
-  reachableSizes: Map<number, ReachableSizeInfo>;
-  selection: RowSelection | null;
-  onSelect: (sel: RowSelection) => void;
 }
+
+const PAGE_SIZE = 100;
 
 function DomTreeNode({
   node,
   call,
   onNavigate,
   onContextMenu,
-  reachableSizes,
-  selection,
-  onSelect,
   depth,
 }: {
   node: NodeInfo;
   call: SnapshotCall;
   onNavigate: Props['onNavigate'];
   onContextMenu: Props['onContextMenu'];
-  reachableSizes: Map<number, ReachableSizeInfo>;
-  selection: RowSelection | null;
-  onSelect: (sel: RowSelection) => void;
   depth: number;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [children, setChildren] = useState<NodeInfo[] | null>(null);
   const [total, setTotal] = useState(0);
+  const [offset, setOffset] = useState(0);
+
+  const loadChildren = useCallback(
+    async (o: number, l: number) => {
+      const result = await call<DominatedChildren>({
+        type: 'getDominatedChildren',
+        nodeId: node.id,
+        offset: o,
+        limit: l,
+      });
+      setChildren(result.children);
+      setTotal(result.total);
+      setOffset(o);
+    },
+    [call, node.id],
+  );
 
   const toggle = useCallback(async () => {
     if (expanded) {
@@ -53,16 +54,9 @@ function DomTreeNode({
     }
     setExpanded(true);
     if (!children) {
-      const result = await call<DominatedChildren>({
-        type: 'getDominatedChildren',
-        nodeId: node.id,
-        offset: 0,
-        limit: 100,
-      });
-      setChildren(result.children);
-      setTotal(result.total);
+      await loadChildren(0, PAGE_SIZE);
     }
-  }, [expanded, children, call, node.id]);
+  }, [expanded, children, loadChildren]);
 
   const label = (
     <>
@@ -79,13 +73,10 @@ function DomTreeNode({
       linkId={node.id}
       onNavigate={onNavigate}
       onContextMenu={onContextMenu}
-      onSelect={onSelect}
-      selection={selection}
-      distance={node.distance}
       detachedness={node.detachedness}
+      distance={node.distance}
       selfSize={node.self_size}
       retainedSize={node.retained_size}
-      reachableInfo={reachableSizes.get(node.id)}
     >
       {expanded && children && (
         <>
@@ -96,17 +87,18 @@ function DomTreeNode({
               call={call}
               onNavigate={onNavigate}
               onContextMenu={onContextMenu}
-              reachableSizes={reachableSizes}
-              selection={selection}
-              onSelect={onSelect}
               depth={depth + 1}
             />
           ))}
-          <TreeTableMore
+          <TreeTablePager
             depth={depth + 1}
             shown={children.length}
             total={total}
-            label="dominated children"
+            offset={offset}
+            filter=""
+            onPageChange={(o, l) => loadChildren(o, l)}
+            onFilterChange={() => {}}
+            onShowAll={() => loadChildren(0, 999999)}
           />
         </>
       )}
@@ -114,14 +106,7 @@ function DomTreeNode({
   );
 }
 
-export function DominatorsView({
-  call,
-  onNavigate,
-  onContextMenu,
-  reachableSizes,
-  selection,
-  onSelect,
-}: Props) {
+export function DominatorsView({ call, onNavigate, onContextMenu }: Props) {
   const [root, setRoot] = useState<NodeInfo | null>(null);
 
   useEffect(() => {
@@ -139,9 +124,6 @@ export function DominatorsView({
         call={call}
         onNavigate={onNavigate}
         onContextMenu={onContextMenu}
-        reachableSizes={reachableSizes}
-        selection={selection}
-        onSelect={onSelect}
         depth={0}
       />
     </TreeTableShell>

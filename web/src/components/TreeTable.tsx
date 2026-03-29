@@ -1,7 +1,7 @@
 import { useCallback, useId, type ReactNode } from 'react';
 import { formatBytes } from './format.ts';
 import { ObjectLink, type NavigateOptions } from './ObjectLink.tsx';
-import type { ReachableSizeInfo } from '../types.ts';
+import { useSelection, useReachableSizes } from './SelectionContext.tsx';
 
 const numStyle: React.CSSProperties = {
   padding: '2px 8px',
@@ -20,15 +20,6 @@ export function TreeTableHeader() {
     <thead>
       <tr style={{ textAlign: 'left', borderBottom: '1px solid #ccc' }}>
         <th style={{ padding: '4px 8px', width: '100%' }}>Object</th>
-        <th
-          style={{
-            padding: '4px 8px',
-            textAlign: 'right',
-            whiteSpace: 'nowrap',
-          }}
-        >
-          Status
-        </th>
         <th
           style={{
             padding: '4px 8px',
@@ -65,6 +56,15 @@ export function TreeTableHeader() {
         >
           Reachable Size
         </th>
+        <th
+          style={{
+            padding: '4px 8px',
+            textAlign: 'right',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          Status
+        </th>
       </tr>
     </thead>
   );
@@ -78,13 +78,10 @@ export function TreeTableRow({
   linkId,
   onNavigate,
   onContextMenu,
-  onSelect,
-  selection,
   detachedness,
   distance,
   selfSize,
   retainedSize,
-  reachableInfo,
   children,
 }: {
   depth: number;
@@ -94,21 +91,22 @@ export function TreeTableRow({
   linkId?: number;
   onNavigate?: (opts: NavigateOptions) => void;
   onContextMenu?: (e: React.MouseEvent, nodeId: number) => void;
-  onSelect?: (sel: RowSelection) => void;
-  selection?: RowSelection | null;
   detachedness?: number;
   distance?: number;
   selfSize: number;
   retainedSize: number;
-  reachableInfo?: ReachableSizeInfo;
   children?: ReactNode;
 }) {
   const rowId = useId();
   const indent = depth * 16;
   const expandable = onToggle !== undefined;
+  const { selection, onSelect } = useSelection();
+  const reachableSizes = useReachableSizes();
+  const reachableInfo =
+    linkId !== undefined ? reachableSizes.get(linkId) : undefined;
 
   const select = useCallback(() => {
-    if (linkId !== undefined && onSelect) {
+    if (linkId !== undefined) {
       onSelect({ rowId, nodeId: linkId });
     }
   }, [linkId, onSelect, rowId]);
@@ -136,9 +134,9 @@ export function TreeTableRow({
   let bg: string | undefined;
   if (selection) {
     if (selection.rowId === rowId) {
-      bg = '#e8f0fe'; // exact selected row: blue
+      bg = '#e8f0fe';
     } else if (linkId !== undefined && selection.nodeId === linkId) {
-      bg = '#fef9e7'; // same object elsewhere: light yellow
+      bg = '#fef9e7';
     }
   }
 
@@ -177,24 +175,6 @@ export function TreeTableRow({
           {linkId !== undefined ? ' ' : null}
           {label}
         </td>
-        <td
-          style={{
-            ...numStyle,
-            color:
-              detachedness === 2
-                ? '#ef4444'
-                : detachedness === 1
-                  ? '#10b981'
-                  : '#888',
-            fontWeight: detachedness === 2 ? 600 : undefined,
-          }}
-        >
-          {detachedness === 2
-            ? 'detached'
-            : detachedness === 1
-              ? 'attached'
-              : ''}
-        </td>
         <td style={numStyle}>{distance !== undefined ? distance : ''}</td>
         <td style={numStyle}>{formatBytes(selfSize)}</td>
         <td style={numStyle}>{formatBytes(retainedSize)}</td>
@@ -215,6 +195,24 @@ export function TreeTableRow({
             ? formatBytes(reachableInfo.size)
             : '\u2014'}
         </td>
+        <td
+          style={{
+            ...numStyle,
+            color:
+              detachedness === 2
+                ? '#ef4444'
+                : detachedness === 1
+                  ? '#10b981'
+                  : '#888',
+            fontWeight: detachedness === 2 ? 600 : undefined,
+          }}
+        >
+          {detachedness === 2
+            ? 'detached'
+            : detachedness === 1
+              ? 'attached'
+              : ''}
+        </td>
       </tr>
       {children}
     </>
@@ -233,11 +231,11 @@ export function TreeTableShell({ children }: { children: ReactNode }) {
     >
       <colgroup>
         <col />
-        <col style={{ width: 75 }} />
         <col style={{ width: 70 }} />
         <col style={{ width: 90 }} />
         <col style={{ width: 100 }} />
         <col style={{ width: 110 }} />
+        <col style={{ width: 75 }} />
       </colgroup>
       <TreeTableHeader />
       <tbody>{children}</tbody>

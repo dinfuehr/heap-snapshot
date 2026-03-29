@@ -84,6 +84,7 @@ struct JsSummaryObject {
     name: String,
     self_size: u32,
     retained_size: f64,
+    detachedness: u8,
 }
 
 #[derive(Serialize)]
@@ -116,6 +117,7 @@ struct JsNativeContext {
     detachedness: String,
     self_size: u32,
     retained_size: f64,
+    vars: String,
 }
 
 #[derive(Serialize)]
@@ -212,11 +214,7 @@ impl WasmHeapSnapshot {
                 retained_size: agg.max_ret,
             })
             .collect();
-        entries.sort_by(|a, b| {
-            b.retained_size
-                .partial_cmp(&a.retained_size)
-                .unwrap()
-        });
+        entries.sort_by(|a, b| b.retained_size.partial_cmp(&a.retained_size).unwrap());
         to_json(&entries)
     }
 
@@ -244,6 +242,7 @@ impl WasmHeapSnapshot {
                     name: snap.node_display_name(ord).to_string(),
                     self_size: snap.node_self_size(ord),
                     retained_size: snap.node_retained_size(ord),
+                    detachedness: snap.node_detachedness(ord),
                 }
             })
             .collect();
@@ -291,10 +290,41 @@ impl WasmHeapSnapshot {
         node_id: f64,
         offset: usize,
         limit: usize,
+        filter: &str,
     ) -> Result<String, JsError> {
         let ordinal = self.resolve_ordinal(node_id)?;
         let snap = &self.inner;
-        let edges: Vec<(usize, NodeOrdinal)> = snap.iter_edges(ordinal).collect();
+        let filter_lower = filter.to_lowercase();
+        let mut edges: Vec<(usize, NodeOrdinal)> = if filter_lower.is_empty() {
+            snap.iter_edges(ordinal).collect()
+        } else {
+            snap.iter_edges(ordinal)
+                .filter(|&(edge_idx, child_ord)| {
+                    let edge_name = snap.edge_name(edge_idx).to_lowercase();
+                    let node_name = snap.node_display_name(child_ord).to_lowercase();
+                    edge_name.contains(&filter_lower) || node_name.contains(&filter_lower)
+                })
+                .collect()
+        };
+
+        // For NativeContext nodes, pin certain fields first.
+        if snap.is_native_context(ordinal) {
+            const PINNED: &[&str] = &[
+                "scope_info",
+                "global_object",
+                "global_proxy_object",
+                "script_context_table",
+            ];
+            edges.sort_by_key(|&(edge_idx, _)| {
+                let name = snap.edge_name(edge_idx);
+                if let Some(pos) = PINNED.iter().position(|&p| p == name) {
+                    (0, pos)
+                } else {
+                    (1, 0)
+                }
+            });
+        }
+
         let total = edges.len();
         let start = offset.min(total);
         let end = (start + limit).min(total);
@@ -324,10 +354,23 @@ impl WasmHeapSnapshot {
         node_id: f64,
         offset: usize,
         limit: usize,
+        filter: &str,
     ) -> Result<String, JsError> {
         let ordinal = self.resolve_ordinal(node_id)?;
         let snap = &self.inner;
-        let retainers = snap.get_retainers(ordinal);
+        let filter_lower = filter.to_lowercase();
+        let retainers: Vec<(usize, NodeOrdinal)> = if filter_lower.is_empty() {
+            snap.get_retainers(ordinal)
+        } else {
+            snap.get_retainers(ordinal)
+                .into_iter()
+                .filter(|&(edge_idx, ret_ord)| {
+                    let edge_name = snap.edge_name(edge_idx).to_lowercase();
+                    let node_name = snap.node_display_name(ret_ord).to_lowercase();
+                    edge_name.contains(&filter_lower) || node_name.contains(&filter_lower)
+                })
+                .collect()
+        };
         let total = retainers.len();
         let start = offset.min(total);
         let end = (start + limit).min(total);
@@ -411,6 +454,7 @@ impl WasmHeapSnapshot {
                     },
                     self_size: snap.node_self_size(ord),
                     retained_size: snap.node_retained_size(ord),
+                    vars: snap.native_context_vars(ord).to_string(),
                 }
             })
             .collect();
@@ -510,6 +554,7 @@ impl WasmHeapSnapshot {
                 },
                 self_size: snap.node_self_size(ctx_ord),
                 retained_size: snap.node_retained_size(ctx_ord),
+                vars: snap.native_context_vars(ctx_ord).to_string(),
             })
             .collect();
 
@@ -521,7 +566,9 @@ impl WasmHeapSnapshot {
 
     pub fn get_children_ids(&self, node_id: f64) -> Result<String, JsError> {
         let ordinal = self.resolve_ordinal(node_id)?;
-        let ids: Vec<u64> = self.inner.iter_edges(ordinal)
+        let ids: Vec<u64> = self
+            .inner
+            .iter_edges(ordinal)
             .map(|(_, child_ord)| self.inner.node_id(child_ord).0)
             .collect();
         Ok(to_json(&ids))
@@ -535,6 +582,9 @@ impl WasmHeapSnapshot {
                 return Ok(key.clone());
             }
         }
-        Err(JsError::new(&format!("Node @{} not found in any aggregate", node_id as u64)))
+        Err(JsError::new(&format!(
+            "Node @{} not found in any aggregate",
+            node_id as u64
+        )))
     }
 }

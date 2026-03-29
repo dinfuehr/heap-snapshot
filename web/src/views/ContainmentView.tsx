@@ -1,27 +1,17 @@
 import { useEffect, useState, useCallback } from 'react';
-import type {
-  Containment,
-  Children,
-  NodeInfo,
-  ReachableSizeInfo,
-} from '../types.ts';
+import type { Containment, Children, NodeInfo } from '../types.ts';
 import type { SnapshotCall } from '../worker/use-snapshot.ts';
 import type { NavigateOptions } from '../components/ObjectLink.tsx';
-import {
-  TreeTableShell,
-  TreeTableRow,
-  TreeTableMore,
-  type RowSelection,
-} from '../components/TreeTable.tsx';
+import { TreeTableShell, TreeTableRow } from '../components/TreeTable.tsx';
+import { TreeTablePager } from '../components/TreeTablePager.tsx';
 
 interface Props {
   call: SnapshotCall;
   onNavigate: (opts: NavigateOptions) => void;
   onContextMenu: (e: React.MouseEvent, nodeId: number) => void;
-  reachableSizes: Map<number, ReachableSizeInfo>;
-  selection: RowSelection | null;
-  onSelect: (sel: RowSelection) => void;
 }
+
+const PAGE_SIZE = 100;
 
 function TreeNode({
   edgeLabel,
@@ -29,9 +19,6 @@ function TreeNode({
   call,
   onNavigate,
   onContextMenu,
-  reachableSizes,
-  selection,
-  onSelect,
   depth,
   initialExpanded = false,
 }: {
@@ -40,9 +27,6 @@ function TreeNode({
   call: SnapshotCall;
   onNavigate: Props['onNavigate'];
   onContextMenu: Props['onContextMenu'];
-  reachableSizes: Map<number, ReachableSizeInfo>;
-  selection: RowSelection | null;
-  onSelect: (sel: RowSelection) => void;
   depth: number;
   initialExpanded?: boolean;
 }) {
@@ -51,26 +35,36 @@ function TreeNode({
     { edgeLabel: string; node: NodeInfo }[] | null
   >(null);
   const [total, setTotal] = useState(0);
+  const [offset, setOffset] = useState(0);
+  const [limit, setLimit] = useState(PAGE_SIZE);
+  const [filter, setFilter] = useState('');
 
-  const loadChildren = useCallback(async () => {
-    const result = await call<Children>({
-      type: 'getChildren',
-      nodeId: node.id,
-      offset: 0,
-      limit: 100,
-    });
-    setChildren(
-      result.edges.map((e) => ({
-        edgeLabel: `[${e.edge_name}] `,
-        node: e.target,
-      })),
-    );
-    setTotal(result.total);
-  }, [call, node.id]);
+  const loadChildren = useCallback(
+    async (o: number, l: number, f: string) => {
+      const result = await call<Children>({
+        type: 'getChildren',
+        nodeId: node.id,
+        offset: o,
+        limit: l,
+        filter: f,
+      });
+      setChildren(
+        result.edges.map((e) => ({
+          edgeLabel: `[${e.edge_name}] `,
+          node: e.target,
+        })),
+      );
+      setTotal(result.total);
+      setOffset(o);
+      setLimit(l);
+      setFilter(f);
+    },
+    [call, node.id],
+  );
 
   useEffect(() => {
     if (initialExpanded && !children) {
-      loadChildren();
+      loadChildren(0, PAGE_SIZE, '');
     }
   }, [initialExpanded, children, loadChildren]);
 
@@ -81,7 +75,7 @@ function TreeNode({
     }
     setExpanded(true);
     if (!children) {
-      await loadChildren();
+      await loadChildren(0, PAGE_SIZE, '');
     }
   }, [expanded, children, loadChildren]);
 
@@ -102,13 +96,10 @@ function TreeNode({
       linkId={node.id}
       onNavigate={onNavigate}
       onContextMenu={onContextMenu}
-      onSelect={onSelect}
-      selection={selection}
-      distance={node.distance}
       detachedness={node.detachedness}
+      distance={node.distance}
       selfSize={node.self_size}
       retainedSize={node.retained_size}
-      reachableInfo={reachableSizes.get(node.id)}
     >
       {expanded && children && (
         <>
@@ -120,16 +111,18 @@ function TreeNode({
               call={call}
               onNavigate={onNavigate}
               onContextMenu={onContextMenu}
-              reachableSizes={reachableSizes}
-              selection={selection}
-              onSelect={onSelect}
               depth={depth + 1}
             />
           ))}
-          <TreeTableMore
+          <TreeTablePager
             depth={depth + 1}
             shown={children.length}
             total={total}
+            offset={offset}
+            filter={filter}
+            onPageChange={(o, l) => loadChildren(o, l, filter)}
+            onFilterChange={(f) => loadChildren(0, limit, f)}
+            onShowAll={() => loadChildren(0, 999999, filter)}
           />
         </>
       )}
@@ -137,14 +130,7 @@ function TreeNode({
   );
 }
 
-export function ContainmentView({
-  call,
-  onNavigate,
-  onContextMenu,
-  reachableSizes,
-  selection,
-  onSelect,
-}: Props) {
+export function ContainmentView({ call, onNavigate, onContextMenu }: Props) {
   const [containment, setContainment] = useState<Containment | null>(null);
 
   useEffect(() => {
@@ -165,9 +151,6 @@ export function ContainmentView({
           call={call}
           onNavigate={onNavigate}
           onContextMenu={onContextMenu}
-          reachableSizes={reachableSizes}
-          selection={selection}
-          onSelect={onSelect}
           depth={0}
           initialExpanded={edge.target.name === '(GC roots)'}
         />
