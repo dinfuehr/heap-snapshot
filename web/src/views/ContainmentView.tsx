@@ -1,160 +1,156 @@
-import { useEffect, useState, useCallback } from 'react';
+import { createSignal, createResource, Show, For, type JSX } from 'solid-js';
 import type { Containment, Children, NodeInfo } from '../types.ts';
 import type { SnapshotCall } from '../worker/use-snapshot.ts';
 import type { NavigateOptions } from '../components/ObjectLink.tsx';
-import { TreeTableShell, TreeTableRow } from '../components/TreeTable.tsx';
+import {
+  TreeTableShell,
+  TreeTableRow,
+  type RowSelection,
+} from '../components/TreeTable.tsx';
 import { TreeTablePager } from '../components/TreeTablePager.tsx';
-
-interface Props {
-  call: SnapshotCall;
-  onNavigate: (opts: NavigateOptions) => void;
-  onContextMenu: (e: React.MouseEvent, nodeId: number) => void;
-}
 
 const PAGE_SIZE = 100;
 
-function TreeNode({
-  edgeLabel,
-  node,
-  call,
-  onNavigate,
-  onContextMenu,
-  depth,
-  initialExpanded = false,
-}: {
+function TreeNode(props: {
   edgeLabel?: string;
   node: NodeInfo;
   call: SnapshotCall;
-  onNavigate: Props['onNavigate'];
-  onContextMenu: Props['onContextMenu'];
+  onNavigate: (opts: NavigateOptions) => void;
+  onContextMenu: (e: MouseEvent, nodeId: number) => void;
+  selection: () => RowSelection | null;
+  onSelect: (sel: RowSelection) => void;
   depth: number;
   initialExpanded?: boolean;
-}) {
-  const [expanded, setExpanded] = useState(initialExpanded);
-  const [children, setChildren] = useState<
+}): JSX.Element {
+  const [expanded, setExpanded] = createSignal(props.initialExpanded ?? false);
+  const [children, setChildren] = createSignal<
     { edgeLabel: string; node: NodeInfo }[] | null
   >(null);
-  const [total, setTotal] = useState(0);
-  const [offset, setOffset] = useState(0);
-  const [limit, setLimit] = useState(PAGE_SIZE);
-  const [filter, setFilter] = useState('');
+  const [total, setTotal] = createSignal(0);
+  const [offset, setOffset] = createSignal(0);
+  const [limit, setLimit] = createSignal(PAGE_SIZE);
+  const [filter, setFilter] = createSignal('');
 
-  const loadChildren = useCallback(
-    async (o: number, l: number, f: string) => {
-      const result = await call<Children>({
-        type: 'getChildren',
-        nodeId: node.id,
-        offset: o,
-        limit: l,
-        filter: f,
-      });
-      setChildren(
-        result.edges.map((e) => ({
-          edgeLabel: `[${e.edge_name}] `,
-          node: e.target,
-        })),
-      );
-      setTotal(result.total);
-      setOffset(o);
-      setLimit(l);
-      setFilter(f);
-    },
-    [call, node.id],
-  );
+  const loadChildren = async (o: number, l: number, f: string) => {
+    const result = await props.call<Children>({
+      type: 'getChildren',
+      nodeId: props.node.id,
+      offset: o,
+      limit: l,
+      filter: f,
+    });
+    setChildren(
+      result.edges.map((e) => ({
+        edgeLabel: `[${e.edge_name}] `,
+        node: e.target,
+      })),
+    );
+    setTotal(result.total);
+    setOffset(o);
+    setLimit(l);
+    setFilter(f);
+  };
 
-  useEffect(() => {
-    if (initialExpanded && !children) {
-      loadChildren(0, PAGE_SIZE, '');
-    }
-  }, [initialExpanded, children, loadChildren]);
+  if (props.initialExpanded) {
+    loadChildren(0, PAGE_SIZE, '');
+  }
 
-  const toggle = useCallback(async () => {
-    if (expanded) {
+  const toggle = async () => {
+    if (expanded()) {
       setExpanded(false);
       return;
     }
     setExpanded(true);
-    if (!children) {
+    if (!children()) {
       await loadChildren(0, PAGE_SIZE, '');
     }
-  }, [expanded, children, loadChildren]);
+  };
 
-  const hasChildren = node.edge_count > 0;
-  const label = (
-    <>
-      {edgeLabel && <span style={{ color: '#888' }}>{edgeLabel}</span>}
-      {node.name} <span style={{ color: '#888' }}>({node.node_type})</span>
-    </>
-  );
+  const hasChildren = props.node.edge_count > 0;
 
   return (
     <TreeTableRow
-      depth={depth}
-      expanded={expanded}
+      depth={props.depth}
+      expanded={expanded()}
       onToggle={hasChildren ? toggle : undefined}
-      label={label}
-      linkId={node.id}
-      onNavigate={onNavigate}
-      onContextMenu={onContextMenu}
-      detachedness={node.detachedness}
-      distance={node.distance}
-      selfSize={node.self_size}
-      retainedSize={node.retained_size}
-    >
-      {expanded && children && (
+      label={
         <>
-          {children.map((child, i) => (
+          {props.edgeLabel && (
+            <span style={{ color: '#888' }}>{props.edgeLabel}</span>
+          )}
+          {props.node.name}{' '}
+          <span style={{ color: '#888' }}>({props.node.node_type})</span>
+        </>
+      }
+      linkId={props.node.id}
+      onNavigate={props.onNavigate}
+      onContextMenu={props.onContextMenu}
+      selection={props.selection()}
+      onSelect={props.onSelect}
+      detachedness={props.node.detachedness}
+      distance={props.node.distance}
+      selfSize={props.node.self_size}
+      retainedSize={props.node.retained_size}
+    >
+      <Show when={expanded() && children()}>
+        <For each={children()!}>
+          {(child) => (
             <TreeNode
-              key={`${child.node.id}-${i}`}
               edgeLabel={child.edgeLabel}
               node={child.node}
-              call={call}
-              onNavigate={onNavigate}
-              onContextMenu={onContextMenu}
-              depth={depth + 1}
+              call={props.call}
+              onNavigate={props.onNavigate}
+              onContextMenu={props.onContextMenu}
+              selection={props.selection}
+              onSelect={props.onSelect}
+              depth={props.depth + 1}
             />
-          ))}
-          <TreeTablePager
-            depth={depth + 1}
-            shown={children.length}
-            total={total}
-            offset={offset}
-            filter={filter}
-            onPageChange={(o, l) => loadChildren(o, l, filter)}
-            onFilterChange={(f) => loadChildren(0, limit, f)}
-            onShowAll={() => loadChildren(0, 999999, filter)}
-          />
-        </>
-      )}
+          )}
+        </For>
+        <TreeTablePager
+          depth={props.depth + 1}
+          shown={children()!.length}
+          total={total()}
+          offset={offset()}
+          filter={filter()}
+          onPageChange={(o, l) => loadChildren(o, l, filter())}
+          onFilterChange={(f) => loadChildren(0, limit(), f)}
+          onShowAll={() => loadChildren(0, 999999, filter())}
+        />
+      </Show>
     </TreeTableRow>
   );
 }
 
-export function ContainmentView({ call, onNavigate, onContextMenu }: Props) {
-  const [containment, setContainment] = useState<Containment | null>(null);
-
-  useEffect(() => {
-    if (!containment) {
-      call<Containment>({ type: 'getContainment' }).then(setContainment);
-    }
-  }, [call, containment]);
-
-  if (!containment) return <p>Loading...</p>;
+export function ContainmentView(props: {
+  call: SnapshotCall;
+  onNavigate: (opts: NavigateOptions) => void;
+  onContextMenu: (e: MouseEvent, nodeId: number) => void;
+}): JSX.Element {
+  const [containment] = createResource(() =>
+    props.call<Containment>({ type: 'getContainment' }),
+  );
+  const [selection, setSelection] = createSignal<RowSelection | null>(null);
 
   return (
-    <TreeTableShell>
-      {containment.system_roots.map((edge, i) => (
-        <TreeNode
-          key={`sr-${i}`}
-          edgeLabel={`[${edge.edge_name}] `}
-          node={edge.target}
-          call={call}
-          onNavigate={onNavigate}
-          onContextMenu={onContextMenu}
-          depth={0}
-          initialExpanded={edge.target.name === '(GC roots)'}
-        />
-      ))}
-    </TreeTableShell>
+    <Show when={containment()} fallback={<p>Loading...</p>}>
+      <TreeTableShell>
+        <For each={containment()!.system_roots}>
+          {(edge) => (
+            <TreeNode
+              edgeLabel={`[${edge.edge_name}] `}
+              node={edge.target}
+              call={props.call}
+              onNavigate={props.onNavigate}
+              onContextMenu={props.onContextMenu}
+              selection={selection}
+              onSelect={setSelection}
+              depth={0}
+              initialExpanded={edge.target.name === '(GC roots)'}
+            />
+          )}
+        </For>
+      </TreeTableShell>
+    </Show>
   );
 }

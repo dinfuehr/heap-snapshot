@@ -1,107 +1,104 @@
-import { useEffect, useState, useCallback } from 'react';
+import { createSignal, createResource, Show, For, type JSX } from 'solid-js';
 import type { NativeContext, Children, NodeInfo } from '../types.ts';
 import type { SnapshotCall } from '../worker/use-snapshot.ts';
 import type { NavigateOptions } from '../components/ObjectLink.tsx';
-import { TreeTableShell, TreeTableRow } from '../components/TreeTable.tsx';
+import {
+  TreeTableShell,
+  TreeTableRow,
+  type RowSelection,
+} from '../components/TreeTable.tsx';
 import { TreeTablePager } from '../components/TreeTablePager.tsx';
-
-interface Props {
-  call: SnapshotCall;
-  onNavigate: (opts: NavigateOptions) => void;
-  onContextMenu: (e: React.MouseEvent, nodeId: number) => void;
-}
 
 const PAGE_SIZE = 100;
 
-function ContextNode({
-  ctx,
-  call,
-  onNavigate,
-  onContextMenu,
-}: {
+function ContextNode(props: {
   ctx: NativeContext;
   call: SnapshotCall;
-  onNavigate: Props['onNavigate'];
-  onContextMenu: Props['onContextMenu'];
-}) {
-  const [expanded, setExpanded] = useState(false);
-  const [children, setChildren] = useState<
+  onNavigate: (opts: NavigateOptions) => void;
+  onContextMenu: (e: MouseEvent, nodeId: number) => void;
+  selection: () => RowSelection | null;
+  onSelect: (sel: RowSelection) => void;
+}): JSX.Element {
+  const [expanded, setExpanded] = createSignal(false);
+  const [children, setChildren] = createSignal<
     { edgeLabel: string; node: NodeInfo }[] | null
   >(null);
-  const [total, setTotal] = useState(0);
-  const [offset, setOffset] = useState(0);
-  const [limit, setLimit] = useState(PAGE_SIZE);
-  const [filter, setFilter] = useState('');
+  const [total, setTotal] = createSignal(0);
+  const [offset, setOffset] = createSignal(0);
+  const [limit, setLimit] = createSignal(PAGE_SIZE);
+  const [filter, setFilter] = createSignal('');
 
-  const loadChildren = useCallback(
-    async (o: number, l: number, f: string) => {
-      const result = await call<Children>({
-        type: 'getChildren',
-        nodeId: ctx.id,
-        offset: o,
-        limit: l,
-        filter: f,
-      });
-      setChildren(
-        result.edges.map((e) => ({
-          edgeLabel: `[${e.edge_name}] `,
-          node: e.target,
-        })),
-      );
-      setTotal(result.total);
-      setOffset(o);
-      setLimit(l);
-      setFilter(f);
-    },
-    [call, ctx.id],
-  );
+  const loadChildren = async (o: number, l: number, f: string) => {
+    const result = await props.call<Children>({
+      type: 'getChildren',
+      nodeId: props.ctx.id,
+      offset: o,
+      limit: l,
+      filter: f,
+    });
+    setChildren(
+      result.edges.map((e) => ({
+        edgeLabel: `[${e.edge_name}] `,
+        node: e.target,
+      })),
+    );
+    setTotal(result.total);
+    setOffset(o);
+    setLimit(l);
+    setFilter(f);
+  };
 
-  const toggle = useCallback(async () => {
-    if (expanded) {
+  const toggle = async () => {
+    if (expanded()) {
       setExpanded(false);
       return;
     }
     setExpanded(true);
-    if (!children) {
+    if (!children()) {
       await loadChildren(0, PAGE_SIZE, '');
     }
-  }, [expanded, children, loadChildren]);
-
-  const label = (
-    <>
-      {ctx.label}
-      {ctx.vars && (
-        <span style={{ color: '#888', fontSize: 11, marginLeft: 8 }}>
-          Vars: {ctx.vars}
-        </span>
-      )}
-    </>
-  );
+  };
 
   return (
     <TreeTableRow
       depth={0}
-      expanded={expanded}
+      expanded={expanded()}
       onToggle={toggle}
-      label={label}
-      linkId={ctx.id}
-      onNavigate={onNavigate}
-      onContextMenu={onContextMenu}
+      label={
+        <>
+          {props.ctx.label}
+          <Show when={props.ctx.vars}>
+            <span
+              style={{
+                color: '#888',
+                'font-size': '11px',
+                'margin-left': '8px',
+              }}
+            >
+              Vars: {props.ctx.vars}
+            </span>
+          </Show>
+        </>
+      }
+      linkId={props.ctx.id}
+      onNavigate={props.onNavigate}
+      onContextMenu={props.onContextMenu}
+      selection={props.selection()}
+      onSelect={props.onSelect}
       detachedness={
-        ctx.detachedness === 'detached'
+        props.ctx.detachedness === 'detached'
           ? 2
-          : ctx.detachedness === 'attached'
+          : props.ctx.detachedness === 'attached'
             ? 1
             : 0
       }
-      selfSize={ctx.self_size}
-      retainedSize={ctx.retained_size}
+      selfSize={props.ctx.self_size}
+      retainedSize={props.ctx.retained_size}
     >
-      {expanded && children && (
-        <>
-          {children.map((child, i) => (
+      <Show when={expanded() && children()}>
+        <For each={children()!}>
+          {(child) => (
             <TreeTableRow
-              key={`${child.node.id}-${i}`}
               depth={1}
               label={
                 <>
@@ -113,60 +110,73 @@ function ContextNode({
                 </>
               }
               linkId={child.node.id}
-              onNavigate={onNavigate}
-              onContextMenu={onContextMenu}
+              onNavigate={props.onNavigate}
+              onContextMenu={props.onContextMenu}
+              selection={props.selection()}
+              onSelect={props.onSelect}
               detachedness={child.node.detachedness}
               distance={child.node.distance}
               selfSize={child.node.self_size}
               retainedSize={child.node.retained_size}
             />
-          ))}
-          <TreeTablePager
-            depth={1}
-            shown={children.length}
-            total={total}
-            offset={offset}
-            filter={filter}
-            onPageChange={(o, l) => loadChildren(o, l, filter)}
-            onFilterChange={(f) => loadChildren(0, limit, f)}
-            onShowAll={() => loadChildren(0, 999999, filter)}
-          />
-        </>
-      )}
+          )}
+        </For>
+        <TreeTablePager
+          depth={1}
+          shown={children()!.length}
+          total={total()}
+          offset={offset()}
+          filter={filter()}
+          onPageChange={(o, l) => loadChildren(o, l, filter())}
+          onFilterChange={(f) => loadChildren(0, limit(), f)}
+          onShowAll={() => loadChildren(0, 999999, filter())}
+        />
+      </Show>
     </TreeTableRow>
   );
 }
 
-export function ContextsView({ call, onNavigate, onContextMenu }: Props) {
-  const [contexts, setContexts] = useState<NativeContext[] | null>(null);
-
-  useEffect(() => {
-    if (!contexts) {
-      call<NativeContext[]>({ type: 'getNativeContexts' }).then(setContexts);
-    }
-  }, [call, contexts]);
-
-  if (!contexts) return <p>Loading...</p>;
-
-  if (contexts.length === 0) return <p>No native contexts found.</p>;
+export function ContextsView(props: {
+  call: SnapshotCall;
+  onNavigate: (opts: NavigateOptions) => void;
+  onContextMenu: (e: MouseEvent, nodeId: number) => void;
+}): JSX.Element {
+  const [contexts] = createResource(() =>
+    props.call<NativeContext[]>({ type: 'getNativeContexts' }),
+  );
+  const [selection, setSelection] = createSignal<RowSelection | null>(null);
 
   return (
-    <div>
-      <p style={{ fontSize: 13, color: '#888', margin: '0 0 8px' }}>
-        {contexts.length} native context{contexts.length !== 1 ? 's' : ''}{' '}
-        (JavaScript realms)
-      </p>
-      <TreeTableShell>
-        {contexts.map((ctx) => (
-          <ContextNode
-            key={ctx.id}
-            ctx={ctx}
-            call={call}
-            onNavigate={onNavigate}
-            onContextMenu={onContextMenu}
-          />
-        ))}
-      </TreeTableShell>
-    </div>
+    <Show when={contexts()} fallback={<p>Loading...</p>}>
+      {(ctxs) => (
+        <Show
+          when={ctxs().length > 0}
+          fallback={<p>No native contexts found.</p>}
+        >
+          <div>
+            <p
+              style={{ 'font-size': '13px', color: '#888', margin: '0 0 8px' }}
+            >
+              {ctxs().length} native context{ctxs().length !== 1 ? 's' : ''}{' '}
+              (JavaScript realms)
+            </p>
+            <TreeTableShell>
+              <For each={ctxs()}>
+                {(ctx) => (
+                  <ContextNode
+                    ctx={ctx}
+                    call={props.call}
+                    onNavigate={props.onNavigate}
+                    onContextMenu={props.onContextMenu}
+                    selection={selection}
+                    onSelect={setSelection}
+                  />
+                )}
+              </For>
+            </TreeTableShell>
+          </div>
+        </Show>
+      )}
+    </Show>
   );
 }

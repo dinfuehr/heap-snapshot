@@ -1,273 +1,197 @@
-import { useCallback, useId, type ReactNode } from 'react';
+import type { JSX } from 'solid-js';
 import { formatBytes } from './format.ts';
 import { ObjectLink, type NavigateOptions } from './ObjectLink.tsx';
-import { useSelection, useReachableSizes } from './SelectionContext.tsx';
+import type { ReachableSizeInfo } from '../types.ts';
 
-const numStyle: React.CSSProperties = {
+const numStyle = {
   padding: '2px 8px',
-  textAlign: 'right',
-  fontVariantNumeric: 'tabular-nums',
-  whiteSpace: 'nowrap',
+  'text-align': 'right' as const,
+  'font-variant-numeric': 'tabular-nums',
+  'white-space': 'nowrap' as const,
 };
 
 export interface RowSelection {
-  rowId: string;
+  rowId: number;
   nodeId: number;
 }
 
-export function TreeTableHeader() {
+let nextRowId = 0;
+
+export function TreeTableHeader(): JSX.Element {
+  const th = (label: string) => (
+    <th
+      style={{
+        padding: '4px 8px',
+        'text-align': 'right',
+        'white-space': 'nowrap',
+      }}
+    >
+      {label}
+    </th>
+  );
   return (
     <thead>
-      <tr style={{ textAlign: 'left', borderBottom: '1px solid #ccc' }}>
+      <tr style={{ 'text-align': 'left', 'border-bottom': '1px solid #ccc' }}>
         <th style={{ padding: '4px 8px', width: '100%' }}>Object</th>
-        <th
-          style={{
-            padding: '4px 8px',
-            textAlign: 'right',
-            whiteSpace: 'nowrap',
-          }}
-        >
-          Distance
-        </th>
-        <th
-          style={{
-            padding: '4px 8px',
-            textAlign: 'right',
-            whiteSpace: 'nowrap',
-          }}
-        >
-          Self Size
-        </th>
-        <th
-          style={{
-            padding: '4px 8px',
-            textAlign: 'right',
-            whiteSpace: 'nowrap',
-          }}
-        >
-          Retained Size
-        </th>
-        <th
-          style={{
-            padding: '4px 8px',
-            textAlign: 'right',
-            whiteSpace: 'nowrap',
-          }}
-        >
-          Reachable Size
-        </th>
-        <th
-          style={{
-            padding: '4px 8px',
-            textAlign: 'right',
-            whiteSpace: 'nowrap',
-          }}
-        >
-          Status
-        </th>
+        {th('Distance')}
+        {th('Self Size')}
+        {th('Retained Size')}
+        {th('Reachable Size')}
+        {th('Status')}
       </tr>
     </thead>
   );
 }
 
-export function TreeTableRow({
-  depth,
-  expanded,
-  onToggle,
-  label,
-  linkId,
-  onNavigate,
-  onContextMenu,
-  detachedness,
-  distance,
-  selfSize,
-  retainedSize,
-  children,
-}: {
+export function TreeTableRow(props: {
   depth: number;
   expanded?: boolean;
   onToggle?: () => void;
-  label: ReactNode;
+  label: JSX.Element;
   linkId?: number;
   onNavigate?: (opts: NavigateOptions) => void;
-  onContextMenu?: (e: React.MouseEvent, nodeId: number) => void;
+  onContextMenu?: (e: MouseEvent, nodeId: number) => void;
+  selection?: RowSelection | null;
+  onSelect?: (sel: RowSelection) => void;
   detachedness?: number;
   distance?: number;
   selfSize: number;
   retainedSize: number;
-  children?: ReactNode;
-}) {
-  const rowId = useId();
-  const indent = depth * 16;
-  const expandable = onToggle !== undefined;
-  const { selection, onSelect } = useSelection();
-  const reachableSizes = useReachableSizes();
-  const reachableInfo =
-    linkId !== undefined ? reachableSizes.get(linkId) : undefined;
+  reachableInfo?: ReachableSizeInfo;
+  children?: JSX.Element;
+}): JSX.Element {
+  const rowId = nextRowId++;
+  const indent = () => props.depth * 16;
 
-  const select = useCallback(() => {
-    if (linkId !== undefined) {
-      onSelect({ rowId, nodeId: linkId });
+  const handleClick = (e: MouseEvent) => {
+    if ((e.target as HTMLElement).closest('a')) return;
+    props.onToggle?.();
+    if (props.linkId !== undefined && props.onSelect) {
+      props.onSelect({ rowId, nodeId: props.linkId });
     }
-  }, [linkId, onSelect, rowId]);
+  };
 
-  const handleClick = useCallback(
-    (e: React.MouseEvent) => {
-      if ((e.target as HTMLElement).closest('a')) return;
-      if (expandable) onToggle!();
-      select();
-    },
-    [expandable, onToggle, select],
-  );
-
-  const handleContextMenu = useCallback(
-    (e: React.MouseEvent) => {
-      if (linkId !== undefined && onContextMenu) {
-        e.preventDefault();
-        select();
-        onContextMenu(e, linkId);
+  const handleContextMenu = (e: MouseEvent) => {
+    if (props.linkId !== undefined && props.onContextMenu) {
+      e.preventDefault();
+      if (props.onSelect) {
+        props.onSelect({ rowId, nodeId: props.linkId });
       }
-    },
-    [linkId, onContextMenu, select],
-  );
-
-  let bg: string | undefined;
-  if (selection) {
-    if (selection.rowId === rowId) {
-      bg = '#e8f0fe';
-    } else if (linkId !== undefined && selection.nodeId === linkId) {
-      bg = '#fef9e7';
+      props.onContextMenu(e, props.linkId);
     }
-  }
+  };
+
+  const bg = () => {
+    const sel = props.selection;
+    if (!sel) return undefined;
+    if (sel.rowId === rowId) return '#e8f0fe';
+    if (props.linkId !== undefined && sel.nodeId === props.linkId)
+      return '#fef9e7';
+    return undefined;
+  };
+
+  const ri = () => props.reachableInfo;
 
   return (
     <>
       <tr
         onClick={handleClick}
         onContextMenu={handleContextMenu}
-        style={{ cursor: 'pointer', background: bg }}
+        style={{ cursor: 'pointer', background: bg() }}
       >
         <td
           style={{
             padding: '2px 8px',
-            paddingLeft: 8 + indent,
-            maxWidth: 0,
+            'padding-left': `${8 + indent()}px`,
+            'max-width': '0',
             overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            whiteSpace: 'nowrap',
+            'text-overflow': 'ellipsis',
+            'white-space': 'nowrap',
           }}
         >
-          {expandable && (
-            <span style={{ display: 'inline-block', width: 16 }}>
-              {expanded ? '\u25bc' : '\u25b6'}
+          {props.onToggle !== undefined ? (
+            <span style={{ display: 'inline-block', width: '16px' }}>
+              {props.expanded ? '\u25bc' : '\u25b6'}
             </span>
+          ) : (
+            <span style={{ display: 'inline-block', width: '16px' }}> </span>
           )}
-          {!expandable && (
-            <span style={{ display: 'inline-block', width: 16 }}> </span>
-          )}
-          {linkId !== undefined && onNavigate && onContextMenu ? (
+          {props.linkId !== undefined &&
+          props.onNavigate &&
+          props.onContextMenu ? (
             <ObjectLink
-              nodeId={linkId}
-              onNavigate={onNavigate}
-              onContextMenu={onContextMenu}
+              nodeId={props.linkId}
+              onNavigate={props.onNavigate}
+              onContextMenu={props.onContextMenu}
             />
           ) : null}
-          {linkId !== undefined ? ' ' : null}
-          {label}
+          {props.linkId !== undefined ? ' ' : null}
+          {props.label}
         </td>
-        <td style={numStyle}>{distance !== undefined ? distance : ''}</td>
-        <td style={numStyle}>{formatBytes(selfSize)}</td>
-        <td style={numStyle}>{formatBytes(retainedSize)}</td>
+        <td style={numStyle}>
+          {props.distance !== undefined ? props.distance : ''}
+        </td>
+        <td style={numStyle}>{formatBytes(props.selfSize)}</td>
+        <td style={numStyle}>{formatBytes(props.retainedSize)}</td>
         <td
           style={{
             ...numStyle,
-            color: reachableInfo !== undefined ? undefined : '#ccc',
+            color: ri() !== undefined ? undefined : '#ccc',
           }}
           title={
-            reachableInfo?.native_contexts.length
-              ? reachableInfo.native_contexts
-                  .map((c) => `${c.label} (${c.detachedness})`)
+            ri()?.native_contexts.length
+              ? ri()!
+                  .native_contexts.map((c) => `${c.label} (${c.detachedness})`)
                   .join('\n')
               : undefined
           }
         >
-          {reachableInfo !== undefined
-            ? formatBytes(reachableInfo.size)
-            : '\u2014'}
+          {ri() !== undefined ? formatBytes(ri()!.size) : '\u2014'}
         </td>
         <td
           style={{
             ...numStyle,
             color:
-              detachedness === 2
+              props.detachedness === 2
                 ? '#ef4444'
-                : detachedness === 1
+                : props.detachedness === 1
                   ? '#10b981'
                   : '#888',
-            fontWeight: detachedness === 2 ? 600 : undefined,
+            'font-weight': props.detachedness === 2 ? '600' : undefined,
           }}
         >
-          {detachedness === 2
+          {props.detachedness === 2
             ? 'detached'
-            : detachedness === 1
+            : props.detachedness === 1
               ? 'attached'
               : ''}
         </td>
       </tr>
-      {children}
+      {props.children}
     </>
   );
 }
 
-export function TreeTableShell({ children }: { children: ReactNode }) {
+export function TreeTableShell(props: { children: JSX.Element }): JSX.Element {
   return (
     <table
       style={{
-        borderCollapse: 'collapse',
+        'border-collapse': 'collapse',
         width: '100%',
-        fontSize: 13,
-        tableLayout: 'fixed',
+        'font-size': '13px',
+        'table-layout': 'fixed',
       }}
     >
       <colgroup>
         <col />
-        <col style={{ width: 70 }} />
-        <col style={{ width: 90 }} />
-        <col style={{ width: 100 }} />
-        <col style={{ width: 110 }} />
-        <col style={{ width: 75 }} />
+        <col style={{ width: '70px' }} />
+        <col style={{ width: '90px' }} />
+        <col style={{ width: '100px' }} />
+        <col style={{ width: '110px' }} />
+        <col style={{ width: '75px' }} />
       </colgroup>
       <TreeTableHeader />
-      <tbody>{children}</tbody>
+      <tbody>{props.children}</tbody>
     </table>
-  );
-}
-
-export function TreeTableMore({
-  depth,
-  shown,
-  total,
-  label,
-}: {
-  depth: number;
-  shown: number;
-  total: number;
-  label?: string;
-}) {
-  if (shown >= total) return null;
-  return (
-    <tr>
-      <td
-        colSpan={6}
-        style={{
-          padding: '2px 8px',
-          paddingLeft: 8 + depth * 16,
-          color: '#888',
-          fontSize: 12,
-        }}
-      >
-        ({shown} of {total} {label ?? 'children'} shown)
-      </td>
-    </tr>
   );
 }

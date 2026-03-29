@@ -1,355 +1,296 @@
-import { useEffect, useState, useMemo } from 'react';
+import {
+  createSignal,
+  createResource,
+  createMemo,
+  Show,
+  For,
+  type JSX,
+} from 'solid-js';
 import type { AggregateEntry, SummaryExpanded } from '../types.ts';
 import type { SnapshotCall } from '../worker/use-snapshot.ts';
 import type { NavigateOptions } from '../components/ObjectLink.tsx';
 import { ObjectLink } from '../components/ObjectLink.tsx';
 import { formatBytes } from '../components/format.ts';
-import { useReachableSizes } from '../components/SelectionContext.tsx';
+import { TreeTablePager } from '../components/TreeTablePager.tsx';
 
-interface Props {
+const numTd = {
+  padding: '2px 8px',
+  'text-align': 'right' as const,
+  'font-variant-numeric': 'tabular-nums',
+};
+
+export function SummaryView(props: {
   call: SnapshotCall;
   onNavigate: (opts: NavigateOptions) => void;
-  onContextMenu: (e: React.MouseEvent, nodeId: number) => void;
+  onContextMenu: (e: MouseEvent, nodeId: number) => void;
   highlightNodeId: number | null;
-}
+}): JSX.Element {
+  const [entries] = createResource(() =>
+    props.call<AggregateEntry[]>({ type: 'getSummary' }),
+  );
+  const [expanded, setExpanded] = createSignal<string | null>(null);
+  const [objects, setObjects] = createSignal<SummaryExpanded | null>(null);
+  const [objOffset, setObjOffset] = createSignal(0);
+  const [filter, setFilter] = createSignal('');
 
-export function SummaryView({
-  call,
-  onNavigate,
-  onContextMenu,
-  highlightNodeId,
-}: Props) {
-  const [entries, setEntries] = useState<AggregateEntry[] | null>(null);
-  const [expanded, setExpanded] = useState<string | null>(null);
-  const [objects, setObjects] = useState<SummaryExpanded | null>(null);
-  const [filter, setFilter] = useState('');
-  const [lastHighlight, setLastHighlight] = useState<number | null>(null);
-  const reachableSizes = useReachableSizes();
+  const filtered = createMemo(() => {
+    const e = entries();
+    if (!e) return null;
+    const f = filter().toLowerCase();
+    if (!f) return e;
+    return e.filter((entry) => entry.name.toLowerCase().includes(f));
+  });
 
-  useEffect(() => {
-    if (
-      highlightNodeId !== null &&
-      highlightNodeId !== lastHighlight &&
-      entries
-    ) {
-      setLastHighlight(highlightNodeId);
-      call<string>({ type: 'getConstructorForNode', nodeId: highlightNodeId })
-        .then(async (key) => {
-          setFilter('');
-          setExpanded(key);
-          const result = await call<SummaryExpanded>({
-            type: 'getSummaryObjects',
-            constructor: key,
-            offset: 0,
-            limit: 50,
-          });
-          setObjects(result);
-        })
-        .catch(() => {
-          /* node not in any aggregate */
-        });
-    }
-  }, [highlightNodeId, lastHighlight, entries, call]);
-
-  useEffect(() => {
-    if (!entries) {
-      call<AggregateEntry[]>({ type: 'getSummary' }).then(setEntries);
-    }
-  }, [call, entries]);
-
-  const filtered = useMemo(() => {
-    if (!entries) return null;
-    if (!filter) return entries;
-    const lower = filter.toLowerCase();
-    return entries.filter((e) => e.name.toLowerCase().includes(lower));
-  }, [entries, filter]);
+  const loadObjects = async (key: string, o: number, l: number) => {
+    const result = await props.call<SummaryExpanded>({
+      type: 'getSummaryObjects',
+      constructor: key,
+      offset: o,
+      limit: l,
+    });
+    setObjects(result);
+    setObjOffset(o);
+  };
 
   const toggleExpand = async (key: string) => {
-    if (expanded === key) {
+    if (expanded() === key) {
       setExpanded(null);
       setObjects(null);
       return;
     }
     setExpanded(key);
-    const result = await call<SummaryExpanded>({
-      type: 'getSummaryObjects',
-      constructor: key,
-      offset: 0,
-      limit: 50,
-    });
-    setObjects(result);
+    await loadObjects(key, 0, 100);
   };
 
-  if (!filtered) return <p>Loading...</p>;
-
   return (
-    <div>
-      <div
-        style={{
-          marginBottom: 8,
-          display: 'flex',
-          alignItems: 'center',
-          gap: 8,
-        }}
-      >
-        <input
-          type="text"
-          value={filter}
-          onChange={(e) => setFilter(e.target.value)}
-          placeholder="Filter constructors..."
-          style={{ padding: '4px 8px', fontSize: 13, width: 250 }}
-        />
-        {filter && (
-          <span style={{ fontSize: 12, color: '#888' }}>
-            {filtered.length} of {entries!.length} groups
-          </span>
-        )}
-      </div>
-      <table
-        style={{
-          borderCollapse: 'collapse',
-          width: '100%',
-          fontSize: 13,
-          tableLayout: 'fixed',
-        }}
-      >
-        <colgroup>
-          <col />
-          <col style={{ width: 80 }} />
-          <col style={{ width: 100 }} />
-          <col style={{ width: 110 }} />
-          <col style={{ width: 120 }} />
-          <col style={{ width: 75 }} />
-        </colgroup>
-        <thead>
-          <tr style={{ textAlign: 'left', borderBottom: '1px solid #ccc' }}>
-            <th style={{ padding: '4px 8px' }}>Constructor</th>
-            <th
+    <Show when={filtered()} fallback={<p>Loading...</p>}>
+      {(list) => (
+        <div>
+          <div
+            style={{
+              'margin-bottom': '8px',
+              display: 'flex',
+              'align-items': 'center',
+              gap: '8px',
+            }}
+          >
+            <input
+              type="text"
+              value={filter()}
+              onInput={(e) => setFilter(e.currentTarget.value)}
+              placeholder="Filter constructors..."
               style={{
                 padding: '4px 8px',
-                textAlign: 'right',
-                whiteSpace: 'nowrap',
+                'font-size': '13px',
+                width: '250px',
               }}
-            >
-              Count
-            </th>
-            <th
-              style={{
-                padding: '4px 8px',
-                textAlign: 'right',
-                whiteSpace: 'nowrap',
-              }}
-            >
-              Shallow Size
-            </th>
-            <th
-              style={{
-                padding: '4px 8px',
-                textAlign: 'right',
-                whiteSpace: 'nowrap',
-              }}
-            >
-              Retained Size
-            </th>
-            <th
-              style={{
-                padding: '4px 8px',
-                textAlign: 'right',
-                whiteSpace: 'nowrap',
-              }}
-            >
-              Reachable Size
-            </th>
-            <th
-              style={{
-                padding: '4px 8px',
-                textAlign: 'right',
-                whiteSpace: 'nowrap',
-              }}
-            >
-              Status
-            </th>
-          </tr>
-        </thead>
-        <tbody>
-          {filtered.map((entry) => (
-            <>
+            />
+            <Show when={filter()}>
+              <span style={{ 'font-size': '12px', color: '#888' }}>
+                {list().length} of {entries()!.length} groups
+              </span>
+            </Show>
+          </div>
+          <table
+            style={{
+              'border-collapse': 'collapse',
+              width: '100%',
+              'font-size': '13px',
+              'table-layout': 'fixed',
+            }}
+          >
+            <colgroup>
+              <col />
+              <col style={{ width: '80px' }} />
+              <col style={{ width: '100px' }} />
+              <col style={{ width: '110px' }} />
+              <col style={{ width: '120px' }} />
+              <col style={{ width: '75px' }} />
+            </colgroup>
+            <thead>
               <tr
-                key={entry.key}
-                onClick={() => toggleExpand(entry.key)}
                 style={{
-                  cursor: 'pointer',
-                  background: expanded === entry.key ? '#f0f0f0' : undefined,
+                  'text-align': 'left',
+                  'border-bottom': '1px solid #ccc',
                 }}
               >
-                <td
+                <th style={{ padding: '4px 8px' }}>Constructor</th>
+                <th
                   style={{
-                    padding: '2px 8px',
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap',
-                    maxWidth: 0,
+                    padding: '4px 8px',
+                    'text-align': 'right',
+                    'white-space': 'nowrap',
                   }}
                 >
-                  {expanded === entry.key ? '\u25bc' : '\u25b6'} {entry.name}
-                </td>
-                <td
+                  Count
+                </th>
+                <th
                   style={{
-                    padding: '2px 8px',
-                    textAlign: 'right',
-                    fontVariantNumeric: 'tabular-nums',
+                    padding: '4px 8px',
+                    'text-align': 'right',
+                    'white-space': 'nowrap',
                   }}
                 >
-                  {entry.count.toLocaleString()}
-                </td>
-                <td
+                  Shallow Size
+                </th>
+                <th
                   style={{
-                    padding: '2px 8px',
-                    textAlign: 'right',
-                    fontVariantNumeric: 'tabular-nums',
+                    padding: '4px 8px',
+                    'text-align': 'right',
+                    'white-space': 'nowrap',
                   }}
                 >
-                  {formatBytes(entry.self_size)}
-                </td>
-                <td
+                  Retained Size
+                </th>
+                <th
                   style={{
-                    padding: '2px 8px',
-                    textAlign: 'right',
-                    fontVariantNumeric: 'tabular-nums',
+                    padding: '4px 8px',
+                    'text-align': 'right',
+                    'white-space': 'nowrap',
                   }}
                 >
-                  {formatBytes(entry.retained_size)}
-                </td>
-                <td
+                  Reachable Size
+                </th>
+                <th
                   style={{
-                    padding: '2px 8px',
-                    textAlign: 'right',
-                    fontVariantNumeric: 'tabular-nums',
-                    color: '#ccc',
+                    padding: '4px 8px',
+                    'text-align': 'right',
+                    'white-space': 'nowrap',
                   }}
                 >
-                  {'\u2014'}
-                </td>
-                <td />
+                  Status
+                </th>
               </tr>
-              {expanded === entry.key && objects && (
-                <tr key={entry.key + '-expanded'}>
-                  <td colSpan={6} style={{ padding: '4px 24px' }}>
-                    <table
+            </thead>
+            <tbody>
+              <For each={list()}>
+                {(entry) => (
+                  <>
+                    <tr
+                      onClick={() => toggleExpand(entry.key)}
                       style={{
-                        borderCollapse: 'collapse',
-                        width: '100%',
-                        fontSize: 12,
-                        tableLayout: 'fixed',
+                        cursor: 'pointer',
+                        background:
+                          expanded() === entry.key ? '#f0f0f0' : undefined,
                       }}
                     >
-                      <colgroup>
-                        <col />
-                        <col style={{ width: 90 }} />
-                        <col style={{ width: 100 }} />
-                        <col style={{ width: 120 }} />
-                        <col style={{ width: 75 }} />
-                      </colgroup>
-                      <tbody>
-                        {objects.objects.map((obj) => (
-                          <tr key={obj.id}>
-                            <td
+                      <td
+                        style={{
+                          padding: '2px 8px',
+                          overflow: 'hidden',
+                          'text-overflow': 'ellipsis',
+                          'white-space': 'nowrap',
+                          'max-width': '0',
+                        }}
+                      >
+                        {expanded() === entry.key ? '\u25bc' : '\u25b6'}{' '}
+                        {entry.name}
+                      </td>
+                      <td style={numTd}>{entry.count.toLocaleString()}</td>
+                      <td style={numTd}>{formatBytes(entry.self_size)}</td>
+                      <td style={numTd}>{formatBytes(entry.retained_size)}</td>
+                      <td style={{ ...numTd, color: '#ccc' }}>{'\u2014'}</td>
+                      <td />
+                    </tr>
+                    <Show when={expanded() === entry.key && objects()}>
+                      {(objs) => (
+                        <tr>
+                          <td colSpan={6} style={{ padding: '4px 24px' }}>
+                            <table
                               style={{
-                                padding: '1px 8px',
-                                overflow: 'hidden',
-                                textOverflow: 'ellipsis',
-                                whiteSpace: 'nowrap',
-                                maxWidth: 0,
+                                'border-collapse': 'collapse',
+                                width: '100%',
+                                'font-size': '12px',
+                                'table-layout': 'fixed',
                               }}
                             >
-                              <ObjectLink
-                                nodeId={obj.id}
-                                onNavigate={onNavigate}
-                                onContextMenu={onContextMenu}
-                              />{' '}
-                              {obj.name}
-                            </td>
-                            <td
-                              style={{
-                                padding: '1px 8px',
-                                textAlign: 'right',
-                                fontVariantNumeric: 'tabular-nums',
-                              }}
-                            >
-                              {formatBytes(obj.self_size)}
-                            </td>
-                            <td
-                              style={{
-                                padding: '1px 8px',
-                                textAlign: 'right',
-                                fontVariantNumeric: 'tabular-nums',
-                              }}
-                            >
-                              {formatBytes(obj.retained_size)}
-                            </td>
-                            <td
-                              style={{
-                                padding: '1px 8px',
-                                textAlign: 'right',
-                                fontVariantNumeric: 'tabular-nums',
-                                color: reachableSizes.get(obj.id)
-                                  ? undefined
-                                  : '#ccc',
-                              }}
-                              title={
-                                reachableSizes.get(obj.id)?.native_contexts
-                                  .length
-                                  ? reachableSizes
-                                      .get(obj.id)!
-                                      .native_contexts.map(
-                                        (c) => `${c.label} (${c.detachedness})`,
-                                      )
-                                      .join('\n')
-                                  : undefined
-                              }
-                            >
-                              {reachableSizes.get(obj.id)
-                                ? formatBytes(reachableSizes.get(obj.id)!.size)
-                                : '\u2014'}
-                            </td>
-                            <td
-                              style={{
-                                padding: '1px 8px',
-                                textAlign: 'right',
-                                whiteSpace: 'nowrap',
-                                color:
-                                  obj.detachedness === 2
-                                    ? '#ef4444'
-                                    : obj.detachedness === 1
-                                      ? '#10b981'
-                                      : '#888',
-                                fontWeight:
-                                  obj.detachedness === 2 ? 600 : undefined,
-                              }}
-                            >
-                              {obj.detachedness === 2
-                                ? 'detached'
-                                : obj.detachedness === 1
-                                  ? 'attached'
-                                  : ''}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                    {objects.total > objects.objects.length && (
-                      <p style={{ fontSize: 11, color: '#888' }}>
-                        Showing {objects.objects.length} of {objects.total}{' '}
-                        objects
-                      </p>
-                    )}
-                  </td>
-                </tr>
-              )}
-            </>
-          ))}
-        </tbody>
-      </table>
-    </div>
+                              <colgroup>
+                                <col />
+                                <col style={{ width: '90px' }} />
+                                <col style={{ width: '100px' }} />
+                                <col style={{ width: '120px' }} />
+                                <col style={{ width: '75px' }} />
+                              </colgroup>
+                              <tbody>
+                                <For each={objs().objects}>
+                                  {(obj) => (
+                                    <tr>
+                                      <td
+                                        style={{
+                                          padding: '1px 8px',
+                                          overflow: 'hidden',
+                                          'text-overflow': 'ellipsis',
+                                          'white-space': 'nowrap',
+                                          'max-width': '0',
+                                        }}
+                                      >
+                                        <ObjectLink
+                                          nodeId={obj.id}
+                                          onNavigate={props.onNavigate}
+                                          onContextMenu={props.onContextMenu}
+                                        />{' '}
+                                        {obj.name}
+                                      </td>
+                                      <td style={numTd}>
+                                        {formatBytes(obj.self_size)}
+                                      </td>
+                                      <td style={numTd}>
+                                        {formatBytes(obj.retained_size)}
+                                      </td>
+                                      <td style={{ ...numTd, color: '#ccc' }}>
+                                        {'\u2014'}
+                                      </td>
+                                      <td
+                                        style={{
+                                          ...numTd,
+                                          color:
+                                            obj.detachedness === 2
+                                              ? '#ef4444'
+                                              : obj.detachedness === 1
+                                                ? '#10b981'
+                                                : '#888',
+                                          'font-weight':
+                                            obj.detachedness === 2
+                                              ? '600'
+                                              : undefined,
+                                        }}
+                                      >
+                                        {obj.detachedness === 2
+                                          ? 'detached'
+                                          : obj.detachedness === 1
+                                            ? 'attached'
+                                            : ''}
+                                      </td>
+                                    </tr>
+                                  )}
+                                </For>
+                                <TreeTablePager
+                                  depth={0}
+                                  shown={objs().objects.length}
+                                  total={objs().total}
+                                  offset={objOffset()}
+                                  filter=""
+                                  onPageChange={(o, l) =>
+                                    loadObjects(expanded()!, o, l)
+                                  }
+                                  onFilterChange={() => {}}
+                                  onShowAll={() =>
+                                    loadObjects(expanded()!, 0, 999999)
+                                  }
+                                />
+                              </tbody>
+                            </table>
+                          </td>
+                        </tr>
+                      )}
+                    </Show>
+                  </>
+                )}
+              </For>
+            </tbody>
+          </table>
+        </div>
+      )}
+    </Show>
   );
 }

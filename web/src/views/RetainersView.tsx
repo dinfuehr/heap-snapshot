@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
+import { createSignal, createEffect, Show, For, type JSX } from 'solid-js';
 import type {
   NodeInfo,
   Retainers,
@@ -8,224 +8,218 @@ import type {
 } from '../types.ts';
 import type { SnapshotCall } from '../worker/use-snapshot.ts';
 import type { NavigateOptions } from '../components/ObjectLink.tsx';
-import { TreeTableShell, TreeTableRow } from '../components/TreeTable.tsx';
+import {
+  TreeTableShell,
+  TreeTableRow,
+  type RowSelection,
+} from '../components/TreeTable.tsx';
 import { TreeTablePager } from '../components/TreeTablePager.tsx';
 import { formatBytes } from '../components/format.ts';
 
-interface Props {
-  call: SnapshotCall;
-  nodeId: number | null;
-  onNavigate: (opts: NavigateOptions) => void;
-  onContextMenu: (e: React.MouseEvent, nodeId: number) => void;
-}
-
 const PAGE_SIZE = 100;
 
-function PathNode({
-  path,
-  depth,
-  onNavigate,
-  onContextMenu,
-}: {
+function PathNode(props: {
   path: RetainingPath;
   depth: number;
-  onNavigate: Props['onNavigate'];
-  onContextMenu: Props['onContextMenu'];
-}) {
-  const label = (
-    <>
-      <span style={{ color: '#888' }}>[{path.edge_name}]</span> {path.node.name}{' '}
-      <span style={{ color: '#888' }}>({path.node.node_type})</span>
-    </>
-  );
-
+  onNavigate: (opts: NavigateOptions) => void;
+  onContextMenu: (e: MouseEvent, nodeId: number) => void;
+  selection: () => RowSelection | null;
+  onSelect: (sel: RowSelection) => void;
+}): JSX.Element {
   return (
     <TreeTableRow
-      depth={depth}
-      label={label}
-      linkId={path.node.id}
-      onNavigate={onNavigate}
-      onContextMenu={onContextMenu}
-      detachedness={path.node.detachedness}
-      distance={path.node.distance}
-      selfSize={path.node.self_size}
-      retainedSize={path.node.retained_size}
+      depth={props.depth}
+      label={
+        <>
+          <span style={{ color: '#888' }}>[{props.path.edge_name}]</span>{' '}
+          {props.path.node.name}{' '}
+          <span style={{ color: '#888' }}>({props.path.node.node_type})</span>
+        </>
+      }
+      linkId={props.path.node.id}
+      onNavigate={props.onNavigate}
+      onContextMenu={props.onContextMenu}
+      selection={props.selection()}
+      onSelect={props.onSelect}
+      detachedness={props.path.node.detachedness}
+      distance={props.path.node.distance}
+      selfSize={props.path.node.self_size}
+      retainedSize={props.path.node.retained_size}
     >
-      {path.children.map((child, i) => (
-        <PathNode
-          key={i}
-          path={child}
-          depth={depth + 1}
-          onNavigate={onNavigate}
-          onContextMenu={onContextMenu}
-        />
-      ))}
+      <For each={props.path.children}>
+        {(child) => (
+          <PathNode
+            path={child}
+            depth={props.depth + 1}
+            onNavigate={props.onNavigate}
+            onContextMenu={props.onContextMenu}
+            selection={props.selection}
+            onSelect={props.onSelect}
+          />
+        )}
+      </For>
     </TreeTableRow>
   );
 }
 
-function RetainerRow({
-  retainer,
-  call,
-  onNavigate,
-  onContextMenu,
-  depth,
-}: {
+function RetainerRow(props: {
   retainer: Retainer;
   call: SnapshotCall;
-  onNavigate: Props['onNavigate'];
-  onContextMenu: Props['onContextMenu'];
+  onNavigate: (opts: NavigateOptions) => void;
+  onContextMenu: (e: MouseEvent, nodeId: number) => void;
+  selection: () => RowSelection | null;
+  onSelect: (sel: RowSelection) => void;
   depth: number;
-}) {
-  const [expanded, setExpanded] = useState(false);
-  const [children, setChildren] = useState<Retainer[] | null>(null);
-  const [total, setTotal] = useState(0);
-  const [offset, setOffset] = useState(0);
-  const [limit, setLimit] = useState(PAGE_SIZE);
-  const [filter, setFilter] = useState('');
+}): JSX.Element {
+  const [expanded, setExpanded] = createSignal(false);
+  const [children, setChildren] = createSignal<Retainer[] | null>(null);
+  const [total, setTotal] = createSignal(0);
+  const [offset, setOffset] = createSignal(0);
+  const [limit, setLimit] = createSignal(PAGE_SIZE);
+  const [filter, setFilter] = createSignal('');
 
-  const loadRetainers = useCallback(
-    async (o: number, l: number, f: string) => {
-      const result = await call<Retainers>({
-        type: 'getRetainers',
-        nodeId: retainer.source.id,
-        offset: o,
-        limit: l,
-        filter: f,
-      });
-      setChildren(result.retainers);
-      setTotal(result.total);
-      setOffset(o);
-      setLimit(l);
-      setFilter(f);
-    },
-    [call, retainer.source.id],
-  );
+  const loadRetainers = async (o: number, l: number, f: string) => {
+    const result = await props.call<Retainers>({
+      type: 'getRetainers',
+      nodeId: props.retainer.source.id,
+      offset: o,
+      limit: l,
+      filter: f,
+    });
+    setChildren(result.retainers);
+    setTotal(result.total);
+    setOffset(o);
+    setLimit(l);
+    setFilter(f);
+  };
 
-  const toggle = useCallback(async () => {
-    if (expanded) {
+  const toggle = async () => {
+    if (expanded()) {
       setExpanded(false);
       return;
     }
     setExpanded(true);
-    if (!children) {
+    if (!children()) {
       await loadRetainers(0, PAGE_SIZE, '');
     }
-  }, [expanded, children, loadRetainers]);
-
-  const label = (
-    <>
-      <span style={{ color: '#888' }}>[{retainer.edge_name}]</span>
-      {' in '}
-      {retainer.source.name}{' '}
-      <span style={{ color: '#888' }}>({retainer.source.node_type})</span>
-    </>
-  );
+  };
 
   return (
     <TreeTableRow
-      depth={depth}
-      expanded={expanded}
+      depth={props.depth}
+      expanded={expanded()}
       onToggle={toggle}
-      label={label}
-      linkId={retainer.source.id}
-      onNavigate={onNavigate}
-      onContextMenu={onContextMenu}
-      detachedness={retainer.source.detachedness}
-      distance={retainer.source.distance}
-      selfSize={retainer.source.self_size}
-      retainedSize={retainer.source.retained_size}
-    >
-      {expanded && children && (
+      label={
         <>
-          {children.map((r, i) => (
-            <RetainerRow
-              key={i}
-              retainer={r}
-              call={call}
-              onNavigate={onNavigate}
-              onContextMenu={onContextMenu}
-              depth={depth + 1}
-            />
-          ))}
-          <TreeTablePager
-            depth={depth + 1}
-            shown={children.length}
-            total={total}
-            offset={offset}
-            filter={filter}
-            onPageChange={(o, l) => loadRetainers(o, l, filter)}
-            onFilterChange={(f) => loadRetainers(0, limit, f)}
-            onShowAll={() => loadRetainers(0, 999999, filter)}
-          />
+          <span style={{ color: '#888' }}>[{props.retainer.edge_name}]</span>
+          {' in '}
+          {props.retainer.source.name}{' '}
+          <span style={{ color: '#888' }}>
+            ({props.retainer.source.node_type})
+          </span>
         </>
-      )}
+      }
+      linkId={props.retainer.source.id}
+      onNavigate={props.onNavigate}
+      onContextMenu={props.onContextMenu}
+      selection={props.selection()}
+      onSelect={props.onSelect}
+      detachedness={props.retainer.source.detachedness}
+      distance={props.retainer.source.distance}
+      selfSize={props.retainer.source.self_size}
+      retainedSize={props.retainer.source.retained_size}
+    >
+      <Show when={expanded() && children()}>
+        <For each={children()!}>
+          {(r) => (
+            <RetainerRow
+              retainer={r}
+              call={props.call}
+              onNavigate={props.onNavigate}
+              onContextMenu={props.onContextMenu}
+              selection={props.selection}
+              onSelect={props.onSelect}
+              depth={props.depth + 1}
+            />
+          )}
+        </For>
+        <TreeTablePager
+          depth={props.depth + 1}
+          shown={children()!.length}
+          total={total()}
+          offset={offset()}
+          filter={filter()}
+          onPageChange={(o, l) => loadRetainers(o, l, filter())}
+          onFilterChange={(f) => loadRetainers(0, limit(), f)}
+          onShowAll={() => loadRetainers(0, 999999, filter())}
+        />
+      </Show>
     </TreeTableRow>
   );
 }
 
-export function RetainersView({
-  call,
-  nodeId,
-  onNavigate,
-  onContextMenu,
-}: Props) {
-  const [nodeInfo, setNodeInfo] = useState<NodeInfo | null>(null);
-  const [retainers, setRetainers] = useState<Retainers | null>(null);
-  const [retOffset, setRetOffset] = useState(0);
-  const [retLimit, setRetLimit] = useState(PAGE_SIZE);
-  const [retFilter, setRetFilter] = useState('');
-  const [paths, setPaths] = useState<RetainingPaths | null>(null);
-  const [inputId, setInputId] = useState(nodeId ? `@${nodeId}` : '');
-  const [activeId, setActiveId] = useState<number | null>(nodeId);
-
-  useEffect(() => {
-    if (nodeId !== null) {
-      setInputId(`@${nodeId}`);
-      setActiveId(nodeId);
-    }
-  }, [nodeId]);
-
-  const loadRetainers = useCallback(
-    async (id: number, o: number, l: number, f: string) => {
-      const result = await call<Retainers>({
-        type: 'getRetainers',
-        nodeId: id,
-        offset: o,
-        limit: l,
-        filter: f,
-      });
-      setRetainers(result);
-      setRetOffset(o);
-      setRetLimit(l);
-      setRetFilter(f);
-    },
-    [call],
+export function RetainersView(props: {
+  call: SnapshotCall;
+  nodeId: number | null;
+  onNavigate: (opts: NavigateOptions) => void;
+  onContextMenu: (e: MouseEvent, nodeId: number) => void;
+}): JSX.Element {
+  const [nodeInfo, setNodeInfo] = createSignal<NodeInfo | null>(null);
+  const [retainers, setRetainers] = createSignal<Retainers | null>(null);
+  const [retOffset, setRetOffset] = createSignal(0);
+  const [retLimit, setRetLimit] = createSignal(PAGE_SIZE);
+  const [retFilter, setRetFilter] = createSignal('');
+  const [paths, setPaths] = createSignal<RetainingPaths | null>(null);
+  const [inputId, setInputId] = createSignal(
+    props.nodeId ? `@${props.nodeId}` : '',
   );
+  const [activeId, setActiveId] = createSignal<number | null>(props.nodeId);
+  const [selection, setSelection] = createSignal<RowSelection | null>(null);
 
-  useEffect(() => {
-    if (activeId === null) return;
+  const loadRetainers = async (id: number, o: number, l: number, f: string) => {
+    const result = await props.call<Retainers>({
+      type: 'getRetainers',
+      nodeId: id,
+      offset: o,
+      limit: l,
+      filter: f,
+    });
+    setRetainers(result);
+    setRetOffset(o);
+    setRetLimit(l);
+    setRetFilter(f);
+  };
+
+  createEffect(() => {
+    if (props.nodeId !== null) {
+      setInputId(`@${props.nodeId}`);
+      setActiveId(props.nodeId);
+    }
+  });
+
+  createEffect(() => {
+    const id = activeId();
+    if (id === null) return;
     setPaths(null);
     setRetainers(null);
     setNodeInfo(null);
-    call<NodeInfo>({ type: 'getNodeInfo', nodeId: activeId }).then(setNodeInfo);
-    loadRetainers(activeId, 0, PAGE_SIZE, '');
-  }, [activeId, call, loadRetainers]);
+    props.call<NodeInfo>({ type: 'getNodeInfo', nodeId: id }).then(setNodeInfo);
+    loadRetainers(id, 0, PAGE_SIZE, '');
+  });
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = (e: Event) => {
     e.preventDefault();
-    const raw = inputId.replace(/^@/, '');
+    const raw = inputId().replace(/^@/, '');
     const id = parseInt(raw, 10);
-    if (!isNaN(id)) {
-      setActiveId(id);
-    }
+    if (!isNaN(id)) setActiveId(id);
   };
 
   const loadPaths = async () => {
-    if (activeId === null) return;
-    const result = await call<RetainingPaths>({
+    const id = activeId();
+    if (id === null) return;
+    const result = await props.call<RetainingPaths>({
       type: 'getRetainingPaths',
-      nodeId: activeId,
+      nodeId: id,
       maxDepth: 50,
       maxNodes: 200,
     });
@@ -234,90 +228,110 @@ export function RetainersView({
 
   return (
     <div>
-      <form onSubmit={handleSubmit} style={{ marginBottom: 16 }}>
+      <form onSubmit={handleSubmit} style={{ 'margin-bottom': '16px' }}>
         <input
-          value={inputId}
-          onChange={(e) => setInputId(e.target.value)}
+          value={inputId()}
+          onInput={(e) => setInputId(e.currentTarget.value)}
           placeholder="@12345"
-          style={{ padding: '4px 8px', fontSize: 14, marginRight: 8 }}
+          style={{
+            padding: '4px 8px',
+            'font-size': '14px',
+            'margin-right': '8px',
+          }}
         />
-        <button type="submit" style={{ padding: '4px 12px', fontSize: 14 }}>
+        <button
+          type="submit"
+          style={{ padding: '4px 12px', 'font-size': '14px' }}
+        >
           Go
         </button>
       </form>
 
-      {nodeInfo && (
-        <div style={{ marginBottom: 16 }}>
-          <strong>@{nodeInfo.id}</strong> {nodeInfo.name}{' '}
-          <span style={{ color: '#888' }}>
-            (type: {nodeInfo.node_type}, self: {formatBytes(nodeInfo.self_size)}
-            , retained: {formatBytes(nodeInfo.retained_size)}, distance:{' '}
-            {nodeInfo.distance})
-          </span>
-        </div>
-      )}
+      <Show when={nodeInfo()}>
+        {(info) => (
+          <div style={{ 'margin-bottom': '16px' }}>
+            <strong>@{info().id}</strong> {info().name}{' '}
+            <span style={{ color: '#888' }}>
+              (type: {info().node_type}, self: {formatBytes(info().self_size)},
+              retained: {formatBytes(info().retained_size)}, distance:{' '}
+              {info().distance})
+            </span>
+          </div>
+        )}
+      </Show>
 
-      {retainers && activeId !== null && (
-        <>
-          <h3 style={{ fontSize: 14, margin: '0 0 8px' }}>
-            Direct Retainers ({retainers.total})
-          </h3>
-          <TreeTableShell>
-            {retainers.retainers.map((r, i) => (
+      <Show when={retainers() && activeId() !== null}>
+        <h3 style={{ 'font-size': '14px', margin: '0 0 8px' }}>
+          Direct Retainers ({retainers()!.total})
+        </h3>
+        <TreeTableShell>
+          <For each={retainers()!.retainers}>
+            {(r) => (
               <RetainerRow
-                key={i}
                 retainer={r}
-                call={call}
-                onNavigate={onNavigate}
-                onContextMenu={onContextMenu}
+                call={props.call}
+                onNavigate={props.onNavigate}
+                onContextMenu={props.onContextMenu}
+                selection={selection}
+                onSelect={setSelection}
                 depth={0}
               />
-            ))}
-            <TreeTablePager
-              depth={0}
-              shown={retainers.retainers.length}
-              total={retainers.total}
-              offset={retOffset}
-              filter={retFilter}
-              onPageChange={(o, l) => loadRetainers(activeId, o, l, retFilter)}
-              onFilterChange={(f) => loadRetainers(activeId, 0, retLimit, f)}
-              onShowAll={() => loadRetainers(activeId, 0, 999999, retFilter)}
-            />
-          </TreeTableShell>
-        </>
-      )}
+            )}
+          </For>
+          <TreeTablePager
+            depth={0}
+            shown={retainers()!.retainers.length}
+            total={retainers()!.total}
+            offset={retOffset()}
+            filter={retFilter()}
+            onPageChange={(o, l) =>
+              loadRetainers(activeId()!, o, l, retFilter())
+            }
+            onFilterChange={(f) => loadRetainers(activeId()!, 0, retLimit(), f)}
+            onShowAll={() => loadRetainers(activeId()!, 0, 999999, retFilter())}
+          />
+        </TreeTableShell>
+      </Show>
 
-      {activeId !== null && (
-        <div style={{ marginTop: 16 }}>
-          {paths ? (
-            <>
-              <h3 style={{ fontSize: 14, margin: '0 0 8px' }}>
-                Retaining Paths to GC Roots
-                {paths.truncated && ' (truncated)'}
-                {!paths.reached_gc_roots && ' (GC roots not reached)'}
-              </h3>
-              <TreeTableShell>
-                {paths.paths.map((p, i) => (
-                  <PathNode
-                    key={i}
-                    path={p}
-                    depth={0}
-                    onNavigate={onNavigate}
-                    onContextMenu={onContextMenu}
-                  />
-                ))}
-              </TreeTableShell>
-            </>
-          ) : (
-            <button
-              onClick={loadPaths}
-              style={{ padding: '4px 12px', fontSize: 14 }}
-            >
-              Find retaining paths to GC roots
-            </button>
-          )}
+      <Show when={activeId() !== null}>
+        <div style={{ 'margin-top': '16px' }}>
+          <Show
+            when={paths()}
+            fallback={
+              <button
+                onClick={loadPaths}
+                style={{ padding: '4px 12px', 'font-size': '14px' }}
+              >
+                Find retaining paths to GC roots
+              </button>
+            }
+          >
+            {(p) => (
+              <>
+                <h3 style={{ 'font-size': '14px', margin: '0 0 8px' }}>
+                  Retaining Paths to GC Roots
+                  {p().truncated && ' (truncated)'}
+                  {!p().reached_gc_roots && ' (GC roots not reached)'}
+                </h3>
+                <TreeTableShell>
+                  <For each={p().paths}>
+                    {(path) => (
+                      <PathNode
+                        path={path}
+                        depth={0}
+                        onNavigate={props.onNavigate}
+                        onContextMenu={props.onContextMenu}
+                        selection={selection}
+                        onSelect={setSelection}
+                      />
+                    )}
+                  </For>
+                </TreeTableShell>
+              </>
+            )}
+          </Show>
         </div>
-      )}
+      </Show>
     </div>
   );
 }

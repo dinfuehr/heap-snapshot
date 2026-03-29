@@ -1,43 +1,31 @@
-import { useCallback } from 'react';
+import type { JSX } from 'solid-js';
 
 export interface NavigateOptions {
   nodeId: number;
   target: 'Retainers' | 'Dominators' | 'Summary';
 }
 
-interface Props {
+export function ObjectLink(props: {
   nodeId: number;
   onNavigate: (opts: NavigateOptions) => void;
-  onContextMenu: (e: React.MouseEvent, nodeId: number) => void;
-}
-
-export function ObjectLink({ nodeId, onNavigate, onContextMenu }: Props) {
-  const handleClick = useCallback(
-    (e: React.MouseEvent) => {
-      e.preventDefault();
-      e.stopPropagation();
-      onNavigate({ nodeId, target: 'Retainers' });
-    },
-    [nodeId, onNavigate],
-  );
-
-  const handleContext = useCallback(
-    (e: React.MouseEvent) => {
-      e.preventDefault();
-      e.stopPropagation();
-      onContextMenu(e, nodeId);
-    },
-    [nodeId, onContextMenu],
-  );
-
+  onContextMenu: (e: MouseEvent, nodeId: number) => void;
+}): JSX.Element {
   return (
     <a
       href="#"
-      onClick={handleClick}
-      onContextMenu={handleContext}
+      onClick={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        props.onNavigate({ nodeId: props.nodeId, target: 'Retainers' });
+      }}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        props.onContextMenu(e, props.nodeId);
+      }}
       style={{ color: '#06c' }}
     >
-      @{nodeId}
+      @{props.nodeId}
     </a>
   );
 }

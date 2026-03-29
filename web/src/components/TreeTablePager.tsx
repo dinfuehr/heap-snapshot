@@ -1,8 +1,26 @@
-import { useState, useCallback } from 'react';
+import { createSignal, Show, type JSX } from 'solid-js';
 
 const PAGE_SIZE = 100;
 
-interface Props {
+const btnStyle = {
+  padding: '1px 6px',
+  'font-size': '11px',
+  cursor: 'pointer',
+  border: '1px solid #ccc',
+  'border-radius': '3px',
+  background: '#fafafa',
+};
+
+const inputStyle = {
+  width: '50px',
+  padding: '1px 4px',
+  'font-size': '11px',
+  'text-align': 'center' as const,
+  border: '1px solid #ccc',
+  'border-radius': '3px',
+};
+
+export function TreeTablePager(props: {
   depth: number;
   shown: number;
   total: number;
@@ -11,196 +29,169 @@ interface Props {
   onPageChange: (offset: number, limit: number) => void;
   onFilterChange: (filter: string) => void;
   onShowAll: () => void;
-}
-
-const btnStyle: React.CSSProperties = {
-  padding: '1px 6px',
-  fontSize: 11,
-  cursor: 'pointer',
-  border: '1px solid #ccc',
-  borderRadius: 3,
-  background: '#fafafa',
-};
-
-const inputStyle: React.CSSProperties = {
-  width: 50,
-  padding: '1px 4px',
-  fontSize: 11,
-  textAlign: 'center',
-  border: '1px solid #ccc',
-  borderRadius: 3,
-};
-
-export function TreeTablePager({
-  depth,
-  shown,
-  total,
-  offset,
-  filter,
-  onPageChange,
-  onFilterChange,
-  onShowAll,
-}: Props) {
-  const [filterInput, setFilterInput] = useState(filter);
-  const [startInput, setStartInput] = useState(String(offset + 1));
-  const [endInput, setEndInput] = useState(String(offset + shown));
-
-  const end = offset + shown;
-  const limit = shown;
-
-  const applyRange = useCallback(() => {
-    const s = Math.max(1, parseInt(startInput, 10) || 1) - 1;
-    const e = Math.max(s + 1, parseInt(endInput, 10) || s + PAGE_SIZE);
-    onPageChange(s, e - s);
-  }, [startInput, endInput, onPageChange]);
-
-  const handleFilterSubmit = useCallback(
-    (e: React.FormEvent) => {
-      e.preventDefault();
-      onFilterChange(filterInput);
-    },
-    [filterInput, onFilterChange],
+}): JSX.Element {
+  const [filterInput, setFilterInput] = createSignal(props.filter);
+  const [startInput, setStartInput] = createSignal(String(props.offset + 1));
+  const [endInput, setEndInput] = createSignal(
+    String(props.offset + props.shown),
   );
 
-  if (total <= PAGE_SIZE && !filter) return null;
+  const limit = () => props.shown;
+  const hidden = () => props.total <= PAGE_SIZE && !props.filter;
+
+  const applyRange = () => {
+    const s = Math.max(1, parseInt(startInput(), 10) || 1) - 1;
+    const e = Math.max(s + 1, parseInt(endInput(), 10) || s + PAGE_SIZE);
+    props.onPageChange(s, e - s);
+  };
+
+  const handleFilterSubmit = (e: Event) => {
+    e.preventDefault();
+    props.onFilterChange(filterInput());
+  };
 
   return (
-    <tr>
-      <td
-        colSpan={7}
-        style={{
-          padding: '4px 8px',
-          paddingLeft: 8 + depth * 16,
-          fontSize: 11,
-        }}
-      >
-        <span
+    <Show when={!hidden()}>
+      <tr>
+        <td
+          colSpan={6}
           style={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: 4,
-            flexWrap: 'wrap',
+            padding: '4px 8px',
+            'padding-left': `${8 + props.depth * 16}px`,
+            'font-size': '11px',
           }}
         >
-          <input
-            style={inputStyle}
-            value={startInput}
-            onChange={(e) => setStartInput(e.target.value)}
-            onBlur={applyRange}
-            onKeyDown={(e) => e.key === 'Enter' && applyRange()}
-            onClick={(e) => e.stopPropagation()}
-          />
-          <span style={{ color: '#888' }}>&ndash;</span>
-          <input
-            style={inputStyle}
-            value={endInput}
-            onChange={(e) => setEndInput(e.target.value)}
-            onBlur={applyRange}
-            onKeyDown={(e) => e.key === 'Enter' && applyRange()}
-            onClick={(e) => e.stopPropagation()}
-          />
-          <span style={{ color: '#888' }}>of {total}</span>
-
-          <button
-            style={btnStyle}
-            disabled={offset === 0}
-            onClick={(e) => {
-              e.stopPropagation();
-              const newOffset = Math.max(0, offset - limit);
-              onPageChange(newOffset, limit);
-              setStartInput(String(newOffset + 1));
-              setEndInput(String(newOffset + limit));
-            }}
-          >
-            &larr; Prev
-          </button>
-          <button
-            style={btnStyle}
-            disabled={end >= total}
-            onClick={(e) => {
-              e.stopPropagation();
-              const newOffset = Math.min(total - 1, offset + limit);
-              const newEnd = Math.min(total, newOffset + limit);
-              onPageChange(newOffset, newEnd - newOffset);
-              setStartInput(String(newOffset + 1));
-              setEndInput(String(newEnd));
-            }}
-          >
-            Next &rarr;
-          </button>
-          <button
-            style={btnStyle}
-            disabled={limit >= total}
-            onClick={(e) => {
-              e.stopPropagation();
-              onShowAll();
-              setStartInput('1');
-              setEndInput(String(total));
-            }}
-          >
-            All
-          </button>
-          <button
-            style={btnStyle}
-            disabled={limit <= PAGE_SIZE}
-            onClick={(e) => {
-              e.stopPropagation();
-              const newLimit = Math.max(PAGE_SIZE, limit - PAGE_SIZE);
-              onPageChange(offset, newLimit);
-              setEndInput(String(offset + newLimit));
-            }}
-          >
-            &minus;100
-          </button>
-          <button
-            style={btnStyle}
-            disabled={offset + limit >= total}
-            onClick={(e) => {
-              e.stopPropagation();
-              const newLimit = Math.min(total - offset, limit + PAGE_SIZE);
-              onPageChange(offset, newLimit);
-              setEndInput(String(offset + newLimit));
-            }}
-          >
-            +100
-          </button>
-
-          <form
-            onSubmit={handleFilterSubmit}
+          <span
             style={{
               display: 'inline-flex',
-              alignItems: 'center',
-              gap: 4,
-              marginLeft: 8,
+              'align-items': 'center',
+              gap: '4px',
+              'flex-wrap': 'wrap',
             }}
-            onClick={(e) => e.stopPropagation()}
           >
             <input
-              style={{ ...inputStyle, width: 120, textAlign: 'left' }}
-              value={filterInput}
-              onChange={(e) => setFilterInput(e.target.value)}
-              placeholder="Filter edges..."
+              style={inputStyle}
+              value={startInput()}
+              onInput={(e) => setStartInput(e.currentTarget.value)}
+              onBlur={applyRange}
+              onKeyDown={(e) => e.key === 'Enter' && applyRange()}
+              onClick={(e) => e.stopPropagation()}
             />
-            {filterInput !== filter && (
-              <button type="submit" style={btnStyle}>
-                Apply
-              </button>
-            )}
-            {filter && (
-              <button
-                type="button"
-                style={btnStyle}
-                onClick={() => {
-                  setFilterInput('');
-                  onFilterChange('');
-                }}
-              >
-                Clear
-              </button>
-            )}
-          </form>
-        </span>
-      </td>
-    </tr>
+            <span style={{ color: '#888' }}>&ndash;</span>
+            <input
+              style={inputStyle}
+              value={endInput()}
+              onInput={(e) => setEndInput(e.currentTarget.value)}
+              onBlur={applyRange}
+              onKeyDown={(e) => e.key === 'Enter' && applyRange()}
+              onClick={(e) => e.stopPropagation()}
+            />
+            <span style={{ color: '#888' }}>of {props.total}</span>
+
+            <button
+              style={btnStyle}
+              disabled={props.offset === 0}
+              onClick={(e) => {
+                e.stopPropagation();
+                const o = Math.max(0, props.offset - limit());
+                props.onPageChange(o, limit());
+                setStartInput(String(o + 1));
+                setEndInput(String(o + limit()));
+              }}
+            >
+              &larr; Prev
+            </button>
+            <button
+              style={btnStyle}
+              disabled={props.offset + props.shown >= props.total}
+              onClick={(e) => {
+                e.stopPropagation();
+                const o = Math.min(props.total - 1, props.offset + limit());
+                const end = Math.min(props.total, o + limit());
+                props.onPageChange(o, end - o);
+                setStartInput(String(o + 1));
+                setEndInput(String(end));
+              }}
+            >
+              Next &rarr;
+            </button>
+            <button
+              style={btnStyle}
+              disabled={limit() >= props.total}
+              onClick={(e) => {
+                e.stopPropagation();
+                props.onShowAll();
+                setStartInput('1');
+                setEndInput(String(props.total));
+              }}
+            >
+              All
+            </button>
+            <button
+              style={btnStyle}
+              disabled={limit() <= PAGE_SIZE}
+              onClick={(e) => {
+                e.stopPropagation();
+                const nl = Math.max(PAGE_SIZE, limit() - PAGE_SIZE);
+                props.onPageChange(props.offset, nl);
+                setEndInput(String(props.offset + nl));
+              }}
+            >
+              &minus;100
+            </button>
+            <button
+              style={btnStyle}
+              disabled={props.offset + limit() >= props.total}
+              onClick={(e) => {
+                e.stopPropagation();
+                const nl = Math.min(
+                  props.total - props.offset,
+                  limit() + PAGE_SIZE,
+                );
+                props.onPageChange(props.offset, nl);
+                setEndInput(String(props.offset + nl));
+              }}
+            >
+              +100
+            </button>
+
+            <form
+              onSubmit={handleFilterSubmit}
+              style={{
+                display: 'inline-flex',
+                'align-items': 'center',
+                gap: '4px',
+                'margin-left': '8px',
+              }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <input
+                style={{ ...inputStyle, width: '120px', 'text-align': 'left' }}
+                value={filterInput()}
+                onInput={(e) => setFilterInput(e.currentTarget.value)}
+                placeholder="Filter edges..."
+              />
+              {filterInput() !== props.filter && (
+                <button type="submit" style={btnStyle}>
+                  Apply
+                </button>
+              )}
+              {props.filter && (
+                <button
+                  type="button"
+                  style={btnStyle}
+                  onClick={() => {
+                    setFilterInput('');
+                    props.onFilterChange('');
+                  }}
+                >
+                  Clear
+                </button>
+              )}
+            </form>
+          </span>
+        </td>
+      </tr>
+    </Show>
   );
 }

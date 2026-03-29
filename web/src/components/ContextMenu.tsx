@@ -1,66 +1,63 @@
-import { useEffect, useRef } from 'react';
+import { onCleanup, onMount, type JSX } from 'solid-js';
+import { For } from 'solid-js';
 
 export interface ContextMenuItem {
   label: string;
   action: () => void;
 }
 
-interface Props {
+export function ContextMenu(props: {
   x: number;
   y: number;
   items: ContextMenuItem[];
   onClose: () => void;
-}
+}): JSX.Element {
+  let ref: HTMLDivElement | undefined;
 
-export function ContextMenu({ x, y, items, onClose }: Props) {
-  const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
+  onMount(() => {
     const handler = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) {
-        onClose();
+      if (ref && !ref.contains(e.target as Node)) {
+        props.onClose();
       }
     };
     document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, [onClose]);
+    onCleanup(() => document.removeEventListener('mousedown', handler));
+  });
 
   return (
     <div
       ref={ref}
       style={{
         position: 'fixed',
-        left: x,
-        top: y,
+        left: `${props.x}px`,
+        top: `${props.y}px`,
         background: '#fff',
         border: '1px solid #ccc',
-        borderRadius: 4,
-        boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
-        zIndex: 1000,
+        'border-radius': '4px',
+        'box-shadow': '0 2px 8px rgba(0,0,0,0.15)',
+        'z-index': 1000,
         padding: '4px 0',
-        minWidth: 160,
-        fontSize: 13,
+        'min-width': '160px',
+        'font-size': '13px',
       }}
     >
-      {items.map((item, i) => (
-        <div
-          key={i}
-          onClick={() => {
-            item.action();
-            onClose();
-          }}
-          style={{
-            padding: '6px 12px',
-            cursor: 'pointer',
-          }}
-          onMouseEnter={(e) => (e.currentTarget.style.background = '#f0f0f0')}
-          onMouseLeave={(e) =>
-            (e.currentTarget.style.background = 'transparent')
-          }
-        >
-          {item.label}
-        </div>
-      ))}
+      <For each={props.items}>
+        {(item) => (
+          <div
+            onClick={() => {
+              item.action();
+              props.onClose();
+            }}
+            style={{ padding: '6px 12px', cursor: 'pointer' }}
+            onMouseEnter={(e) => (e.currentTarget.style.background = '#f0f0f0')}
+            onMouseLeave={(e) =>
+              (e.currentTarget.style.background = 'transparent')
+            }
+          >
+            {item.label}
+          </div>
+        )}
+      </For>
     </div>
   );
 }

@@ -1,28 +1,20 @@
-import { useCallback } from 'react';
+import type { JSX } from 'solid-js';
 
-interface Props {
+export function FileLoader(props: {
   loading: boolean;
   error: string | null;
   onFile: (file: File) => void;
-}
+}): JSX.Element {
+  const handleChange = (e: Event) => {
+    const file = (e.target as HTMLInputElement).files?.[0];
+    if (file) props.onFile(file);
+  };
 
-export function FileLoader({ loading, error, onFile }: Props) {
-  const handleChange = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      const file = e.target.files?.[0];
-      if (file) onFile(file);
-    },
-    [onFile],
-  );
-
-  const handleDrop = useCallback(
-    (e: React.DragEvent) => {
-      e.preventDefault();
-      const file = e.dataTransfer.files[0];
-      if (file) onFile(file);
-    },
-    [onFile],
-  );
+  const handleDrop = (e: DragEvent) => {
+    e.preventDefault();
+    const file = e.dataTransfer?.files[0];
+    if (file) props.onFile(file);
+  };
 
   return (
     <div
@@ -30,13 +22,13 @@ export function FileLoader({ loading, error, onFile }: Props) {
       onDragOver={(e) => e.preventDefault()}
       style={{
         border: '2px dashed #888',
-        borderRadius: 8,
-        padding: 40,
-        textAlign: 'center',
+        'border-radius': '8px',
+        padding: '40px',
+        'text-align': 'center',
         cursor: 'pointer',
       }}
     >
-      {loading ? (
+      {props.loading ? (
         <p>Loading snapshot...</p>
       ) : (
         <>
@@ -45,11 +37,13 @@ export function FileLoader({ loading, error, onFile }: Props) {
             type="file"
             accept=".heapsnapshot"
             onChange={handleChange}
-            style={{ marginTop: 8 }}
+            style={{ 'margin-top': '8px' }}
           />
         </>
       )}
-      {error && <p style={{ color: 'red', marginTop: 8 }}>{error}</p>}
+      {props.error && (
+        <p style={{ color: 'red', 'margin-top': '8px' }}>{props.error}</p>
+      )}
     </div>
   );
 }
