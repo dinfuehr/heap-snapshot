@@ -14,7 +14,7 @@ use heap_snapshot::parser;
 use heap_snapshot::retaining_path::{
     RetainerAutoExpandLimits, RetainerPathEdge, plan_gc_root_retainer_paths,
 };
-use heap_snapshot::snapshot::{HeapSnapshot, SnapshotOptions};
+use heap_snapshot::snapshot::{HeapSnapshot, RootKind, SnapshotOptions};
 use heap_snapshot::types::{NodeId, NodeOrdinal};
 
 // ---------------------------------------------------------------------------
@@ -34,11 +34,31 @@ struct CloseSnapshotParams {
 }
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
-struct GetOutgoingReferencesParams {
+struct ShowParams {
     /// Snapshot ID returned by load_snapshot
     snapshot_id: u32,
     /// Object ID in the form @12345
     object_id: String,
+    /// How many levels of children to expand (default: 1)
+    depth: Option<usize>,
+    /// Number of children to skip at each level (default: 0)
+    offset: Option<usize>,
+    /// Maximum number of children to show at each level (default: 100)
+    limit: Option<usize>,
+}
+
+#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+struct ShowRetainersParams {
+    /// Snapshot ID returned by load_snapshot
+    snapshot_id: u32,
+    /// Object ID in the form @12345
+    object_id: String,
+    /// How many levels of retainers to expand (default: 1)
+    depth: Option<usize>,
+    /// Number of retainers to skip at each level (default: 0)
+    offset: Option<usize>,
+    /// Maximum number of retainers to show at each level (default: 100)
+    limit: Option<usize>,
 }
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
@@ -65,6 +85,38 @@ struct GetRetainingPathsParams {
     max_depth: Option<usize>,
     /// Maximum number of nodes to explore (default: 200)
     max_nodes: Option<usize>,
+}
+
+#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+struct GetStatisticsParams {
+    /// Snapshot ID returned by load_snapshot
+    snapshot_id: u32,
+}
+
+#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+struct GetSummaryParams {
+    /// Snapshot ID returned by load_snapshot
+    snapshot_id: u32,
+    /// Constructor name to expand, showing individual objects in that group
+    constructor: Option<String>,
+    /// Number of objects to skip when expanding a constructor (default: 0)
+    offset: Option<usize>,
+    /// Maximum number of objects to return when expanding a constructor (default: 20)
+    limit: Option<usize>,
+}
+
+#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+struct GetContainmentParams {
+    /// Snapshot ID returned by load_snapshot
+    snapshot_id: u32,
+}
+
+#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+struct GetDominatorsOfParams {
+    /// Snapshot ID returned by load_snapshot
+    snapshot_id: u32,
+    /// Object ID in the form @12345
+    object_id: String,
 }
 
 // ---------------------------------------------------------------------------
@@ -160,11 +212,11 @@ impl McpServer {
     }
 
     #[tool(
-        description = "Get the outgoing references (edges) for an object. The object_id should be in the form @12345."
+        description = "Show an object and its outgoing references (edges). Use depth to auto-expand children recursively. The object_id should be in the form @12345."
     )]
-    async fn get_outgoing_references(
+    async fn show(
         &self,
-        Parameters(params): Parameters<GetOutgoingReferencesParams>,
+        Parameters(params): Parameters<ShowParams>,
     ) -> Result<CallToolResult, McpError> {
         let object_id_str = params
             .object_id
@@ -196,40 +248,172 @@ impl McpServer {
                 McpError::invalid_params(format!("No object found with id @{object_id}"), None)
             })?;
 
-        let mut lines = Vec::new();
-        lines.push(format!(
-            "Object @{object_id}: {} (type: {}, self_size: {})",
-            snapshot.node_display_name(ordinal),
-            snapshot.node_type_name(ordinal),
-            snapshot.node_self_size(ordinal),
-        ));
-        lines.push(String::new());
+        let max_depth = params.depth.unwrap_or(1);
+        let offset = params.offset.unwrap_or(0);
+        let limit = params.limit.unwrap_or(100);
 
-        let mut edge_count = 0;
-        for (edge_idx, child_ord) in snapshot.iter_edges(ordinal) {
-            let edge_type = snapshot.edge_type_name(edge_idx);
-            let edge_name = snapshot.edge_name(edge_idx);
-            let child_id = snapshot.node_id(child_ord);
-            let child_name = snapshot.node_display_name(child_ord);
-            let child_type = snapshot.node_type_name(child_ord);
-            let child_size = snapshot.node_self_size(child_ord);
-
+        tokio::task::spawn_blocking(move || {
+            let mut lines = Vec::new();
             lines.push(format!(
-                "  --[{edge_type} \"{edge_name}\"]--> @{} {} (type: {child_type}, self_size: {child_size})",
-                child_id.0, child_name
+                "Object @{object_id}: {} (type: {}, self_size: {})",
+                snapshot.node_display_name(ordinal),
+                snapshot.node_type_name(ordinal),
+                snapshot.node_self_size(ordinal),
             ));
-            edge_count += 1;
-        }
 
-        if edge_count == 0 {
-            lines.push("  (no outgoing references)".to_string());
-        } else {
-            lines.insert(1, format!("{edge_count} outgoing references:"));
-        }
+            fn show_edges(
+                snap: &HeapSnapshot,
+                ordinal: NodeOrdinal,
+                depth: usize,
+                max_depth: usize,
+                offset: usize,
+                limit: usize,
+                lines: &mut Vec<String>,
+            ) {
+                let indent = "  ".repeat(depth);
+                let edges: Vec<_> = snap.iter_edges(ordinal).collect();
+                let total = edges.len();
+                let start = offset.min(total);
+                let end = (start + limit).min(total);
 
-        Ok(CallToolResult::success(vec![Content::text(
-            lines.join("\n"),
-        )]))
+                for &(edge_idx, child_ord) in &edges[start..end] {
+                    let edge_type = snap.edge_type_name(edge_idx);
+                    let edge_name = snap.edge_name(edge_idx);
+                    let child_id = snap.node_id(child_ord);
+                    let child_name = snap.node_display_name(child_ord);
+                    let child_type = snap.node_type_name(child_ord);
+                    let child_size = snap.node_self_size(child_ord);
+
+                    lines.push(format!(
+                        "{indent}--[{edge_type} \"{edge_name}\"]--> @{} {child_name} (type: {child_type}, self_size: {child_size})",
+                        child_id.0
+                    ));
+
+                    if depth < max_depth {
+                        show_edges(snap, child_ord, depth + 1, max_depth, 0, limit, lines);
+                    }
+                }
+
+                if end < total {
+                    lines.push(format!(
+                        "{indent}({}-{} of {total} children shown)",
+                        start + 1,
+                        end
+                    ));
+                }
+            }
+
+            show_edges(&snapshot, ordinal, 1, max_depth, offset, limit, &mut lines);
+
+            Ok(CallToolResult::success(vec![Content::text(
+                lines.join("\n"),
+            )]))
+        })
+        .await
+        .map_err(|e| McpError::internal_error(format!("Task failed: {e}"), None))?
+    }
+
+    #[tool(
+        description = "Show an object and its incoming references (retainers), i.e. which objects point to it. Use depth to recursively expand retainers. The object_id should be in the form @12345."
+    )]
+    async fn show_retainers(
+        &self,
+        Parameters(params): Parameters<ShowRetainersParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let object_id_str = params
+            .object_id
+            .strip_prefix('@')
+            .unwrap_or(&params.object_id);
+        let object_id: u64 = object_id_str.parse().map_err(|_| {
+            McpError::invalid_params(
+                format!(
+                    "Invalid object id: {}. Expected format: @12345",
+                    params.object_id
+                ),
+                None,
+            )
+        })?;
+
+        let snapshot = {
+            let snapshots = self.snapshots.lock().await;
+            Arc::clone(snapshots.get(&params.snapshot_id).ok_or_else(|| {
+                McpError::invalid_params(
+                    format!("No snapshot found with id {}", params.snapshot_id),
+                    None,
+                )
+            })?)
+        };
+
+        let ordinal = snapshot
+            .node_for_snapshot_object_id(NodeId(object_id))
+            .ok_or_else(|| {
+                McpError::invalid_params(format!("No object found with id @{object_id}"), None)
+            })?;
+
+        let max_depth = params.depth.unwrap_or(1);
+        let offset = params.offset.unwrap_or(0);
+        let limit = params.limit.unwrap_or(100);
+
+        tokio::task::spawn_blocking(move || {
+            let mut lines = Vec::new();
+            lines.push(format!(
+                "Object @{object_id}: {} (type: {}, self_size: {}, retained_size: {:.0})",
+                snapshot.node_display_name(ordinal),
+                snapshot.node_type_name(ordinal),
+                snapshot.node_self_size(ordinal),
+                snapshot.node_retained_size(ordinal),
+            ));
+
+            fn show_retainers_recursive(
+                snap: &HeapSnapshot,
+                ordinal: NodeOrdinal,
+                depth: usize,
+                max_depth: usize,
+                offset: usize,
+                limit: usize,
+                lines: &mut Vec<String>,
+            ) {
+                let indent = "  ".repeat(depth);
+                let retainers = snap.get_retainers(ordinal);
+                let total = retainers.len();
+                let start = offset.min(total);
+                let end = (start + limit).min(total);
+
+                for &(edge_idx, ret_ord) in &retainers[start..end] {
+                    let edge_type = snap.edge_type_name(edge_idx);
+                    let edge_name = snap.edge_name(edge_idx);
+                    let ret_id = snap.node_id(ret_ord);
+                    let ret_name = snap.node_display_name(ret_ord);
+                    let ret_type = snap.node_type_name(ret_ord);
+                    let ret_size = snap.node_self_size(ret_ord);
+
+                    lines.push(format!(
+                        "{indent}<--[{edge_type} \"{edge_name}\"]-- @{} {ret_name} (type: {ret_type}, self_size: {ret_size})",
+                        ret_id.0
+                    ));
+
+                    if depth < max_depth {
+                        show_retainers_recursive(snap, ret_ord, depth + 1, max_depth, 0, limit, lines);
+                    }
+                }
+
+                if end < total {
+                    lines.push(format!(
+                        "{indent}({}-{} of {total} retainers shown)",
+                        start + 1,
+                        end
+                    ));
+                }
+            }
+
+            show_retainers_recursive(&snapshot, ordinal, 1, max_depth, offset, limit, &mut lines);
+
+            Ok(CallToolResult::success(vec![Content::text(
+                lines.join("\n"),
+            )]))
+        })
+        .await
+        .map_err(|e| McpError::internal_error(format!("Task failed: {e}"), None))?
     }
 
     #[tool(
@@ -273,6 +457,264 @@ impl McpServer {
             lines.push("No native contexts found.".to_string());
         } else {
             lines.insert(0, format!("{} native contexts:", contexts.len()));
+        }
+
+        Ok(CallToolResult::success(vec![Content::text(
+            lines.join("\n"),
+        )]))
+    }
+
+    #[tool(
+        description = "Get memory statistics for a snapshot: total size, V8 heap, native, code, strings, arrays, system, and unreachable objects."
+    )]
+    async fn get_statistics(
+        &self,
+        Parameters(params): Parameters<GetStatisticsParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let snapshot = {
+            let snapshots = self.snapshots.lock().await;
+            Arc::clone(snapshots.get(&params.snapshot_id).ok_or_else(|| {
+                McpError::invalid_params(
+                    format!("No snapshot found with id {}", params.snapshot_id),
+                    None,
+                )
+            })?)
+        };
+
+        let stats = snapshot.get_statistics();
+        let node_count = snapshot.node_count();
+
+        let lines = vec![
+            format!("{node_count} nodes, {:.0} bytes total", stats.total),
+            format!("  V8 heap:      {:.0} bytes", stats.v8heap_total),
+            format!("  Native:       {:.0} bytes", stats.native_total),
+            format!("  Code:         {:.0} bytes", stats.code),
+            format!("  Strings:      {:.0} bytes", stats.strings),
+            format!("  JS arrays:    {:.0} bytes", stats.js_arrays),
+            format!("  Typed arrays: {:.0} bytes", stats.typed_arrays),
+            format!("  System:       {:.0} bytes", stats.system),
+            format!(
+                "  Unreachable:  {:.0} bytes ({} objects)",
+                stats.unreachable_size, stats.unreachable_count
+            ),
+        ];
+
+        Ok(CallToolResult::success(vec![Content::text(
+            lines.join("\n"),
+        )]))
+    }
+
+    #[tool(
+        description = "Get the containment tree roots: lists all children of the synthetic root (system roots) and all children of (GC roots) (root categories like Strong roots, Global handles, etc.)."
+    )]
+    async fn get_containment(
+        &self,
+        Parameters(params): Parameters<GetContainmentParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let snapshot = {
+            let snapshots = self.snapshots.lock().await;
+            Arc::clone(snapshots.get(&params.snapshot_id).ok_or_else(|| {
+                McpError::invalid_params(
+                    format!("No snapshot found with id {}", params.snapshot_id),
+                    None,
+                )
+            })?)
+        };
+
+        let mut lines = Vec::new();
+
+        let root = snapshot.synthetic_root_ordinal();
+        lines.push("System roots:".to_string());
+        for (edge_idx, child_ord) in snapshot.iter_edges(root) {
+            if snapshot.root_kind(child_ord) != RootKind::SystemRoot {
+                continue;
+            }
+            let id = snapshot.node_id(child_ord);
+            let name = snapshot.node_display_name(child_ord);
+            let edge_name = snapshot.edge_name(edge_idx);
+            let self_size = snapshot.node_self_size(child_ord);
+            let retained = snapshot.node_retained_size(child_ord);
+            lines.push(format!(
+                "  [{edge_name}] @{} {name} (self_size: {self_size}, retained_size: {retained:.0})",
+                id.0
+            ));
+        }
+
+        let gc_roots = snapshot.gc_roots_ordinal();
+        lines.push(String::new());
+        lines.push("(GC roots) children:".to_string());
+        for (edge_idx, child_ord) in snapshot.iter_edges(gc_roots) {
+            let id = snapshot.node_id(child_ord);
+            let name = snapshot.node_display_name(child_ord);
+            let edge_name = snapshot.edge_name(edge_idx);
+            let self_size = snapshot.node_self_size(child_ord);
+            let retained = snapshot.node_retained_size(child_ord);
+            let child_count = snapshot.node_edge_count(child_ord);
+            lines.push(format!(
+                "  [{edge_name}] @{} {name} (self_size: {self_size}, retained_size: {retained:.0}, children: {child_count})",
+                id.0
+            ));
+        }
+
+        Ok(CallToolResult::success(vec![Content::text(
+            lines.join("\n"),
+        )]))
+    }
+
+    #[tool(
+        description = "Get a summary of objects in the snapshot, grouped by constructor. Shows count, shallow size, and retained size for each group, sorted by retained size descending. Pass a constructor name to expand that group and see individual objects."
+    )]
+    async fn get_summary(
+        &self,
+        Parameters(params): Parameters<GetSummaryParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let snapshot = {
+            let snapshots = self.snapshots.lock().await;
+            Arc::clone(snapshots.get(&params.snapshot_id).ok_or_else(|| {
+                McpError::invalid_params(
+                    format!("No snapshot found with id {}", params.snapshot_id),
+                    None,
+                )
+            })?)
+        };
+
+        let constructor = params.constructor;
+        let offset = params.offset.unwrap_or(0);
+        let limit = params.limit.unwrap_or(20);
+
+        tokio::task::spawn_blocking(move || {
+            let aggregates = snapshot.aggregates_with_filter();
+
+            if let Some(ref constructor) = constructor {
+                let entry = aggregates.get(constructor.as_str()).ok_or_else(|| {
+                    McpError::invalid_params(
+                        format!("No constructor group named \"{constructor}\""),
+                        None,
+                    )
+                })?;
+
+                let total = entry.node_ordinals.len();
+                let start = offset.min(total);
+                let end = (start + limit).min(total);
+
+                let mut lines = Vec::new();
+                lines.push(format!(
+                    "{constructor}: {total} objects, {:.0} shallow bytes, {:.0} retained bytes",
+                    entry.self_size, entry.max_ret
+                ));
+                lines.push(format!("Showing {}-{} of {total}:", start + 1, end));
+
+                for &ord in &entry.node_ordinals[start..end] {
+                    let id = snapshot.node_id(ord);
+                    let name = snapshot.node_display_name(ord);
+                    let self_size = snapshot.node_self_size(ord);
+                    let retained = snapshot.node_retained_size(ord);
+                    lines.push(format!(
+                        "  @{} {name} (self_size: {self_size}, retained_size: {retained:.0})",
+                        id.0
+                    ));
+                }
+
+                Ok(CallToolResult::success(vec![Content::text(
+                    lines.join("\n"),
+                )]))
+            } else {
+                let mut entries: Vec<_> = aggregates.iter().collect();
+                entries.sort_by(|a, b| {
+                    b.1.max_ret
+                        .partial_cmp(&a.1.max_ret)
+                        .unwrap()
+                        .then(a.1.first_seen.cmp(&b.1.first_seen))
+                });
+
+                let mut lines = Vec::new();
+                lines.push(format!(
+                    "{:<50} {:>8} {:>14} {:>14}",
+                    "Constructor", "Count", "Shallow size", "Retained size"
+                ));
+                for (key, entry) in &entries {
+                    let label = if *key != &entry.name {
+                        format!("{} [key: {}]", entry.name, key)
+                    } else {
+                        entry.name.clone()
+                    };
+                    lines.push(format!(
+                        "{:<50} {:>8} {:>14.0} {:>14.0}",
+                        label, entry.count, entry.self_size, entry.max_ret
+                    ));
+                }
+
+                Ok(CallToolResult::success(vec![Content::text(
+                    lines.join("\n"),
+                )]))
+            }
+        })
+        .await
+        .map_err(|e| McpError::internal_error(format!("Task failed: {e}"), None))?
+    }
+
+    #[tool(
+        description = "Walk the dominator tree from an object up to the root, showing the chain of objects that exclusively keep it alive. The object_id should be in the form @12345."
+    )]
+    async fn get_dominators_of(
+        &self,
+        Parameters(params): Parameters<GetDominatorsOfParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let object_id_str = params
+            .object_id
+            .strip_prefix('@')
+            .unwrap_or(&params.object_id);
+        let object_id: u64 = object_id_str.parse().map_err(|_| {
+            McpError::invalid_params(
+                format!(
+                    "Invalid object id: {}. Expected format: @12345",
+                    params.object_id
+                ),
+                None,
+            )
+        })?;
+
+        let snapshot = {
+            let snapshots = self.snapshots.lock().await;
+            Arc::clone(snapshots.get(&params.snapshot_id).ok_or_else(|| {
+                McpError::invalid_params(
+                    format!("No snapshot found with id {}", params.snapshot_id),
+                    None,
+                )
+            })?)
+        };
+
+        let ordinal = snapshot
+            .node_for_snapshot_object_id(NodeId(object_id))
+            .ok_or_else(|| {
+                McpError::invalid_params(format!("No object found with id @{object_id}"), None)
+            })?;
+
+        let mut lines = Vec::new();
+        lines.push(format!(
+            "Dominator chain for @{object_id}: {} (type: {}, self_size: {}, retained_size: {:.0})",
+            snapshot.node_display_name(ordinal),
+            snapshot.node_type_name(ordinal),
+            snapshot.node_self_size(ordinal),
+            snapshot.node_retained_size(ordinal),
+        ));
+
+        let mut current = ordinal;
+        loop {
+            let dom = snapshot.dominator_of(current);
+            if dom == current {
+                break;
+            }
+            let id = snapshot.node_id(dom);
+            lines.push(format!(
+                "  dominated by @{} {} (type: {}, self_size: {}, retained_size: {:.0})",
+                id.0,
+                snapshot.node_display_name(dom),
+                snapshot.node_type_name(dom),
+                snapshot.node_self_size(dom),
+                snapshot.node_retained_size(dom),
+            ));
+            current = dom;
         }
 
         Ok(CallToolResult::success(vec![Content::text(

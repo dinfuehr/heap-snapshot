@@ -167,7 +167,7 @@ fn load_nonexistent_file() {
 }
 
 #[test]
-fn get_outgoing_references() {
+fn show() {
     let mut proc = McpProcess::start();
     let path = format!("{}/heap-1.heapsnapshot", test_dir());
 
@@ -175,7 +175,7 @@ fn get_outgoing_references() {
 
     let resp = proc.call_tool(
         2,
-        "get_outgoing_references",
+        "show",
         serde_json::json!({ "snapshot_id": 1, "object_id": "@1" }),
     );
     let text = get_text(&resp);
@@ -184,13 +184,13 @@ fn get_outgoing_references() {
         "expected object header, got: {text}"
     );
     assert!(
-        text.contains("outgoing references") || text.contains("no outgoing references"),
-        "expected references section, got: {text}"
+        text.contains("--["),
+        "expected at least one edge, got: {text}"
     );
 }
 
 #[test]
-fn get_outgoing_references_invalid_object() {
+fn show_invalid_object() {
     let mut proc = McpProcess::start();
     let path = format!("{}/heap-1.heapsnapshot", test_dir());
 
@@ -198,7 +198,7 @@ fn get_outgoing_references_invalid_object() {
 
     let resp = proc.call_tool(
         2,
-        "get_outgoing_references",
+        "show",
         serde_json::json!({ "snapshot_id": 1, "object_id": "@999999999" }),
     );
     let err = get_error_message(&resp);
@@ -209,7 +209,7 @@ fn get_outgoing_references_invalid_object() {
 }
 
 #[test]
-fn get_outgoing_references_invalid_format() {
+fn show_invalid_format() {
     let mut proc = McpProcess::start();
     let path = format!("{}/heap-1.heapsnapshot", test_dir());
 
@@ -217,7 +217,7 @@ fn get_outgoing_references_invalid_format() {
 
     let resp = proc.call_tool(
         2,
-        "get_outgoing_references",
+        "show",
         serde_json::json!({ "snapshot_id": 1, "object_id": "not_a_number" }),
     );
     let err = get_error_message(&resp);
@@ -228,7 +228,7 @@ fn get_outgoing_references_invalid_format() {
 }
 
 #[test]
-fn get_outgoing_references_without_at_prefix() {
+fn show_without_at_prefix() {
     let mut proc = McpProcess::start();
     let path = format!("{}/heap-1.heapsnapshot", test_dir());
 
@@ -236,7 +236,7 @@ fn get_outgoing_references_without_at_prefix() {
 
     let resp = proc.call_tool(
         2,
-        "get_outgoing_references",
+        "show",
         serde_json::json!({ "snapshot_id": 1, "object_id": "1" }),
     );
     let text = get_text(&resp);
@@ -244,6 +244,240 @@ fn get_outgoing_references_without_at_prefix() {
         text.contains("Object @1"),
         "expected object_id without @ prefix to work, got: {text}"
     );
+}
+
+#[test]
+fn show_with_depth() {
+    let mut proc = McpProcess::start();
+    let path = format!("{}/heap-1.heapsnapshot", test_dir());
+
+    proc.call_tool(1, "load_snapshot", serde_json::json!({ "path": path }));
+
+    // depth=1 (default) should only have one level of indentation
+    let resp1 = proc.call_tool(
+        2,
+        "show",
+        serde_json::json!({ "snapshot_id": 1, "object_id": "@1" }),
+    );
+    let text1 = get_text(&resp1);
+    let depth1_lines: Vec<_> = text1.lines().filter(|l| l.starts_with("    --[")).collect();
+    assert!(
+        depth1_lines.is_empty(),
+        "depth=1 should not have nested edges, got: {text1}"
+    );
+
+    // depth=2 should have nested edges (double indentation)
+    let resp2 = proc.call_tool(
+        3,
+        "show",
+        serde_json::json!({ "snapshot_id": 1, "object_id": "@1", "depth": 2 }),
+    );
+    let text2 = get_text(&resp2);
+    let depth2_lines: Vec<_> = text2.lines().filter(|l| l.starts_with("    --[")).collect();
+    assert!(
+        !depth2_lines.is_empty(),
+        "depth=2 should have nested edges, got: {text2}"
+    );
+}
+
+#[test]
+fn show_with_limit() {
+    let mut proc = McpProcess::start();
+    let path = format!("{}/heap-1.heapsnapshot", test_dir());
+
+    proc.call_tool(1, "load_snapshot", serde_json::json!({ "path": path }));
+
+    let resp = proc.call_tool(
+        2,
+        "show",
+        serde_json::json!({ "snapshot_id": 1, "object_id": "@1", "limit": 2 }),
+    );
+    let text = get_text(&resp);
+    let edge_lines: Vec<_> = text.lines().filter(|l| l.starts_with("  --[")).collect();
+    assert!(
+        edge_lines.len() <= 2,
+        "expected at most 2 edges with limit=2, got: {}",
+        edge_lines.len()
+    );
+    assert!(
+        text.contains("children shown"),
+        "expected truncation message, got: {text}"
+    );
+}
+
+#[test]
+fn show_with_offset() {
+    let mut proc = McpProcess::start();
+    let path = format!("{}/heap-1.heapsnapshot", test_dir());
+
+    proc.call_tool(1, "load_snapshot", serde_json::json!({ "path": path }));
+
+    // Get all children first
+    let resp_all = proc.call_tool(
+        2,
+        "show",
+        serde_json::json!({ "snapshot_id": 1, "object_id": "@1" }),
+    );
+    let text_all = get_text(&resp_all);
+    let all_edges: Vec<_> = text_all
+        .lines()
+        .filter(|l| l.starts_with("  --["))
+        .collect();
+
+    // Get with offset=1
+    let resp_offset = proc.call_tool(
+        3,
+        "show",
+        serde_json::json!({ "snapshot_id": 1, "object_id": "@1", "offset": 1 }),
+    );
+    let text_offset = get_text(&resp_offset);
+    let offset_edges: Vec<_> = text_offset
+        .lines()
+        .filter(|l| l.starts_with("  --["))
+        .collect();
+
+    assert!(
+        offset_edges.len() < all_edges.len(),
+        "offset should reduce the number of edges shown"
+    );
+    // The first edge with offset=1 should be the second edge without offset
+    if all_edges.len() > 1 {
+        assert_eq!(
+            offset_edges[0], all_edges[1],
+            "offset=1 should skip the first edge"
+        );
+    }
+}
+
+#[test]
+fn show_retainers() {
+    let mut proc = McpProcess::start();
+    let path = format!("{}/heap-1.heapsnapshot", test_dir());
+
+    proc.call_tool(1, "load_snapshot", serde_json::json!({ "path": path }));
+
+    let resp = proc.call_tool(
+        2,
+        "show_retainers",
+        serde_json::json!({ "snapshot_id": 1, "object_id": "@7165" }),
+    );
+    let text = get_text(&resp);
+    assert!(
+        text.contains("Object @7165"),
+        "expected object header, got: {text}"
+    );
+    assert!(
+        text.contains("<--["),
+        "expected at least one retainer edge, got: {text}"
+    );
+}
+
+#[test]
+fn show_retainers_with_depth() {
+    let mut proc = McpProcess::start();
+    let path = format!("{}/heap-1.heapsnapshot", test_dir());
+
+    proc.call_tool(1, "load_snapshot", serde_json::json!({ "path": path }));
+
+    // depth=1 should not have nested retainers
+    let resp1 = proc.call_tool(
+        2,
+        "show_retainers",
+        serde_json::json!({ "snapshot_id": 1, "object_id": "@7165" }),
+    );
+    let text1 = get_text(&resp1);
+    let nested: Vec<_> = text1
+        .lines()
+        .filter(|l| l.starts_with("    <--["))
+        .collect();
+    assert!(
+        nested.is_empty(),
+        "depth=1 should not have nested retainers, got: {text1}"
+    );
+
+    // depth=2 should have nested retainers
+    let resp2 = proc.call_tool(
+        3,
+        "show_retainers",
+        serde_json::json!({ "snapshot_id": 1, "object_id": "@7165", "depth": 2 }),
+    );
+    let text2 = get_text(&resp2);
+    let nested2: Vec<_> = text2
+        .lines()
+        .filter(|l| l.starts_with("    <--["))
+        .collect();
+    assert!(
+        !nested2.is_empty(),
+        "depth=2 should have nested retainers, got: {text2}"
+    );
+}
+
+#[test]
+fn show_retainers_with_limit() {
+    let mut proc = McpProcess::start();
+    let path = format!("{}/heap-1.heapsnapshot", test_dir());
+
+    proc.call_tool(1, "load_snapshot", serde_json::json!({ "path": path }));
+
+    let resp = proc.call_tool(
+        2,
+        "show_retainers",
+        serde_json::json!({ "snapshot_id": 1, "object_id": "@7165", "limit": 1 }),
+    );
+    let text = get_text(&resp);
+    let retainer_lines: Vec<_> = text.lines().filter(|l| l.starts_with("  <--[")).collect();
+    assert!(
+        retainer_lines.len() <= 1,
+        "expected at most 1 retainer with limit=1, got: {}",
+        retainer_lines.len()
+    );
+}
+
+#[test]
+fn show_retainers_with_offset() {
+    let mut proc = McpProcess::start();
+    let path = format!("{}/heap-1.heapsnapshot", test_dir());
+
+    proc.call_tool(1, "load_snapshot", serde_json::json!({ "path": path }));
+
+    // Use (GC roots) @3 which has many children that retain objects
+    let resp_all = proc.call_tool(
+        2,
+        "show_retainers",
+        // @25 is (Handle scope), retained by (GC roots) — use @3 (GC roots)
+        // which itself is retained by the synthetic root via multiple edges.
+        // Instead, find an object with multiple retainers: use show to get
+        // a child of (GC roots) and then check its retainers.
+        serde_json::json!({ "snapshot_id": 1, "object_id": "@3", "limit": 100 }),
+    );
+    let text_all = get_text(&resp_all);
+    let all_retainers: Vec<_> = text_all
+        .lines()
+        .filter(|l| l.starts_with("  <--["))
+        .collect();
+
+    // Only test offset behavior if the object has multiple retainers
+    if all_retainers.len() >= 2 {
+        let resp_offset = proc.call_tool(
+            3,
+            "show_retainers",
+            serde_json::json!({ "snapshot_id": 1, "object_id": "@3", "offset": 1 }),
+        );
+        let text_offset = get_text(&resp_offset);
+        let offset_retainers: Vec<_> = text_offset
+            .lines()
+            .filter(|l| l.starts_with("  <--["))
+            .collect();
+
+        assert!(
+            offset_retainers.len() < all_retainers.len(),
+            "offset should reduce the number of retainers shown"
+        );
+        assert_eq!(
+            offset_retainers[0], all_retainers[1],
+            "offset=1 should skip the first retainer"
+        );
+    }
 }
 
 #[test]
@@ -382,6 +616,217 @@ fn get_retaining_paths_error_on_limits() {
     assert!(
         err.contains("Retaining paths for @7165"),
         "expected retaining paths header in error, got: {err}"
+    );
+}
+
+#[test]
+fn get_statistics() {
+    let mut proc = McpProcess::start();
+    let path = format!("{}/heap-1.heapsnapshot", test_dir());
+
+    proc.call_tool(1, "load_snapshot", serde_json::json!({ "path": path }));
+
+    let resp = proc.call_tool(2, "get_statistics", serde_json::json!({ "snapshot_id": 1 }));
+    let text = get_text(&resp);
+    assert!(text.contains("nodes"), "expected node count, got: {text}");
+    assert!(
+        text.contains("bytes total"),
+        "expected total size, got: {text}"
+    );
+    assert!(
+        text.contains("V8 heap:"),
+        "expected V8 heap breakdown, got: {text}"
+    );
+    assert!(
+        text.contains("Unreachable:"),
+        "expected unreachable info, got: {text}"
+    );
+}
+
+#[test]
+fn get_summary() {
+    let mut proc = McpProcess::start();
+    let path = format!("{}/heap-1.heapsnapshot", test_dir());
+
+    proc.call_tool(1, "load_snapshot", serde_json::json!({ "path": path }));
+
+    let resp = proc.call_tool(2, "get_summary", serde_json::json!({ "snapshot_id": 1 }));
+    let text = get_text(&resp);
+    assert!(
+        text.contains("Constructor"),
+        "expected header row, got: {text}"
+    );
+    assert!(
+        text.contains("Shallow size"),
+        "expected shallow size column, got: {text}"
+    );
+    assert!(
+        text.contains("Retained size"),
+        "expected retained size column, got: {text}"
+    );
+    // The test snapshot should have at least some constructors
+    assert!(
+        text.lines().count() > 1,
+        "expected at least one data row, got: {text}"
+    );
+}
+
+#[test]
+fn get_summary_expand_constructor() {
+    let mut proc = McpProcess::start();
+    let path = format!("{}/heap-1.heapsnapshot", test_dir());
+
+    proc.call_tool(1, "load_snapshot", serde_json::json!({ "path": path }));
+
+    let resp = proc.call_tool(
+        2,
+        "get_summary",
+        serde_json::json!({ "snapshot_id": 1, "constructor": "Function", "limit": 3 }),
+    );
+    let text = get_text(&resp);
+    assert!(
+        text.contains("Function:"),
+        "expected constructor header, got: {text}"
+    );
+    assert!(
+        text.contains("objects"),
+        "expected object count, got: {text}"
+    );
+    assert!(text.contains("@"), "expected object ids, got: {text}");
+    // Should respect limit
+    let object_lines: Vec<_> = text.lines().filter(|l| l.contains("  @")).collect();
+    assert!(
+        object_lines.len() <= 3,
+        "expected at most 3 objects, got: {}",
+        object_lines.len()
+    );
+}
+
+#[test]
+fn get_containment() {
+    let mut proc = McpProcess::start();
+    let path = format!("{}/heap-1.heapsnapshot", test_dir());
+
+    proc.call_tool(1, "load_snapshot", serde_json::json!({ "path": path }));
+
+    let resp = proc.call_tool(
+        2,
+        "get_containment",
+        serde_json::json!({ "snapshot_id": 1 }),
+    );
+    let text = get_text(&resp);
+    assert!(
+        text.contains("System roots:"),
+        "expected system roots header, got: {text}"
+    );
+    assert!(
+        text.contains("(GC roots) children:"),
+        "expected GC roots children header, got: {text}"
+    );
+    assert!(
+        text.contains("(GC roots)"),
+        "expected (GC roots) as a system root, got: {text}"
+    );
+    // GC roots should have at least one child (root category)
+    let gc_children_section = text.split("(GC roots) children:").nth(1).unwrap();
+    let child_lines: Vec<_> = gc_children_section
+        .lines()
+        .filter(|l| l.starts_with("  ["))
+        .collect();
+    assert!(
+        !child_lines.is_empty(),
+        "expected at least one (GC roots) child, got: {text}"
+    );
+    // System roots should only contain system roots, not user roots
+    let system_section = text.split("(GC roots) children:").next().unwrap();
+    let system_lines: Vec<_> = system_section
+        .lines()
+        .filter(|l| l.starts_with("  ["))
+        .collect();
+    assert!(
+        !system_lines.is_empty(),
+        "expected at least one system root, got: {text}"
+    );
+}
+
+#[test]
+fn get_summary_expand_sorted_by_retained_size() {
+    let mut proc = McpProcess::start();
+    let path = format!("{}/heap-1.heapsnapshot", test_dir());
+
+    proc.call_tool(1, "load_snapshot", serde_json::json!({ "path": path }));
+
+    let resp = proc.call_tool(
+        2,
+        "get_summary",
+        serde_json::json!({ "snapshot_id": 1, "constructor": "Function" }),
+    );
+    let text = get_text(&resp);
+
+    let retained_sizes: Vec<f64> = text
+        .lines()
+        .filter_map(|line| {
+            let marker = "retained_size: ";
+            let start = line.find(marker)? + marker.len();
+            let end = start + line[start..].find(')')?;
+            line[start..end].parse().ok()
+        })
+        .collect();
+
+    assert!(
+        retained_sizes.len() >= 2,
+        "expected at least 2 objects to compare, got: {}",
+        retained_sizes.len()
+    );
+    for window in retained_sizes.windows(2) {
+        assert!(
+            window[0] >= window[1],
+            "objects not sorted by retained size descending: {} < {}",
+            window[0],
+            window[1]
+        );
+    }
+}
+
+#[test]
+fn get_summary_expand_invalid_constructor() {
+    let mut proc = McpProcess::start();
+    let path = format!("{}/heap-1.heapsnapshot", test_dir());
+
+    proc.call_tool(1, "load_snapshot", serde_json::json!({ "path": path }));
+
+    let resp = proc.call_tool(
+        2,
+        "get_summary",
+        serde_json::json!({ "snapshot_id": 1, "constructor": "NoSuchConstructor" }),
+    );
+    let err = get_error_message(&resp);
+    assert!(
+        err.contains("No constructor group"),
+        "expected not-found error, got: {err}"
+    );
+}
+
+#[test]
+fn get_dominators_of() {
+    let mut proc = McpProcess::start();
+    let path = format!("{}/heap-1.heapsnapshot", test_dir());
+
+    proc.call_tool(1, "load_snapshot", serde_json::json!({ "path": path }));
+
+    let resp = proc.call_tool(
+        2,
+        "get_dominators_of",
+        serde_json::json!({ "snapshot_id": 1, "object_id": "@7165" }),
+    );
+    let text = get_text(&resp);
+    assert!(
+        text.contains("Dominator chain for @7165"),
+        "expected dominator chain header, got: {text}"
+    );
+    assert!(
+        text.contains("dominated by"),
+        "expected at least one dominator, got: {text}"
     );
 }
 

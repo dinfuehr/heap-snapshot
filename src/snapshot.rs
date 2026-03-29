@@ -3092,6 +3092,11 @@ impl HeapSnapshot {
     pub fn aggregates_with_filter(&self) -> FxHashMap<String, AggregateInfo> {
         let mut aggregates = self.build_aggregates(|_| true);
         self.calculate_classes_retained_size(&mut aggregates);
+        for agg in aggregates.values_mut() {
+            let rs = &self.retained_sizes;
+            agg.node_ordinals
+                .sort_by(|a, b| rs[b.0].partial_cmp(&rs[a.0]).unwrap());
+        }
         aggregates
     }
 

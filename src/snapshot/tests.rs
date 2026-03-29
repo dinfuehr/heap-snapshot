@@ -2662,6 +2662,19 @@ fn test_aggregates_multiple_same_class() {
 
     // node_ordinals: all three
     assert_eq!(foo.node_ordinals.len(), 3);
+
+    // node_ordinals should be sorted by retained size descending
+    let retained: Vec<f64> = foo
+        .node_ordinals
+        .iter()
+        .map(|&ord| snap.node_retained_size(ord))
+        .collect();
+    for w in retained.windows(2) {
+        assert!(
+            w[0] >= w[1],
+            "node_ordinals not sorted by retained size: {retained:?}"
+        );
+    }
 }
 
 /// Two Foo objects where Foo1 dominates Foo2, plus a sibling Foo3.
