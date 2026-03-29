@@ -1,5 +1,6 @@
 pub mod parser;
 pub mod print;
+pub mod retaining_path;
 pub mod snapshot;
 pub mod tui;
 pub mod types;

@@ -138,7 +138,11 @@ fn load_and_close_snapshot() {
 fn close_nonexistent_snapshot() {
     let mut proc = McpProcess::start();
 
-    let resp = proc.call_tool(1, "close_snapshot", serde_json::json!({ "snapshot_id": 999 }));
+    let resp = proc.call_tool(
+        1,
+        "close_snapshot",
+        serde_json::json!({ "snapshot_id": 999 }),
+    );
     let text = get_text(&resp);
     assert!(
         text.contains("No snapshot found"),
@@ -302,10 +306,7 @@ fn get_reachable_size() {
         text.contains("Reachable size from @1"),
         "expected reachable size header, got: {text}"
     );
-    assert!(
-        text.contains("bytes"),
-        "expected byte count, got: {text}"
-    );
+    assert!(text.contains("bytes"), "expected byte count, got: {text}");
     assert!(
         text.contains("native contexts"),
         "expected native contexts section, got: {text}"
@@ -356,6 +357,31 @@ fn get_reachable_size_invalid_object() {
     assert!(
         err.contains("No object found"),
         "expected not-found error, got: {err}"
+    );
+}
+
+#[test]
+fn get_retaining_paths_error_on_limits() {
+    let mut proc = McpProcess::start();
+    let path = format!("{}/heap-1.heapsnapshot", test_dir());
+
+    proc.call_tool(1, "load_snapshot", serde_json::json!({ "path": path }));
+
+    // Use very small limits to trigger truncation
+    let resp = proc.call_tool(
+        2,
+        "get_retaining_paths",
+        serde_json::json!({
+            "snapshot_id": 1,
+            "object_id": "@7165",
+            "max_depth": 1,
+            "max_nodes": 1
+        }),
+    );
+    let err = get_error_message(&resp);
+    assert!(
+        err.contains("Retaining paths for @7165"),
+        "expected retaining paths header in error, got: {err}"
     );
 }
 

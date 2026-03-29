@@ -678,7 +678,11 @@ fn test_pressing_a_on_retainers_status_line_shows_all() {
         .iter()
         .filter(|r| r.node_ordinal().is_some())
         .collect();
-    assert_eq!(retainer_rows.len(), 25, "all 25 retainers should be visible");
+    assert_eq!(
+        retainer_rows.len(),
+        25,
+        "all 25 retainers should be visible"
+    );
 
     // No "(n/p: page, a: all)" hint should remain.
     let has_paging_hint = app
