@@ -1,11 +1,14 @@
 pub mod parser;
+#[cfg(feature = "cli")]
 pub mod print;
 pub mod retaining_path;
 pub mod snapshot;
+#[cfg(feature = "cli")]
 pub mod tui;
 pub mod types;
 
 /// Fetch the name of a Chrome extension from the Chrome Web Store.
+#[cfg(feature = "cli")]
 pub fn resolve_chrome_extension_name(extension_id: &str) -> Option<String> {
     use std::time::Duration;
     let url = format!("https://chromewebstore.google.com/detail/{extension_id}");

@@ -305,16 +305,16 @@ fn parse_err(msg: &str) -> io::Error {
 
 // --- Stream parser ---
 
-struct StreamParser {
-    reader: BufReader<File>,
+struct StreamParser<R: Read> {
+    reader: BufReader<R>,
     buf: Vec<u8>,
     pos: usize,
 }
 
-impl StreamParser {
-    fn new(file: File) -> Self {
+impl<R: Read> StreamParser<R> {
+    fn new(reader: R) -> Self {
         StreamParser {
-            reader: BufReader::with_capacity(CHUNK_SIZE, file),
+            reader: BufReader::with_capacity(CHUNK_SIZE, reader),
             buf: Vec::with_capacity(CHUNK_SIZE * 2),
             pos: 0,
         }
@@ -745,7 +745,11 @@ fn parse_snapshot_header(data: &[u8]) -> io::Result<SnapshotHeader> {
 // --- Main entry point ---
 
 pub fn parse(file: File) -> io::Result<RawHeapSnapshot> {
-    let mut p = StreamParser::new(file);
+    parse_from_reader(file)
+}
+
+pub fn parse_from_reader<R: Read>(reader: R) -> io::Result<RawHeapSnapshot> {
+    let mut p = StreamParser::new(reader);
 
     // 1. Parse snapshot metadata
     p.find_token(b"\"snapshot\"")?;

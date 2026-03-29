@@ -677,6 +677,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "heap-snapshot-wasm"
+version = "0.1.0"
+dependencies = [
+ "heap-snapshot",
+ "js-sys",
+ "serde",
+ "serde_json",
+ "wasm-bindgen",
+]
+
+[[package]]
 name = "heck"
 version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"

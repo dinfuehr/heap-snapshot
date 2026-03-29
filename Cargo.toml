@@ -1,23 +1,32 @@
+[workspace]
+members = [".", "web/wasm"]
+
 [package]
 name = "heap-snapshot"
 version = "0.0.6"
 edition = "2024"
 
+[features]
+default = ["cli"]
+cli = ["dep:clap", "dep:crossterm", "dep:ratatui", "dep:dirs", "dep:sha2",
+       "dep:unicode-width", "dep:ureq", "dep:toml", "dep:rmcp", "dep:tokio",
+       "dep:schemars"]
+
 [dependencies]
-clap = { version = "4", features = ["derive"] }
-crossterm = "0.28"
-ratatui = "0.29"
+clap = { version = "4", features = ["derive"], optional = true }
+crossterm = { version = "0.28", optional = true }
+ratatui = { version = "0.29", optional = true }
 regex = "1"
 rustc-hash = "2"
-dirs = "6"
-sha2 = "0.10"
-toml = "0.8"
+dirs = { version = "6", optional = true }
+sha2 = { version = "0.10", optional = true }
+toml = { version = "0.8", optional = true }
 serde = { version = "1", features = ["derive"] }
-unicode-width = "0.2"
-ureq = "3"
-rmcp = { version = "1.3", features = ["server", "transport-io"] }
-tokio = { version = "1", features = ["full"] }
-schemars = "1"
+unicode-width = { version = "0.2", optional = true }
+ureq = { version = "3", optional = true }
+rmcp = { version = "1.3", features = ["server", "transport-io"], optional = true }
+tokio = { version = "1", features = ["full"], optional = true }
+schemars = { version = "1", optional = true }
 
 [[bin]]
 name = "heap-snapshot-mcp"
