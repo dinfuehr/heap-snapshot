@@ -138,6 +138,42 @@ enum Command {
         #[arg(long, value_name = "MB")]
         minimum_reachable_size: Option<f64>,
     },
+    /// Show an object and its outgoing references
+    Show {
+        #[command(flatten)]
+        snap_args: SnapshotArgs,
+        /// Path to .heapsnapshot file
+        file: String,
+        /// Object ID (e.g. @3005313 or 3005313)
+        object_id: String,
+        /// How many levels of children to expand
+        #[arg(long, default_value = "1")]
+        depth: usize,
+        /// Number of children to skip at each level
+        #[arg(long, default_value = "0")]
+        offset: usize,
+        /// Maximum number of children to show at each level
+        #[arg(long, default_value = "100")]
+        limit: usize,
+    },
+    /// Show an object and its incoming references (retainers)
+    ShowRetainers {
+        #[command(flatten)]
+        snap_args: SnapshotArgs,
+        /// Path to .heapsnapshot file
+        file: String,
+        /// Object ID (e.g. @3005313 or 3005313)
+        object_id: String,
+        /// How many levels of retainers to expand
+        #[arg(long, default_value = "1")]
+        depth: usize,
+        /// Number of retainers to skip at each level
+        #[arg(long, default_value = "0")]
+        offset: usize,
+        /// Maximum number of retainers to show at each level
+        #[arg(long, default_value = "100")]
+        limit: usize,
+    },
     /// Compare two heap snapshots
     Diff {
         #[command(flatten)]
@@ -500,6 +536,36 @@ fn main() {
                 }
             }
             println!("\n{} stack-rooted objects", entries.len());
+        }
+        Command::Show {
+            snap_args,
+            file,
+            object_id,
+            depth,
+            offset,
+            limit,
+        } => {
+            let snap = load_snapshot(&snap_args.to_options(), &file);
+            let id = parse_object_id(&object_id).unwrap_or_else(|e| {
+                eprintln!("Error: {e}");
+                std::process::exit(1);
+            });
+            print::show::print_show(&snap, id, depth, offset, limit);
+        }
+        Command::ShowRetainers {
+            snap_args,
+            file,
+            object_id,
+            depth,
+            offset,
+            limit,
+        } => {
+            let snap = load_snapshot(&snap_args.to_options(), &file);
+            let id = parse_object_id(&object_id).unwrap_or_else(|e| {
+                eprintln!("Error: {e}");
+                std::process::exit(1);
+            });
+            print::show_retainers::print_show_retainers(&snap, id, depth, offset, limit);
         }
         Command::Diff {
             snap_args,

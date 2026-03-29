@@ -6,6 +6,8 @@ use crate::types::{Distance, NodeId};
 pub mod containment;
 pub mod diff;
 pub mod retainers;
+pub mod show;
+pub mod show_retainers;
 pub mod statistics;
 pub mod strings;
 pub mod summary;
