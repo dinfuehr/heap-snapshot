@@ -10,7 +10,9 @@ use rmcp::model::*;
 use rmcp::schemars;
 use rmcp::{ErrorData as McpError, RoleServer, ServerHandler, tool, tool_handler, tool_router};
 
+use heap_snapshot::diff;
 use heap_snapshot::parser;
+use heap_snapshot::print::diff::{format_signed_count, format_signed_size};
 use heap_snapshot::retaining_path::{
     RetainerAutoExpandLimits, RetainerPathEdge, plan_gc_root_retainer_paths,
 };
@@ -117,6 +119,20 @@ struct GetDominatorsOfParams {
     snapshot_id: u32,
     /// Object ID in the form @12345
     object_id: String,
+}
+
+#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+struct CompareSnapshotsParams {
+    /// Snapshot ID of the main (newer) snapshot
+    snapshot_id: u32,
+    /// Snapshot ID of the baseline (older) snapshot to compare against
+    baseline_id: u32,
+    /// Constructor name to filter results to a single class
+    class_name: Option<String>,
+    /// Number of entries to skip (default: 0)
+    offset: Option<usize>,
+    /// Maximum number of entries to return (default: 20)
+    limit: Option<usize>,
 }
 
 // ---------------------------------------------------------------------------
@@ -898,6 +914,115 @@ impl McpServer {
             Ok(CallToolResult::success(vec![Content::text(
                 lines.join("\n"),
             )]))
+        })
+        .await
+        .map_err(|e| McpError::internal_error(format!("Task failed: {e}"), None))?
+    }
+
+    #[tool(
+        description = "Compare two snapshots, showing objects that were added or removed between the baseline and the main snapshot. Returns per-constructor diffs with counts and sizes. Pass a class_name to see individual objects for that constructor."
+    )]
+    async fn compare_snapshots(
+        &self,
+        Parameters(params): Parameters<CompareSnapshotsParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let (snapshot, baseline) = {
+            let snapshots = self.snapshots.lock().await;
+            let snapshot = Arc::clone(snapshots.get(&params.snapshot_id).ok_or_else(|| {
+                McpError::invalid_params(
+                    format!("No snapshot found with id {}", params.snapshot_id),
+                    None,
+                )
+            })?);
+            let baseline = Arc::clone(snapshots.get(&params.baseline_id).ok_or_else(|| {
+                McpError::invalid_params(
+                    format!("No snapshot found with id {}", params.baseline_id),
+                    None,
+                )
+            })?);
+            (snapshot, baseline)
+        };
+
+        let class_name = params.class_name;
+        let offset = params.offset.unwrap_or(0);
+        let limit = params.limit.unwrap_or(20);
+
+        tokio::task::spawn_blocking(move || {
+            let diffs = diff::compute_diff(&snapshot, &baseline);
+
+            if let Some(ref class_name) = class_name {
+                let entry = diffs.iter().find(|d| d.name == *class_name).ok_or_else(|| {
+                    McpError::invalid_params(
+                        format!("No diff entry for constructor \"{class_name}\""),
+                        None,
+                    )
+                })?;
+
+                let mut lines = Vec::new();
+                lines.push(format!(
+                    "{class_name}: # new: {}, # deleted: {}, # delta: {}, alloc size: {}, freed size: {}, size delta: {}",
+                    entry.new_count,
+                    entry.deleted_count,
+                    format_signed_count(entry.delta_count()),
+                    format_signed_size(entry.alloc_size),
+                    format_signed_size(entry.freed_size),
+                    format_signed_size(entry.size_delta()),
+                ));
+
+                let all_objects: Vec<(bool, &NodeId, &u32)> = entry
+                    .new_objects
+                    .iter()
+                    .map(|(id, sz)| (true, id, sz))
+                    .chain(entry.deleted_objects.iter().map(|(id, sz)| (false, id, sz)))
+                    .collect();
+                let total = all_objects.len();
+                let start = offset.min(total);
+                let end = (start + limit).min(total);
+
+                lines.push(format!("Showing {}-{} of {total} objects:", start + 1, end));
+                for &(is_new, node_id, self_size) in &all_objects[start..end] {
+                    let status = if is_new { "+" } else { "\u{2212}" };
+                    lines.push(format!(
+                        "  {status} @{} (self_size: {self_size})",
+                        node_id.0
+                    ));
+                }
+
+                Ok(CallToolResult::success(vec![Content::text(
+                    lines.join("\n"),
+                )]))
+            } else {
+                let total = diffs.len();
+                let start = offset.min(total);
+                let end = (start + limit).min(total);
+
+                let mut lines = Vec::new();
+                lines.push(format!(
+                    "{total} constructors with changes. Showing {}-{}:",
+                    start + 1,
+                    end
+                ));
+                lines.push(format!(
+                    "{:<50} {:>8} {:>10} {:>8} {:>14} {:>14} {:>14}",
+                    "Constructor", "# New", "# Deleted", "# Delta", "Alloc. Size", "Freed Size", "Size Delta"
+                ));
+                for diff in &diffs[start..end] {
+                    lines.push(format!(
+                        "{:<50} {:>8} {:>10} {:>8} {:>14} {:>14} {:>14}",
+                        diff.name,
+                        diff.new_count,
+                        diff.deleted_count,
+                        format_signed_count(diff.delta_count()),
+                        format_signed_size(diff.alloc_size),
+                        format_signed_size(diff.freed_size),
+                        format_signed_size(diff.size_delta()),
+                    ));
+                }
+
+                Ok(CallToolResult::success(vec![Content::text(
+                    lines.join("\n"),
+                )]))
+            }
         })
         .await
         .map_err(|e| McpError::internal_error(format!("Task failed: {e}"), None))?

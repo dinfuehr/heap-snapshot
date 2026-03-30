@@ -681,7 +681,7 @@ fn get_summary_expand_constructor() {
     let resp = proc.call_tool(
         2,
         "get_summary",
-        serde_json::json!({ "snapshot_id": 1, "constructor": "Function", "limit": 3 }),
+        serde_json::json!({ "snapshot_id": 1, "class_name": "Function", "limit": 3 }),
     );
     let text = get_text(&resp);
     assert!(
@@ -759,7 +759,7 @@ fn get_summary_expand_sorted_by_retained_size() {
     let resp = proc.call_tool(
         2,
         "get_summary",
-        serde_json::json!({ "snapshot_id": 1, "constructor": "Function" }),
+        serde_json::json!({ "snapshot_id": 1, "class_name": "Function" }),
     );
     let text = get_text(&resp);
 
@@ -798,7 +798,7 @@ fn get_summary_expand_invalid_constructor() {
     let resp = proc.call_tool(
         2,
         "get_summary",
-        serde_json::json!({ "snapshot_id": 1, "constructor": "NoSuchConstructor" }),
+        serde_json::json!({ "snapshot_id": 1, "class_name": "NoSuchConstructor" }),
     );
     let err = get_error_message(&resp);
     assert!(
@@ -847,5 +847,301 @@ fn multiple_snapshots_get_different_ids() {
     assert!(
         text2.contains("snapshot_id: 2"),
         "expected second id=2, got: {text2}"
+    );
+}
+
+// -----------------------------------------------------------------------
+// compare_snapshots
+// -----------------------------------------------------------------------
+// compare_snapshots helpers
+// -----------------------------------------------------------------------
+
+/// Parse the overview table from compare_snapshots into structured rows.
+struct CompDiffRow {
+    name: String,
+    new_count: i64,
+    deleted_count: i64,
+    delta_count: i64,
+}
+
+fn parse_compare_rows(text: &str) -> Vec<CompDiffRow> {
+    let mut rows = Vec::new();
+    for line in text.lines() {
+        if line.contains("constructors with changes")
+            || line.contains("Constructor")
+            || line.trim().is_empty()
+        {
+            continue;
+        }
+        let parts: Vec<&str> = line.split_whitespace().collect();
+        if parts.len() < 4 {
+            continue;
+        }
+        // Find where the name ends and numbers begin
+        let mut name_end = 0;
+        for (i, part) in parts.iter().enumerate() {
+            let s = part
+                .trim_start_matches('+')
+                .trim_start_matches('\u{2212}');
+            if s.parse::<u64>().is_ok() {
+                name_end = i;
+                break;
+            }
+        }
+        if name_end == 0 || name_end + 2 >= parts.len() {
+            continue;
+        }
+        let name = parts[..name_end].join(" ");
+        let parse_signed = |s: &str| -> i64 {
+            s.replace('\u{2212}', "-")
+                .replace('+', "")
+                .replace(',', "")
+                .parse::<i64>()
+                .unwrap_or(0)
+        };
+        rows.push(CompDiffRow {
+            name,
+            new_count: parse_signed(parts[name_end]),
+            deleted_count: parse_signed(parts[name_end + 1]),
+            delta_count: parse_signed(parts[name_end + 2]),
+        });
+    }
+    rows
+}
+
+fn find_comp_row<'a>(rows: &'a [CompDiffRow], name: &str) -> &'a CompDiffRow {
+    rows.iter()
+        .find(|r| r.name == name)
+        .unwrap_or_else(|| panic!("no row found for '{name}'"))
+}
+
+// -----------------------------------------------------------------------
+// compare_snapshots tests
+// -----------------------------------------------------------------------
+
+#[test]
+fn compare_snapshots_heap2_vs_heap1_new_objects() {
+    let mut proc = McpProcess::start();
+    let path1 = format!("{}/heap-1.heapsnapshot", test_dir());
+    let path2 = format!("{}/heap-2.heapsnapshot", test_dir());
+
+    proc.call_tool(1, "load_snapshot", serde_json::json!({ "path": path1 }));
+    proc.call_tool(2, "load_snapshot", serde_json::json!({ "path": path2 }));
+
+    let resp = proc.call_tool(
+        3,
+        "compare_snapshots",
+        serde_json::json!({ "snapshot_id": 2, "baseline_id": 1 }),
+    );
+    let text = get_text(&resp);
+    let rows = parse_compare_rows(&text);
+
+    let row = find_comp_row(&rows, "NewObject");
+    assert_eq!(row.new_count, 2);
+    assert_eq!(row.deleted_count, 0);
+    assert_eq!(row.delta_count, 2);
+}
+
+#[test]
+fn compare_snapshots_heap2_vs_heap1_deleted_objects() {
+    let mut proc = McpProcess::start();
+    let path1 = format!("{}/heap-1.heapsnapshot", test_dir());
+    let path2 = format!("{}/heap-2.heapsnapshot", test_dir());
+
+    proc.call_tool(1, "load_snapshot", serde_json::json!({ "path": path1 }));
+    proc.call_tool(2, "load_snapshot", serde_json::json!({ "path": path2 }));
+
+    let resp = proc.call_tool(
+        3,
+        "compare_snapshots",
+        serde_json::json!({ "snapshot_id": 2, "baseline_id": 1 }),
+    );
+    let text = get_text(&resp);
+    let rows = parse_compare_rows(&text);
+
+    let row = find_comp_row(&rows, "InitialObject");
+    assert_eq!(row.new_count, 0);
+    assert_eq!(row.deleted_count, 2);
+    assert_eq!(row.delta_count, -2);
+}
+
+#[test]
+fn compare_snapshots_heap3_vs_heap1() {
+    let mut proc = McpProcess::start();
+    let path1 = format!("{}/heap-1.heapsnapshot", test_dir());
+    let path3 = format!("{}/heap-3.heapsnapshot", test_dir());
+
+    proc.call_tool(1, "load_snapshot", serde_json::json!({ "path": path1 }));
+    proc.call_tool(2, "load_snapshot", serde_json::json!({ "path": path3 }));
+
+    let resp = proc.call_tool(
+        3,
+        "compare_snapshots",
+        serde_json::json!({ "snapshot_id": 2, "baseline_id": 1 }),
+    );
+    let text = get_text(&resp);
+    let rows = parse_compare_rows(&text);
+
+    let new_obj = find_comp_row(&rows, "NewObject");
+    assert_eq!(new_obj.new_count, 7);
+    assert_eq!(new_obj.deleted_count, 0);
+    assert_eq!(new_obj.delta_count, 7);
+
+    let init_obj = find_comp_row(&rows, "InitialObject");
+    assert_eq!(init_obj.new_count, 0);
+    assert_eq!(init_obj.deleted_count, 2);
+    assert_eq!(init_obj.delta_count, -2);
+}
+
+#[test]
+fn compare_snapshots_identical() {
+    let mut proc = McpProcess::start();
+    let path = format!("{}/heap-1.heapsnapshot", test_dir());
+
+    proc.call_tool(1, "load_snapshot", serde_json::json!({ "path": &path }));
+    proc.call_tool(2, "load_snapshot", serde_json::json!({ "path": &path }));
+
+    let resp = proc.call_tool(
+        3,
+        "compare_snapshots",
+        serde_json::json!({ "snapshot_id": 1, "baseline_id": 2 }),
+    );
+    let text = get_text(&resp);
+    let rows = parse_compare_rows(&text);
+    assert!(
+        rows.is_empty(),
+        "identical snapshots should produce no diff rows"
+    );
+}
+
+#[test]
+fn compare_snapshots_expand_class() {
+    let mut proc = McpProcess::start();
+    let path1 = format!("{}/heap-1.heapsnapshot", test_dir());
+    let path2 = format!("{}/heap-2.heapsnapshot", test_dir());
+
+    proc.call_tool(1, "load_snapshot", serde_json::json!({ "path": path1 }));
+    proc.call_tool(2, "load_snapshot", serde_json::json!({ "path": path2 }));
+
+    let resp = proc.call_tool(
+        3,
+        "compare_snapshots",
+        serde_json::json!({
+            "snapshot_id": 2,
+            "baseline_id": 1,
+            "class_name": "NewObject"
+        }),
+    );
+    let text = get_text(&resp);
+    assert!(
+        text.contains("NewObject: # new: 2, # deleted: 0"),
+        "expected NewObject header with counts, got: {text}"
+    );
+    // 2 new objects, each shown as "+ @..."
+    let new_lines: Vec<_> = text.lines().filter(|l| l.contains("+ @")).collect();
+    assert_eq!(
+        new_lines.len(),
+        2,
+        "expected 2 new object lines, got: {new_lines:?}"
+    );
+}
+
+#[test]
+fn compare_snapshots_expand_class_with_limit() {
+    let mut proc = McpProcess::start();
+    let path1 = format!("{}/heap-1.heapsnapshot", test_dir());
+    let path3 = format!("{}/heap-3.heapsnapshot", test_dir());
+
+    proc.call_tool(1, "load_snapshot", serde_json::json!({ "path": path1 }));
+    proc.call_tool(2, "load_snapshot", serde_json::json!({ "path": path3 }));
+
+    let resp = proc.call_tool(
+        3,
+        "compare_snapshots",
+        serde_json::json!({
+            "snapshot_id": 2,
+            "baseline_id": 1,
+            "class_name": "NewObject",
+            "limit": 3
+        }),
+    );
+    let text = get_text(&resp);
+    let object_lines: Vec<_> = text.lines().filter(|l| l.contains("+ @")).collect();
+    assert_eq!(
+        object_lines.len(),
+        3,
+        "expected 3 objects with limit=3, got: {object_lines:?}"
+    );
+    assert!(
+        text.contains("Showing 1-3 of 7"),
+        "expected paging status, got: {text}"
+    );
+}
+
+#[test]
+fn compare_snapshots_reversed() {
+    let mut proc = McpProcess::start();
+    let path1 = format!("{}/heap-1.heapsnapshot", test_dir());
+    let path2 = format!("{}/heap-2.heapsnapshot", test_dir());
+
+    proc.call_tool(1, "load_snapshot", serde_json::json!({ "path": path1 }));
+    proc.call_tool(2, "load_snapshot", serde_json::json!({ "path": path2 }));
+
+    let resp = proc.call_tool(
+        3,
+        "compare_snapshots",
+        serde_json::json!({ "snapshot_id": 1, "baseline_id": 2 }),
+    );
+    let text = get_text(&resp);
+    let rows = parse_compare_rows(&text);
+
+    // Reversed: NewObject was in heap-2 (baseline), not heap-1 (main) → deleted
+    let row = find_comp_row(&rows, "NewObject");
+    assert_eq!(row.new_count, 0);
+    assert_eq!(row.deleted_count, 2);
+    assert_eq!(row.delta_count, -2);
+}
+
+#[test]
+fn compare_snapshots_invalid_class_name() {
+    let mut proc = McpProcess::start();
+    let path1 = format!("{}/heap-1.heapsnapshot", test_dir());
+    let path2 = format!("{}/heap-2.heapsnapshot", test_dir());
+
+    proc.call_tool(1, "load_snapshot", serde_json::json!({ "path": path1 }));
+    proc.call_tool(2, "load_snapshot", serde_json::json!({ "path": path2 }));
+
+    let resp = proc.call_tool(
+        3,
+        "compare_snapshots",
+        serde_json::json!({
+            "snapshot_id": 2,
+            "baseline_id": 1,
+            "class_name": "NoSuchConstructor"
+        }),
+    );
+    let err = get_error_message(&resp);
+    assert!(
+        err.contains("No diff entry for constructor"),
+        "expected not-found error, got: {err}"
+    );
+}
+
+#[test]
+fn compare_snapshots_invalid_snapshot_id() {
+    let mut proc = McpProcess::start();
+    let path = format!("{}/heap-1.heapsnapshot", test_dir());
+
+    proc.call_tool(1, "load_snapshot", serde_json::json!({ "path": path }));
+
+    let resp = proc.call_tool(
+        2,
+        "compare_snapshots",
+        serde_json::json!({ "snapshot_id": 1, "baseline_id": 99 }),
+    );
+    let err = get_error_message(&resp);
+    assert!(
+        err.contains("No snapshot found with id 99"),
+        "expected missing snapshot error, got: {err}"
     );
 }
