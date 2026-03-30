@@ -8,6 +8,7 @@ import {
   type RowSelection,
 } from '../components/TreeTable.tsx';
 import { TreeTablePager } from '../components/TreeTablePager.tsx';
+import { TreeTableLoading } from '../components/TreeTable.tsx';
 
 const PAGE_SIZE = 100;
 
@@ -69,6 +70,9 @@ function DomTreeNode(props: {
       selfSize={props.node.self_size}
       retainedSize={props.node.retained_size}
     >
+      <Show when={expanded() && !children()}>
+        <TreeTableLoading depth={props.depth + 1} />
+      </Show>
       <Show when={expanded() && children()}>
         <For each={children()!}>
           {(child) => (

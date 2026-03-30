@@ -195,3 +195,21 @@ export function TreeTableShell(props: { children: JSX.Element }): JSX.Element {
     </table>
   );
 }
+
+export function TreeTableLoading(props: { depth: number }): JSX.Element {
+  return (
+    <tr>
+      <td
+        colSpan={6}
+        style={{
+          padding: '2px 8px',
+          'padding-left': `${8 + props.depth * 16}px`,
+          color: '#888',
+          'font-size': '12px',
+        }}
+      >
+        Loading...
+      </td>
+    </tr>
+  );
+}

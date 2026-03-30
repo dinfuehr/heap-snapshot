@@ -98,7 +98,7 @@ struct GetSummaryParams {
     /// Snapshot ID returned by load_snapshot
     snapshot_id: u32,
     /// Constructor name to expand, showing individual objects in that group
-    constructor: Option<String>,
+    class_name: Option<String>,
     /// Number of objects to skip when expanding a constructor (default: 0)
     offset: Option<usize>,
     /// Maximum number of objects to return when expanding a constructor (default: 20)
@@ -578,17 +578,17 @@ impl McpServer {
             })?)
         };
 
-        let constructor = params.constructor;
+        let class_name = params.class_name;
         let offset = params.offset.unwrap_or(0);
         let limit = params.limit.unwrap_or(20);
 
         tokio::task::spawn_blocking(move || {
             let aggregates = snapshot.aggregates_with_filter();
 
-            if let Some(ref constructor) = constructor {
-                let entry = aggregates.get(constructor.as_str()).ok_or_else(|| {
+            if let Some(ref class_name) = class_name {
+                let entry = aggregates.get(class_name.as_str()).ok_or_else(|| {
                     McpError::invalid_params(
-                        format!("No constructor group named \"{constructor}\""),
+                        format!("No constructor group named \"{class_name}\""),
                         None,
                     )
                 })?;
@@ -599,7 +599,7 @@ impl McpServer {
 
                 let mut lines = Vec::new();
                 lines.push(format!(
-                    "{constructor}: {total} objects, {:.0} shallow bytes, {:.0} retained bytes",
+                    "{class_name}: {total} objects, {:.0} shallow bytes, {:.0} retained bytes",
                     entry.self_size, entry.max_ret
                 ));
                 lines.push(format!("Showing {}-{} of {total}:", start + 1, end));

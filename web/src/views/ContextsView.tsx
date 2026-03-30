@@ -8,6 +8,7 @@ import {
   type RowSelection,
 } from '../components/TreeTable.tsx';
 import { TreeTablePager } from '../components/TreeTablePager.tsx';
+import { TreeTableLoading } from '../components/TreeTable.tsx';
 
 const PAGE_SIZE = 100;
 
@@ -95,6 +96,9 @@ function ContextNode(props: {
       selfSize={props.ctx.self_size}
       retainedSize={props.ctx.retained_size}
     >
+      <Show when={expanded() && !children()}>
+        <TreeTableLoading depth={1} />
+      </Show>
       <Show when={expanded() && children()}>
         <For each={children()!}>
           {(child) => (
