@@ -103,7 +103,7 @@ impl FlatRow {
         match &self.render.kind {
             FlatRowKind::HeapNode { node_ordinal, .. } => *node_ordinal,
             FlatRowKind::DiffObject { node_ordinal, .. } => *node_ordinal,
-            _ => None,
+            FlatRowKind::SummaryGroup { .. } | FlatRowKind::DiffGroup { .. } => None,
         }
     }
 }

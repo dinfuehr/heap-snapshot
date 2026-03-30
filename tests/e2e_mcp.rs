@@ -880,9 +880,7 @@ fn parse_compare_rows(text: &str) -> Vec<CompDiffRow> {
         // Find where the name ends and numbers begin
         let mut name_end = 0;
         for (i, part) in parts.iter().enumerate() {
-            let s = part
-                .trim_start_matches('+')
-                .trim_start_matches('\u{2212}');
+            let s = part.trim_start_matches('+').trim_start_matches('\u{2212}');
             if s.parse::<u64>().is_ok() {
                 name_end = i;
                 break;

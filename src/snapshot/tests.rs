@@ -6248,3 +6248,250 @@ fn test_root_kinds() {
     assert_eq!(snap.root_kind(NodeOrdinal(3)), RootKind::UserRoot);
     assert_eq!(snap.root_kind(NodeOrdinal(4)), RootKind::NonRoot);
 }
+
+/// Builds a snapshot with JSFunction and SharedFunctionInfo nodes to test
+/// location data and script name resolution.
+///
+/// ```text
+/// Node 0: synthetic root, 1 edge
+/// Node 1: (GC roots), 2 edges
+/// Node 2: closure "outer", id=100 → has location (script_id=7, line=4, col=10)
+/// Node 3: code "system / SharedFunctionInfo / outer", id=101
+///         → has location (script_id=7, line=4, col=10)
+///         → "script" edge to node 5
+/// Node 4: closure "inner", id=102 → no direct location
+///         → "shared" edge to node 6
+/// Node 5: code "system / Script / /app/src/utils.js", id=103
+/// Node 6: code "system / SharedFunctionInfo / inner", id=104
+///         → has location (script_id=7, line=5, col=20)
+///         → "script" edge to node 5
+/// ```
+fn make_function_snapshot() -> HeapSnapshot {
+    let nfc = 5usize;
+    let efc = 3usize;
+    let n = |ord: u32| ord * nfc as u32;
+
+    let strings = s(&[
+        "",                                    // 0
+        "(GC roots)",                          // 1
+        "outer",                               // 2
+        "system / SharedFunctionInfo / outer", // 3
+        "inner",                               // 4
+        "system / Script / /app/src/utils.js", // 5
+        "system / SharedFunctionInfo / inner", // 6
+        "shared",                              // 7
+        "script",                              // 8
+        "func",                                // 9
+        "global",                              // 10
+        "system / SharedFunctionInfo",         // 11
+        "anon",                                // 12
+    ]);
+
+    // Type indices: code=4, closure=5, synthetic=9
+    // Edge types: element=1, property=2, internal=3
+
+    let nodes: Vec<u32> = vec![
+        9, 0, 1, 0, 1, // node 0: synthetic root
+        9, 1, 2, 0, 3, // node 1: (GC roots), 3 edges
+        5, 2, 100, 32, 0, // node 2: closure "outer"
+        4, 3, 101, 48, 1, // node 3: SFI "outer" → 1 edge (script)
+        5, 4, 102, 32, 1, // node 4: closure "inner" → 1 edge (shared)
+        4, 5, 103, 80, 0, // node 5: Script
+        4, 6, 104, 48, 1, // node 6: SFI "inner" → 1 edge (script)
+        4, 11, 105, 48, 1, // node 7: SFI (unnamed) → 1 edge (script)
+    ];
+
+    let edges: Vec<u32> = vec![
+        1,
+        0,
+        n(1), // root --element[0]--> (GC roots)
+        2,
+        9,
+        n(2), // (GC roots) --"func"--> node 2 (outer closure)
+        2,
+        10,
+        n(4), // (GC roots) --"global"--> node 4 (inner closure)
+        2,
+        12,
+        n(7), // (GC roots) --"anon"--> node 7 (unnamed SFI)
+        3,
+        8,
+        n(5), // node 3 (SFI outer) --"script"--> node 5 (Script)
+        3,
+        7,
+        n(6), // node 4 (inner closure) --"shared"--> node 6 (SFI inner)
+        3,
+        8,
+        n(5), // node 6 (SFI inner) --"script"--> node 5 (Script)
+        3,
+        8,
+        n(5), // node 7 (unnamed SFI) --"script"--> node 5 (Script)
+    ];
+
+    let locations: Vec<u32> = vec![
+        n(2),
+        7,
+        4,
+        10, // node 2: closure "outer" at script 7, line 4, col 10
+        n(3),
+        7,
+        4,
+        10, // node 3: SFI "outer" at script 7, line 4, col 10
+        n(6),
+        7,
+        5,
+        20, // node 6: SFI "inner" at script 7, line 5, col 20
+        n(7),
+        7,
+        0,
+        0, // node 7: unnamed SFI at script 7, line 0, col 0
+    ];
+
+    let raw = RawHeapSnapshot {
+        snapshot: SnapshotHeader {
+            meta: SnapshotMeta {
+                node_fields: standard_node_fields(),
+                node_type_enum: standard_node_type_enum(),
+                edge_fields: standard_edge_fields(),
+                edge_type_enum: standard_edge_type_enum(),
+                location_fields: s(&["object_index", "script_id", "line", "column"]),
+                sample_fields: vec![],
+                trace_function_info_fields: vec![],
+                trace_node_fields: vec![],
+            },
+            node_count: nodes.len() / nfc,
+            edge_count: edges.len() / efc,
+            trace_function_count: 0,
+            root_index: Some(0),
+            extra_native_bytes: None,
+        },
+        nodes,
+        edges,
+        strings,
+        locations,
+    };
+
+    HeapSnapshot::new(raw)
+}
+
+#[test]
+fn test_is_js_function() {
+    let snap = make_function_snapshot();
+    // Node 2 is a closure (JSFunction)
+    assert!(snap.is_js_function(NodeOrdinal(2)));
+    // Node 4 is a closure (JSFunction)
+    assert!(snap.is_js_function(NodeOrdinal(4)));
+    // Node 3 is code (SFI), not a closure
+    assert!(!snap.is_js_function(NodeOrdinal(3)));
+    // Node 5 is code (Script), not a closure
+    assert!(!snap.is_js_function(NodeOrdinal(5)));
+}
+
+#[test]
+fn test_is_shared_function_info() {
+    let snap = make_function_snapshot();
+    // Node 3: SFI "outer"
+    assert!(snap.is_shared_function_info(NodeOrdinal(3)));
+    // Node 6: SFI "inner"
+    assert!(snap.is_shared_function_info(NodeOrdinal(6)));
+    // Node 2: closure, not SFI
+    assert!(!snap.is_shared_function_info(NodeOrdinal(2)));
+    // Node 5: Script, not SFI
+    assert!(!snap.is_shared_function_info(NodeOrdinal(5)));
+}
+
+#[test]
+fn test_node_location_direct() {
+    let snap = make_function_snapshot();
+    // Node 2 (outer closure) has a direct location entry
+    let loc = snap.node_location(NodeOrdinal(2)).unwrap();
+    assert_eq!(loc.script_id, 7);
+    assert_eq!(loc.line, 4);
+    assert_eq!(loc.column, 10);
+}
+
+#[test]
+fn test_node_location_via_shared() {
+    let snap = make_function_snapshot();
+    // Node 4 (inner closure) has no direct location, but has a "shared" edge
+    // to node 6 (SFI inner) which has a location
+    let loc = snap.node_location(NodeOrdinal(4)).unwrap();
+    assert_eq!(loc.script_id, 7);
+    assert_eq!(loc.line, 5);
+    assert_eq!(loc.column, 20);
+}
+
+#[test]
+fn test_node_location_sfi() {
+    let snap = make_function_snapshot();
+    // Node 3 (SFI outer) has a direct location
+    let loc = snap.node_location(NodeOrdinal(3)).unwrap();
+    assert_eq!(loc.script_id, 7);
+    assert_eq!(loc.line, 4);
+    assert_eq!(loc.column, 10);
+}
+
+#[test]
+fn test_node_location_none() {
+    let snap = make_function_snapshot();
+    // Node 5 (Script) has no location
+    assert!(snap.node_location(NodeOrdinal(5)).is_none());
+    // Node 1 (GC roots) has no location
+    assert!(snap.node_location(NodeOrdinal(1)).is_none());
+}
+
+#[test]
+fn test_script_name_resolution() {
+    let snap = make_function_snapshot();
+    // Script ID 7 should resolve to "/app/src/utils.js"
+    assert_eq!(snap.script_names.get(&7).unwrap(), "/app/src/utils.js");
+}
+
+#[test]
+fn test_format_location() {
+    let snap = make_function_snapshot();
+    // format_location should use the file basename and 1-based line/col
+    let loc = snap.node_location(NodeOrdinal(2)).unwrap();
+    assert_eq!(snap.format_location(&loc), "utils.js:5:11");
+
+    let loc = snap.node_location(NodeOrdinal(4)).unwrap();
+    assert_eq!(snap.format_location(&loc), "utils.js:6:21");
+}
+
+#[test]
+fn test_format_location_unresolved_script() {
+    let snap = make_test_snapshot(); // no locations at all
+    let loc = SourceLocation {
+        script_id: 99,
+        line: 0,
+        column: 0,
+    };
+    assert_eq!(snap.format_location(&loc), "script_id=99:1:1");
+}
+
+#[test]
+fn test_is_sfi_named() {
+    let snap = make_function_snapshot();
+    // Node 3: "system / SharedFunctionInfo / outer" — named
+    assert!(snap.is_shared_function_info(NodeOrdinal(3)));
+    // Node 6: "system / SharedFunctionInfo / inner" — named
+    assert!(snap.is_shared_function_info(NodeOrdinal(6)));
+}
+
+#[test]
+fn test_is_sfi_unnamed() {
+    let snap = make_function_snapshot();
+    // Node 7: "system / SharedFunctionInfo" — unnamed
+    assert!(snap.is_shared_function_info(NodeOrdinal(7)));
+}
+
+#[test]
+fn test_sfi_unnamed_location() {
+    let snap = make_function_snapshot();
+    // Node 7 (unnamed SFI) has location at line 0, col 0
+    let loc = snap.node_location(NodeOrdinal(7)).unwrap();
+    assert_eq!(loc.script_id, 7);
+    assert_eq!(loc.line, 0);
+    assert_eq!(loc.column, 0);
+    assert_eq!(snap.format_location(&loc), "utils.js:1:1");
+}

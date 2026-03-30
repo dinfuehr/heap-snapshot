@@ -278,6 +278,28 @@ pub(super) fn compute_edges(
                 is_root_holder: false,
             });
         }
+        // For JSFunction / SharedFunctionInfo nodes, prepend a location info row.
+        if snap.is_js_function(ord) || snap.is_shared_function_info(ord) {
+            if let Some(loc) = snap.node_location(ord) {
+                let label = snap.format_location(&loc);
+                children.insert(
+                    0,
+                    ChildNode {
+                        id: mint_id(next_id),
+                        label: label.into(),
+                        distance: None,
+                        shallow_size: 0.0,
+                        retained_size: 0.0,
+                        node_ordinal: None,
+                        has_children: false,
+                        children_key: None,
+                        is_weak: false,
+                        is_root_holder: false,
+                    },
+                );
+            }
+        }
+
         return children;
     }
 
@@ -329,6 +351,28 @@ pub(super) fn compute_edges(
         let vars = snap.native_context_vars(ord);
         if !vars.is_empty() {
             let label = format!("Vars: {vars}");
+            children.insert(
+                0,
+                ChildNode {
+                    id: mint_id(next_id),
+                    label: label.into(),
+                    distance: None,
+                    shallow_size: 0.0,
+                    retained_size: 0.0,
+                    node_ordinal: None,
+                    has_children: false,
+                    children_key: None,
+                    is_weak: false,
+                    is_root_holder: false,
+                },
+            );
+        }
+    }
+
+    // For JSFunction / SharedFunctionInfo nodes, prepend a location info row.
+    if snap.is_js_function(ord) || snap.is_shared_function_info(ord) {
+        if let Some(loc) = snap.node_location(ord) {
+            let label = snap.format_location(&loc);
             children.insert(
                 0,
                 ChildNode {

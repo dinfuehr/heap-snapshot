@@ -41,6 +41,13 @@ pub struct SnapshotOptions {
     pub weak_is_reachable: bool,
 }
 
+#[derive(Clone, Copy)]
+pub struct SourceLocation {
+    pub script_id: u32,
+    pub line: u32,
+    pub column: u32,
+}
+
 pub struct ReachableInfo {
     pub size: f64,
     pub native_contexts: Vec<NodeOrdinal>,
@@ -120,8 +127,10 @@ pub struct HeapSnapshot {
     detachedness_and_class_index: Vec<u32>,
     use_separate_class_index: bool,
 
-    // Location map: node_index -> (script_id, line, column)
-    location_map: FxHashMap<usize, (u32, u32, u32)>,
+    // Location map: node_index -> SourceLocation
+    location_map: FxHashMap<usize, SourceLocation>,
+    // Script ID -> script name (e.g. "file.js")
+    script_names: FxHashMap<u32, String>,
     location_field_count: usize,
     location_index_offset: usize,
     location_script_id_offset: usize,
@@ -328,6 +337,7 @@ impl HeapSnapshot {
             js_global_object_fields: FxHashSet::default(),
             js_global_proxy_fields: FxHashSet::default(),
             location_map: FxHashMap::default(),
+            script_names: FxHashMap::default(),
             location_field_count,
             location_index_offset,
             location_script_id_offset,
@@ -461,14 +471,20 @@ impl HeapSnapshot {
             let mut i = 0;
             while i < locations.len() {
                 let node_index = locations[i + snap.location_index_offset] as usize;
-                let script_id = locations[i + snap.location_script_id_offset];
-                let line = locations[i + snap.location_line_offset];
-                let col = locations[i + snap.location_column_offset];
-                map.insert(node_index, (script_id, line, col));
+                map.insert(
+                    node_index,
+                    SourceLocation {
+                        script_id: locations[i + snap.location_script_id_offset],
+                        line: locations[i + snap.location_line_offset],
+                        column: locations[i + snap.location_column_offset],
+                    },
+                );
                 i += snap.location_field_count;
             }
             snap.location_map = map;
         }
+
+        snap.compute_script_names();
 
         // Calculate statistics
         snap.calculate_statistics();
@@ -2313,8 +2329,13 @@ impl HeapSnapshot {
         if raw_type != self.node_object_type {
             return ClassKey::Index(self.class_index(ordinal));
         }
-        if let Some(&(script_id, line, col)) = self.location_map.get(&node_index) {
-            ClassKey::Location(script_id, line, col, self.node_class_name(ordinal))
+        if let Some(&loc) = self.location_map.get(&node_index) {
+            ClassKey::Location(
+                loc.script_id,
+                loc.line,
+                loc.column,
+                self.node_class_name(ordinal),
+            )
         } else {
             ClassKey::Index(self.class_index(ordinal))
         }
@@ -2559,6 +2580,113 @@ impl HeapSnapshot {
         } else {
             "unknown"
         }
+    }
+
+    /// Build the script_id -> script name map by scanning nodes with locations
+    /// and following edges to Script nodes.
+    fn compute_script_names(&mut self) {
+        let mut needed: FxHashSet<u32> = self
+            .location_map
+            .values()
+            .map(|loc| loc.script_id)
+            .collect();
+        for (&node_index, loc) in &self.location_map {
+            if !needed.contains(&loc.script_id) {
+                continue;
+            }
+            let ordinal = NodeOrdinal(node_index / self.node_field_count);
+            if let Some(name) = self.find_script_name(ordinal) {
+                self.script_names.insert(loc.script_id, name);
+                needed.remove(&loc.script_id);
+                if needed.is_empty() {
+                    break;
+                }
+            }
+        }
+    }
+
+    /// Follow edges from `ordinal` to find a Script node and return its name.
+    /// Handles both SFI (direct "script" edge) and JSFunction ("shared" -> SFI -> "script").
+    fn find_script_name(&self, ordinal: NodeOrdinal) -> Option<String> {
+        if self.is_shared_function_info(ordinal) {
+            for (edge_idx, child_ord) in self.iter_edges(ordinal) {
+                if self.edge_name(edge_idx) == "script" {
+                    let raw = self.node_raw_name(child_ord);
+                    if let Some(name) = raw.strip_prefix("system / Script / ") {
+                        return Some(name.to_string());
+                    }
+                    return None;
+                }
+            }
+        } else if self.is_js_function(ordinal) {
+            for (edge_idx, child_ord) in self.iter_edges(ordinal) {
+                if self.edge_name(edge_idx) == "shared" {
+                    return self.find_script_name(child_ord);
+                }
+            }
+        }
+        None
+    }
+
+    /// Returns true if this node is a JSFunction (closure type).
+    pub fn is_js_function(&self, ordinal: NodeOrdinal) -> bool {
+        let node_index = ordinal.0 * self.node_field_count;
+        self.nodes[node_index + self.node_type_offset] == self.node_closure_type
+    }
+
+    /// Returns true if this node is a SharedFunctionInfo.
+    /// SFI nodes have V8 node type "code".
+    pub fn is_shared_function_info(&self, ordinal: NodeOrdinal) -> bool {
+        let node_index = ordinal.0 * self.node_field_count;
+        if self.nodes[node_index + self.node_type_offset] != self.node_code_type {
+            return false;
+        }
+        let name = self.node_raw_name(ordinal);
+        name == "system / SharedFunctionInfo" || name.starts_with("system / SharedFunctionInfo / ")
+    }
+
+    /// Returns source location data for a node, if available.
+    ///
+    /// For JSFunction nodes, if the node itself has no location,
+    /// follows the "shared" edge to the SharedFunctionInfo and returns its location.
+    pub fn node_location(&self, ordinal: NodeOrdinal) -> Option<SourceLocation> {
+        let node_index = ordinal.0 * self.node_field_count;
+        if let Some(&loc) = self.location_map.get(&node_index) {
+            return Some(loc);
+        }
+        if self.is_js_function(ordinal) {
+            for (edge_idx, child_ord) in self.iter_edges(ordinal) {
+                if self.edge_name(edge_idx) == "shared" {
+                    let child_index = child_ord.0 * self.node_field_count;
+                    if let Some(&loc) = self.location_map.get(&child_index) {
+                        return Some(loc);
+                    }
+                    break;
+                }
+            }
+        }
+        None
+    }
+
+    /// Formats a source location as `"file.js:2:17"` or `"script_id=3:2:17"` if
+    /// the script name could not be resolved.
+    pub fn format_location(&self, loc: &SourceLocation) -> String {
+        let source = match self.script_names.get(&loc.script_id) {
+            Some(name) => name.as_str(),
+            None => {
+                return format!(
+                    "script_id={}:{}:{}",
+                    loc.script_id,
+                    loc.line + 1,
+                    loc.column + 1
+                );
+            }
+        };
+        source
+            .rsplit_once('/')
+            .map_or(source, |(_, file)| file)
+            .to_string()
+            + &format!(":{}:{}", loc.line + 1, loc.column + 1)
     }
 
     #[allow(dead_code)]
