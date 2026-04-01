@@ -1,4 +1,5 @@
 pub mod diff;
+pub mod function_info;
 pub mod parser;
 #[cfg(feature = "cli")]
 pub mod print;

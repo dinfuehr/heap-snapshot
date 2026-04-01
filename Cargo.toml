@@ -27,6 +27,13 @@ ureq = { version = "3", optional = true }
 rmcp = { version = "1.3", features = ["server", "transport-io"], optional = true }
 tokio = { version = "1", features = ["full"], optional = true }
 schemars = { version = "1", optional = true }
+oxc_allocator = "0.123"
+oxc_ast = "0.123"
+oxc_ast_visit = "0.123"
+oxc_parser = "0.123"
+oxc_semantic = "0.123"
+oxc_span = "0.123"
+oxc_syntax = "0.123"
 
 [[bin]]
 name = "heap-snapshot-mcp"
