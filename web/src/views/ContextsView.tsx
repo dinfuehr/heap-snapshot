@@ -39,7 +39,9 @@ function ContextNode(props: {
     });
     setChildren(
       result.edges.map((e) => ({
-        edgeLabel: `[${e.edge_name}] `,
+        edgeLabel: e.edge_type === 'element' || e.edge_type === 'hidden'
+          ? `[${e.edge_name}] :: `
+          : `${e.edge_name} :: `,
         node: e.target,
       })),
     );
@@ -108,9 +110,7 @@ function ContextNode(props: {
                 <>
                   <span style={{ color: '#888' }}>{child.edgeLabel}</span>
                   {child.node.name}{' '}
-                  <span style={{ color: '#888' }}>
-                    ({child.node.node_type})
-                  </span>
+                  <span style={{ color: '#888' }}>@{child.node.id}</span>
                 </>
               }
               linkId={child.node.id}

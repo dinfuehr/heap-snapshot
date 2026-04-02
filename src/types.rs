@@ -89,6 +89,7 @@ pub struct Statistics {
     pub js_arrays: f64,
     pub strings: f64,
     pub system: f64,
+    pub extra_native_bytes: f64,
     pub unreachable_count: u32,
     pub unreachable_size: f64,
 }

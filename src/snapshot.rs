@@ -354,6 +354,7 @@ impl HeapSnapshot {
                 js_arrays: 0.0,
                 strings: 0.0,
                 system: 0.0,
+                extra_native_bytes: 0.0,
                 unreachable_count: 0,
                 unreachable_size: 0.0,
             },
@@ -2404,6 +2405,7 @@ impl HeapSnapshot {
             js_arrays: size_js_arrays,
             strings: size_strings,
             system: size_system,
+            extra_native_bytes: self.extra_native_bytes,
             unreachable_count,
             unreachable_size,
         };

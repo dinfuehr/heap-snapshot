@@ -12,11 +12,13 @@ pub fn print_statistics(snap: &HeapSnapshot) {
     println!("    System:       {}", format_size(stats.system));
     println!("  Native:         {}", format_size(stats.native_total));
     println!("    Typed Arrays: {}", format_size(stats.typed_arrays));
-    if stats.unreachable_count > 0 {
-        println!(
-            "  Unreachable:    {} ({} objects)",
-            format_size(stats.unreachable_size),
-            format_count(stats.unreachable_count),
-        );
-    }
+    println!(
+        "    Extra Native: {}",
+        format_size(stats.extra_native_bytes)
+    );
+    println!(
+        "  Unreachable:    {} ({} objects)",
+        format_size(stats.unreachable_size),
+        format_count(stats.unreachable_count),
+    );
 }

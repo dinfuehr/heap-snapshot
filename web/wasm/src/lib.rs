@@ -25,6 +25,7 @@ struct JsStatistics {
     js_arrays: f64,
     typed_arrays: f64,
     system: f64,
+    extra_native_bytes: f64,
     unreachable_size: f64,
     unreachable_count: u32,
 }
@@ -197,6 +198,7 @@ impl WasmHeapSnapshot {
             js_arrays: stats.js_arrays,
             typed_arrays: stats.typed_arrays,
             system: stats.system,
+            extra_native_bytes: stats.extra_native_bytes,
             unreachable_size: stats.unreachable_size,
             unreachable_count: stats.unreachable_count,
         })

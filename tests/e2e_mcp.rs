@@ -641,6 +641,10 @@ fn get_statistics() {
         text.contains("Unreachable:"),
         "expected unreachable info, got: {text}"
     );
+    assert!(
+        text.contains("Extra native:"),
+        "expected extra native info, got: {text}"
+    );
 }
 
 #[test]

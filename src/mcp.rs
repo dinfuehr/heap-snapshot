@@ -517,6 +517,7 @@ impl McpServer {
             format!("  Code:         {:.0} bytes", stats.code),
             format!("  Strings:      {:.0} bytes", stats.strings),
             format!("  JS arrays:    {:.0} bytes", stats.js_arrays),
+            format!("  Extra native: {:.0} bytes", stats.extra_native_bytes),
             format!("  Typed arrays: {:.0} bytes", stats.typed_arrays),
             format!("  System:       {:.0} bytes", stats.system),
             format!(

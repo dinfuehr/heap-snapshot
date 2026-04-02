@@ -62,6 +62,20 @@ export function StatisticsView(props: { call: SnapshotCall }): JSX.Element {
               ))}
               <tr style={{ 'border-top': '1px solid #ddd' }}>
                 <td style={{ padding: '6px 0', color: '#888' }}>
+                  Extra Native
+                </td>
+                <td style={{ padding: '6px 12px', 'text-align': 'right' }}>
+                  {formatBytes(stats()!.extra_native_bytes)}
+                </td>
+                <td style={{ padding: '6px 0', color: '#888' }}>
+                  {pct(stats()!.extra_native_bytes, stats()!.total)}{' '}
+                  <span style={{ 'font-size': '12px' }}>
+                    (subset of Native)
+                  </span>
+                </td>
+              </tr>
+              <tr style={{ 'border-top': '1px solid #ddd' }}>
+                <td style={{ padding: '6px 0', color: '#888' }}>
                   Typed Arrays
                 </td>
                 <td style={{ padding: '6px 12px', 'text-align': 'right' }}>

@@ -98,4 +98,12 @@ fn summary_shows_statistics() {
     let stdout = String::from_utf8(output.stdout).expect("invalid utf-8");
     assert!(stdout.contains("Statistics"), "expected Statistics section");
     assert!(stdout.contains("V8 Heap:"), "expected V8 Heap stat");
+    assert!(
+        stdout.contains("Extra Native:"),
+        "expected Extra Native stat"
+    );
+    assert!(
+        stdout.contains("Unreachable:"),
+        "expected Unreachable stat"
+    );
 }

@@ -8,6 +8,7 @@ export interface Statistics {
   js_arrays: number;
   typed_arrays: number;
   system: number;
+  extra_native_bytes: number;
   unreachable_size: number;
   unreachable_count: number;
 }

@@ -695,6 +695,7 @@ fn test_statistics() {
     assert_eq!(stats.code, 0.0);
     assert_eq!(stats.native_total, 0.0);
     assert_eq!(stats.typed_arrays, 0.0);
+    assert_eq!(stats.extra_native_bytes, 0.0);
     assert_eq!(stats.v8heap_total, 350.0);
 }
 
@@ -2997,6 +2998,8 @@ fn test_statistics_extra_native_bytes() {
     assert_eq!(stats.native_total, 500.0);
     // v8heap_total = total - native_total = 100
     assert_eq!(stats.v8heap_total, 100.0);
+    // extra_native_bytes = 500
+    assert_eq!(stats.extra_native_bytes, 500.0);
 }
 
 // ── aggregates: zero self_size excluded ─────────────────────────────────

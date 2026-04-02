@@ -22,7 +22,7 @@ function HistoryEntry(props: {
 }): JSX.Element {
   const [expanded, setExpanded] = createSignal(false);
   const [children, setChildren] = createSignal<
-    { edgeName: string; node: NodeInfo }[] | null
+    { edgeType: string; edgeName: string; node: NodeInfo }[] | null
   >(null);
   const [total, setTotal] = createSignal(0);
   const [offset, setOffset] = createSignal(0);
@@ -38,7 +38,7 @@ function HistoryEntry(props: {
       filter: f,
     });
     setChildren(
-      result.edges.map((e) => ({ edgeName: e.edge_name, node: e.target })),
+      result.edges.map((e) => ({ edgeType: e.edge_type, edgeName: e.edge_name, node: e.target })),
     );
     setTotal(result.total);
     setOffset(o);
@@ -90,11 +90,13 @@ function HistoryEntry(props: {
               depth={1}
               label={
                 <>
-                  <span style={{ color: '#888' }}>[{child.edgeName}]</span>{' '}
-                  {child.node.name}{' '}
                   <span style={{ color: '#888' }}>
-                    ({child.node.node_type})
-                  </span>
+                    {child.edgeType === 'element' || child.edgeType === 'hidden'
+                      ? `[${child.edgeName}]`
+                      : child.edgeName}
+                  </span>{' '}
+                  :: {child.node.name}{' '}
+                  <span style={{ color: '#888' }}>@{child.node.id}</span>
                 </>
               }
               linkId={child.node.id}

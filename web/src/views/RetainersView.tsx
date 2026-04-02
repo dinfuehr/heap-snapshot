@@ -22,9 +22,13 @@ function PathNode(props: {
       depth={props.depth}
       label={
         <>
-          <span style={{ color: '#888' }}>[{props.path.edge_name}]</span>{' '}
-          {props.path.node.name}{' '}
-          <span style={{ color: '#888' }}>({props.path.node.node_type})</span>
+          <span style={{ color: '#888' }}>
+            {props.path.edge_type === 'element' || props.path.edge_type === 'hidden'
+              ? `[${props.path.edge_name}]`
+              : props.path.edge_name}
+          </span>{' '}
+          in {props.path.node.name}{' '}
+          <span style={{ color: '#888' }}>@{props.path.node.id}</span>
         </>
       }
       linkId={props.path.node.id}

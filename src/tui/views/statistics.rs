@@ -61,6 +61,25 @@ impl App {
         lines.push(Line::from(""));
         lines.push(Line::from(""));
 
+        // Extra native bytes (sub-category of native)
+        {
+            let pct = if total > 0.0 {
+                format!("{:>5.1}%", stats.extra_native_bytes / total * 100.0)
+            } else {
+                " 0.0%".to_string()
+            };
+            lines.push(Line::from(vec![
+                Span::styled("  ", Style::default()),
+                Span::styled(format!("{:<16}", "Extra Native"), Style::default().dim()),
+                Span::raw(format!(
+                    "{:>12}  {}  (subset of Native)",
+                    format_size(stats.extra_native_bytes),
+                    pct
+                )),
+            ]));
+            lines.push(Line::from(""));
+        }
+
         // Typed arrays (sub-category of native)
         if stats.typed_arrays > 0.0 {
             let pct = if total > 0.0 {
@@ -81,7 +100,7 @@ impl App {
         }
 
         // Unreachable objects
-        if stats.unreachable_count > 0 {
+        {
             lines.push(Line::from(vec![
                 Span::styled("  ", Style::default()),
                 Span::styled(
