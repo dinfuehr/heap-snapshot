@@ -2,6 +2,7 @@ use crate::print::retainers::RetainerAutoExpandPlan;
 use crate::snapshot::HeapSnapshot;
 use crate::types::{Distance, NodeOrdinal};
 
+use super::children;
 use super::children::{
     compute_children, compute_class_members, compute_compare_edges, compute_edges,
     compute_retainers, make_retainer_child, shifted_window_start,
@@ -35,16 +36,9 @@ impl App {
         ) -> Vec<ChildNode> {
             let mut children = Vec::new();
             for pe in plan_edges {
-                let edge_name = snap.edge_name(pe.edge_idx);
                 let edge_type = snap.edge_type_name(pe.edge_idx);
-                let display_name = snap.node_display_name(pe.retainer);
-                let node_id = snap.node_id(pe.retainer);
                 let is_weak = edge_type == "weak";
-                let label = if edge_type == "element" || edge_type == "hidden" {
-                    format!("[{edge_name}] in {display_name} @{node_id}")
-                } else {
-                    format!("{edge_name} in {display_name} @{node_id}")
-                };
+                let label = children::format_retainer_label(snap, pe.edge_idx, pe.retainer);
                 let dist = snap.node_distance(pe.retainer);
                 let id = mint_id(next_id);
                 let has_children = dist > Distance(0);
@@ -128,16 +122,9 @@ impl App {
         let mut root_children = Vec::new();
         for &(edge_idx, ret_ord) in &all[start..end] {
             if let Some(pe) = plan_map.get(&edge_idx) {
-                let edge_name = snap.edge_name(edge_idx);
                 let edge_type = snap.edge_type_name(edge_idx);
-                let display_name = snap.node_display_name(ret_ord);
-                let node_id = snap.node_id(ret_ord);
                 let is_weak = edge_type == "weak";
-                let label = if edge_type == "element" || edge_type == "hidden" {
-                    format!("[{edge_name}] in {display_name} @{node_id}")
-                } else {
-                    format!("{edge_name} in {display_name} @{node_id}")
-                };
+                let label = children::format_retainer_label(snap, edge_idx, ret_ord);
                 let dist = snap.node_distance(ret_ord);
                 let id = mint_id(&self.next_id);
                 let has_children = dist > Distance(0);
@@ -238,16 +225,9 @@ impl App {
         ) -> Vec<ChildNode> {
             let mut children = Vec::new();
             for pe in plan_edges {
-                let edge_name = snap.edge_name(pe.edge_idx);
                 let edge_type = snap.edge_type_name(pe.edge_idx);
-                let display_name = snap.node_display_name(pe.retainer);
-                let node_id = snap.node_id(pe.retainer);
                 let is_weak = edge_type == "weak";
-                let label = if edge_type == "element" || edge_type == "hidden" {
-                    format!("[{edge_name}] in {display_name} @{node_id}")
-                } else {
-                    format!("{edge_name} in {display_name} @{node_id}")
-                };
+                let label = children::format_retainer_label(snap, pe.edge_idx, pe.retainer);
                 let dist = snap.node_distance(pe.retainer);
                 let id = mint_id(next_id);
                 let has_children = dist > Distance(0);
@@ -1083,15 +1063,7 @@ impl App {
                         if filter.is_empty() {
                             return true;
                         }
-                        let edge_name = the_snap.edge_name(edge_idx);
-                        let edge_type = the_snap.edge_type_name(edge_idx);
-                        let display_name = the_snap.node_display_name(child_ord);
-                        let id = the_snap.node_id(child_ord);
-                        let label = if edge_type == "element" || edge_type == "hidden" {
-                            format!("[{edge_name}] :: {display_name} @{id}")
-                        } else {
-                            format!("{edge_name} :: {display_name} @{id}")
-                        };
+                        let label = children::format_edge_label(the_snap, edge_idx, child_ord);
                         contains_ignore_case(&label, &filter)
                     })
                     .count()

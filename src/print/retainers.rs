@@ -59,11 +59,6 @@ pub fn print_retainers(
         total_retained: f64,
         col_name_tree: usize,
     ) {
-        let edge_name = snap.edge_name(edge_idx);
-        let edge_type = snap.edge_type_name(edge_idx);
-        let node_name = snap.node_display_name(ret_ordinal);
-        let nid = snap.node_id(ret_ordinal);
-
         let indent = "  ".repeat(depth);
         let marker = if expanded {
             "\u{25bc} " /* ▼ */
@@ -71,11 +66,7 @@ pub fn print_retainers(
             "\u{25b6} " /* ▶ */
         };
 
-        let label = if edge_type == "element" || edge_type == "hidden" {
-            format!("[{edge_name}] in {node_name} @{nid}")
-        } else {
-            format!("{edge_name} in {node_name} @{nid}")
-        };
+        let label = snap.format_retainer_label(edge_idx, ret_ordinal);
 
         let max_name_len =
             col_name_tree.saturating_sub(display_width(&format!("{indent}{marker}")));

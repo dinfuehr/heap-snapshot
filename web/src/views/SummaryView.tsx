@@ -6,18 +6,157 @@ import {
   For,
   type JSX,
 } from 'solid-js';
-import type { AggregateEntry, SummaryExpanded } from '../types.ts';
+import type { AggregateEntry, SummaryExpanded, Children } from '../types.ts';
 import type { SnapshotCall } from '../worker/use-snapshot.ts';
 import type { NavigateOptions } from '../components/ObjectLink.tsx';
-import { ObjectLink } from '../components/ObjectLink.tsx';
 import { formatBytes } from '../components/format.ts';
 import { TreeTablePager } from '../components/TreeTablePager.tsx';
+import {
+  TreeTableRow,
+  TreeTableLoading,
+  type RowSelection,
+} from '../components/TreeTable.tsx';
+import { ContainmentTreeNode } from './ContainmentView.tsx';
 
 const numTd = {
   padding: '2px 8px',
   'text-align': 'right' as const,
   'font-variant-numeric': 'tabular-nums',
 };
+
+const PAGE_SIZE = 100;
+
+function ExpandableObject(props: {
+  obj: {
+    id: number;
+    name: string;
+    self_size: number;
+    retained_size: number;
+    detachedness: number;
+  };
+  call: SnapshotCall;
+  onNavigate: (opts: NavigateOptions) => void;
+  onContextMenu: (e: MouseEvent, nodeId: number) => void;
+  selection: () => RowSelection | null;
+  onSelect: (sel: RowSelection) => void;
+}): JSX.Element {
+  const [expanded, setExpanded] = createSignal(false);
+
+  const toggle = () => setExpanded((v) => !v);
+
+  return (
+    <TreeTableRow
+      depth={1}
+      expanded={expanded()}
+      onToggle={toggle}
+      label={<>{props.obj.name}</>}
+      linkId={props.obj.id}
+      onNavigate={props.onNavigate}
+      onContextMenu={props.onContextMenu}
+      selection={props.selection()}
+      onSelect={props.onSelect}
+      detachedness={props.obj.detachedness}
+      selfSize={props.obj.self_size}
+      retainedSize={props.obj.retained_size}
+    >
+      <Show when={expanded()}>
+        <ObjectChildren
+          nodeId={props.obj.id}
+          call={props.call}
+          onNavigate={props.onNavigate}
+          onContextMenu={props.onContextMenu}
+          selection={props.selection}
+          onSelect={props.onSelect}
+          depth={2}
+        />
+      </Show>
+    </TreeTableRow>
+  );
+}
+
+function ObjectChildren(props: {
+  nodeId: number;
+  call: SnapshotCall;
+  onNavigate: (opts: NavigateOptions) => void;
+  onContextMenu: (e: MouseEvent, nodeId: number) => void;
+  selection: () => RowSelection | null;
+  onSelect: (sel: RowSelection) => void;
+  depth: number;
+}): JSX.Element {
+  const [children, setChildren] = createSignal<
+    {
+      edgeLabel: string;
+      node: {
+        id: number;
+        name: string;
+        node_type: string;
+        self_size: number;
+        retained_size: number;
+        distance: number;
+        edge_count: number;
+        detachedness: number;
+      };
+    }[]
+  >([]);
+  const [loaded, setLoaded] = createSignal(false);
+  const [total, setTotal] = createSignal(0);
+  const [offset, setOffset] = createSignal(0);
+  const [filter, setFilter] = createSignal('');
+
+  const loadChildren = async (o: number, l: number, f: string) => {
+    const result = await props.call<Children>({
+      type: 'getChildren',
+      nodeId: props.nodeId,
+      offset: o,
+      limit: l,
+      filter: f,
+    });
+    setChildren(
+      result.edges.map((e) => ({
+        edgeLabel:
+          e.edge_type === 'element' || e.edge_type === 'hidden'
+            ? `[${e.edge_name}] :: `
+            : `${e.edge_name} :: `,
+        node: e.target,
+      })),
+    );
+    setTotal(result.total);
+    setOffset(o);
+    setFilter(f);
+    setLoaded(true);
+  };
+
+  loadChildren(0, PAGE_SIZE, '');
+
+  return (
+    <Show when={loaded()} fallback={<TreeTableLoading depth={props.depth} />}>
+      <For each={children()}>
+        {(child) => (
+          <ContainmentTreeNode
+            edgeLabel={child.edgeLabel}
+            node={child.node}
+            call={props.call}
+            onNavigate={props.onNavigate}
+            onContextMenu={props.onContextMenu}
+            selection={props.selection}
+            onSelect={props.onSelect}
+            depth={props.depth}
+          />
+        )}
+      </For>
+      <TreeTablePager
+        depth={props.depth}
+        shown={children().length}
+        total={total()}
+        offset={offset()}
+        filter={filter()}
+        onPageChange={(o, l) => loadChildren(o, l, filter())}
+        onFilterChange={(f) => loadChildren(0, PAGE_SIZE, f)}
+        onShowAll={() => loadChildren(0, 999999, filter())}
+      />
+    </Show>
+  );
+}
 
 export function SummaryView(props: {
   call: SnapshotCall;
@@ -32,6 +171,7 @@ export function SummaryView(props: {
   const [objects, setObjects] = createSignal<SummaryExpanded | null>(null);
   const [objOffset, setObjOffset] = createSignal(0);
   const [filter, setFilter] = createSignal('');
+  const [selection, setSelection] = createSignal<RowSelection | null>(null);
 
   const filtered = createMemo(() => {
     const e = entries();
@@ -101,10 +241,10 @@ export function SummaryView(props: {
           >
             <colgroup>
               <col />
-              <col style={{ width: '80px' }} />
+              <col style={{ width: '70px' }} />
+              <col style={{ width: '90px' }} />
               <col style={{ width: '100px' }} />
               <col style={{ width: '110px' }} />
-              <col style={{ width: '120px' }} />
               <col style={{ width: '75px' }} />
             </colgroup>
             <thead>
@@ -115,49 +255,19 @@ export function SummaryView(props: {
                 }}
               >
                 <th style={{ padding: '4px 8px' }}>Constructor</th>
-                <th
-                  style={{
-                    padding: '4px 8px',
-                    'text-align': 'right',
-                    'white-space': 'nowrap',
-                  }}
-                >
-                  Count
+                <th style={{ padding: '4px 8px', 'text-align': 'right', 'white-space': 'nowrap' }}>
+                  Distance
                 </th>
-                <th
-                  style={{
-                    padding: '4px 8px',
-                    'text-align': 'right',
-                    'white-space': 'nowrap',
-                  }}
-                >
+                <th style={{ padding: '4px 8px', 'text-align': 'right', 'white-space': 'nowrap' }}>
                   Shallow Size
                 </th>
-                <th
-                  style={{
-                    padding: '4px 8px',
-                    'text-align': 'right',
-                    'white-space': 'nowrap',
-                  }}
-                >
+                <th style={{ padding: '4px 8px', 'text-align': 'right', 'white-space': 'nowrap' }}>
                   Retained Size
                 </th>
-                <th
-                  style={{
-                    padding: '4px 8px',
-                    'text-align': 'right',
-                    'white-space': 'nowrap',
-                  }}
-                >
+                <th style={{ padding: '4px 8px', 'text-align': 'right', 'white-space': 'nowrap' }}>
                   Reachable Size
                 </th>
-                <th
-                  style={{
-                    padding: '4px 8px',
-                    'text-align': 'right',
-                    'white-space': 'nowrap',
-                  }}
-                >
+                <th style={{ padding: '4px 8px', 'text-align': 'right', 'white-space': 'nowrap' }}>
                   Status
                 </th>
               </tr>
@@ -184,9 +294,13 @@ export function SummaryView(props: {
                         }}
                       >
                         {expanded() === entry.key ? '\u25bc' : '\u25b6'}{' '}
-                        {entry.name}
+                        {entry.name}{' '}
+                        <span style={{ color: '#888' }}>
+                          {'\u00d7'}
+                          {entry.count.toLocaleString()}
+                        </span>
                       </td>
-                      <td style={numTd}>{entry.count.toLocaleString()}</td>
+                      <td style={numTd} />
                       <td style={numTd}>{formatBytes(entry.self_size)}</td>
                       <td style={numTd}>{formatBytes(entry.retained_size)}</td>
                       <td style={{ ...numTd, color: '#ccc' }}>{'\u2014'}</td>
@@ -194,94 +308,38 @@ export function SummaryView(props: {
                     </tr>
                     <Show when={expanded() === entry.key && objects()}>
                       {(objs) => (
-                        <tr>
-                          <td colSpan={6} style={{ padding: '4px 24px' }}>
-                            <table
-                              style={{
-                                'border-collapse': 'collapse',
-                                width: '100%',
-                                'font-size': '12px',
-                                'table-layout': 'fixed',
-                              }}
-                            >
-                              <colgroup>
-                                <col />
-                                <col style={{ width: '90px' }} />
-                                <col style={{ width: '100px' }} />
-                                <col style={{ width: '120px' }} />
-                                <col style={{ width: '75px' }} />
-                              </colgroup>
-                              <tbody>
-                                <For each={objs().objects}>
-                                  {(obj) => (
-                                    <tr>
-                                      <td
-                                        style={{
-                                          padding: '1px 8px',
-                                          overflow: 'hidden',
-                                          'text-overflow': 'ellipsis',
-                                          'white-space': 'nowrap',
-                                          'max-width': '0',
-                                        }}
-                                      >
-                                        <ObjectLink
-                                          nodeId={obj.id}
-                                          onNavigate={props.onNavigate}
-                                          onContextMenu={props.onContextMenu}
-                                        />{' '}
-                                        {obj.name}
-                                      </td>
-                                      <td style={numTd}>
-                                        {formatBytes(obj.self_size)}
-                                      </td>
-                                      <td style={numTd}>
-                                        {formatBytes(obj.retained_size)}
-                                      </td>
-                                      <td style={{ ...numTd, color: '#ccc' }}>
-                                        {'\u2014'}
-                                      </td>
-                                      <td
-                                        style={{
-                                          ...numTd,
-                                          color:
-                                            obj.detachedness === 2
-                                              ? '#ef4444'
-                                              : obj.detachedness === 1
-                                                ? '#10b981'
-                                                : '#888',
-                                          'font-weight':
-                                            obj.detachedness === 2
-                                              ? '600'
-                                              : undefined,
-                                        }}
-                                      >
-                                        {obj.detachedness === 2
-                                          ? 'detached'
-                                          : obj.detachedness === 1
-                                            ? 'attached'
-                                            : ''}
-                                      </td>
-                                    </tr>
-                                  )}
-                                </For>
-                                <TreeTablePager
-                                  depth={0}
-                                  shown={objs().objects.length}
-                                  total={objs().total}
-                                  offset={objOffset()}
-                                  filter=""
-                                  onPageChange={(o, l) =>
-                                    loadObjects(expanded()!, o, l)
-                                  }
-                                  onFilterChange={() => {}}
-                                  onShowAll={() =>
-                                    loadObjects(expanded()!, 0, 999999)
-                                  }
-                                />
-                              </tbody>
-                            </table>
-                          </td>
-                        </tr>
+                        <>
+                          <For each={objs().objects}>
+                            {(obj) => (
+                              <ExpandableObject
+                                obj={obj}
+                                call={props.call}
+                                onNavigate={props.onNavigate}
+                                onContextMenu={props.onContextMenu}
+                                selection={selection}
+                                onSelect={setSelection}
+                              />
+                            )}
+                          </For>
+                          <tr>
+                            <td colSpan={6}>
+                              <TreeTablePager
+                                depth={1}
+                                shown={objs().objects.length}
+                                total={objs().total}
+                                offset={objOffset()}
+                                filter=""
+                                onPageChange={(o, l) =>
+                                  loadObjects(expanded()!, o, l)
+                                }
+                                onFilterChange={() => {}}
+                                onShowAll={() =>
+                                  loadObjects(expanded()!, 0, 999999)
+                                }
+                              />
+                            </td>
+                          </tr>
+                        </>
                       )}
                     </Show>
                   </>

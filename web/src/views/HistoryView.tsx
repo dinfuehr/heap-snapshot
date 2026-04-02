@@ -88,17 +88,14 @@ function HistoryEntry(props: {
           {(child) => (
             <TreeTableRow
               depth={1}
-              label={
-                <>
-                  <span style={{ color: '#888' }}>
-                    {child.edgeType === 'element' || child.edgeType === 'hidden'
-                      ? `[${child.edgeName}]`
-                      : child.edgeName}
-                  </span>{' '}
-                  :: {child.node.name}{' '}
-                  <span style={{ color: '#888' }}>@{child.node.id}</span>
-                </>
+              prefix={
+                <span style={{ color: '#888' }}>
+                  {child.edgeType === 'element' || child.edgeType === 'hidden'
+                    ? `[${child.edgeName}] :: `
+                    : `${child.edgeName} :: `}
+                </span>
               }
+              label={<>{child.node.name}</>}
               linkId={child.node.id}
               onNavigate={props.onNavigate}
               onContextMenu={props.onContextMenu}

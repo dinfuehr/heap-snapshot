@@ -9,6 +9,24 @@ use super::UnreachableFilter;
 use super::contains_ignore_case;
 use super::types::*;
 
+/// Format an outgoing edge label: `edge :: @id name`
+pub(super) fn format_edge_label(
+    snap: &HeapSnapshot,
+    edge_idx: usize,
+    child_ord: NodeOrdinal,
+) -> String {
+    snap.format_edge_label(edge_idx, child_ord)
+}
+
+/// Format a retainer edge label: `edge in @id name`
+pub(super) fn format_retainer_label(
+    snap: &HeapSnapshot,
+    edge_idx: usize,
+    ret_ord: NodeOrdinal,
+) -> String {
+    snap.format_retainer_label(edge_idx, ret_ord)
+}
+
 pub(super) fn compute_children(
     key: &ChildrenKey,
     row_id: NodeId,
@@ -200,15 +218,8 @@ fn edge_to_child_node(
     child_ord: NodeOrdinal,
     next_id: &Cell<u64>,
 ) -> ChildNode {
-    let edge_name = snap.edge_name(edge_idx);
     let edge_type = snap.edge_type_name(edge_idx);
-    let display_name = snap.node_display_name(child_ord);
-    let node_id = snap.node_id(child_ord);
-    let label = if edge_type == "element" || edge_type == "hidden" {
-        format!("[{edge_name}] :: {display_name} @{node_id}")
-    } else {
-        format!("{edge_name} :: {display_name} @{node_id}")
-    };
+    let label = format_edge_label(snap, edge_idx, child_ord);
     let has_children = snap.node_edge_count(child_ord) > 0;
     let id = mint_id(next_id);
     ChildNode {
@@ -443,16 +454,9 @@ pub(super) fn make_retainer_child(
     ret_ord: NodeOrdinal,
     next_id: &Cell<u64>,
 ) -> ChildNode {
-    let edge_name = snap.edge_name(edge_idx);
     let edge_type = snap.edge_type_name(edge_idx);
-    let display_name = snap.node_display_name(ret_ord);
-    let node_id = snap.node_id(ret_ord);
     let is_weak = edge_type == "weak";
-    let label = if edge_type == "element" || edge_type == "hidden" {
-        format!("[{edge_name}] in {display_name} @{node_id}")
-    } else {
-        format!("{edge_name} in {display_name} @{node_id}")
-    };
+    let label = format_retainer_label(snap, edge_idx, ret_ord);
     let dist = snap.node_distance(ret_ord);
     let expandable = dist > Distance(0) && !dist.is_unreachable();
     ChildNode {

@@ -47,6 +47,7 @@ export function TreeTableRow(props: {
   depth: number;
   expanded?: boolean;
   onToggle?: () => void;
+  prefix?: JSX.Element;
   label: JSX.Element;
   linkId?: number;
   onNavigate?: (opts: NavigateOptions) => void;
@@ -116,6 +117,7 @@ export function TreeTableRow(props: {
           ) : (
             <span style={{ display: 'inline-block', width: '16px' }}> </span>
           )}
+          {props.prefix}
           {props.linkId !== undefined &&
           props.onNavigate &&
           props.onContextMenu ? (

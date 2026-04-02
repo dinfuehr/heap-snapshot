@@ -85,15 +85,7 @@ fn walk_edges(
         .skip(start)
         .take(w.count)
     {
-        let edge_name = snap.edge_name(edge_idx);
-        let edge_type = snap.edge_type_name(edge_idx);
         let child_id = snap.node_id(child_ordinal);
-        let child_name = snap.node_display_name(child_ordinal);
-        let edge_label = if edge_type == "element" || edge_type == "hidden" {
-            format!("[{edge_name}]")
-        } else {
-            edge_name
-        };
 
         let has_children = snap.node_edge_count(child_ordinal) > 0;
         let should_expand = has_children
@@ -104,7 +96,8 @@ fn walk_edges(
         } else {
             "\u{25b6}" /* ▶ */
         };
-        let label = format!("{base_indent}{marker} {edge_label} :: {child_name} @{child_id}");
+        let edge_label = snap.format_edge_label(edge_idx, child_ordinal);
+        let label = format!("{base_indent}{marker} {edge_label}");
         let display = truncate_str(&label, COL_NAME_SUMMARY);
 
         if unreachable {

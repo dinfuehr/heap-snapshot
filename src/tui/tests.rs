@@ -643,7 +643,7 @@ fn test_opening_retainers_only_caches_first_page() {
         .map(|(_, v)| v)
         .unwrap();
     assert_eq!(children.len(), EDGE_PAGE_SIZE + 1);
-    assert!(children[0].label.starts_with("ref in Holder @"));
+    assert!(children[0].label.starts_with("ref in @"));
     assert_eq!(
         children.last().unwrap().label,
         Rc::<str>::from("1–20 of 25 retainers  (n/p: page, a: all)")
@@ -3030,13 +3030,13 @@ fn test_weakrefs_7207_tui_direct_retainers() {
 
     // Expected direct retainers at root level (labels contain these):
     let expected_labels = [
-        "(Stack roots) @43",
-        "global [JSGlobalObject] @7571",
-        "system / Context @7217",
+        "@43 (Stack roots)",
+        "@7571 global [JSGlobalObject]",
+        "@7217 system / Context",
         "@2327",
-        "system / WeakCell @21325",
-        "system / PropertyCell @21255",
-        "WeakRef @21195",
+        "@21325 system / WeakCell",
+        "@21255 system / PropertyCell",
+        "@21195 WeakRef",
     ];
 
     for expected in &expected_labels {
@@ -3072,8 +3072,8 @@ fn test_weakrefs_7207_tui_root_holders_marked() {
     let stack_roots = app
         .cached_rows
         .iter()
-        .find(|r| r.render.label.contains("(Stack roots) @43"))
-        .expect("(Stack roots) @43 should be visible");
+        .find(|r| r.render.label.contains("@43 (Stack roots)"))
+        .expect("@43 (Stack roots) should be visible");
     assert!(
         stack_roots.render.is_root_holder,
         "(Stack roots) should be marked as root_holder"
@@ -3083,7 +3083,7 @@ fn test_weakrefs_7207_tui_root_holders_marked() {
     let weakref = app
         .cached_rows
         .iter()
-        .find(|r| r.render.label.contains("WeakRef @21195"))
+        .find(|r| r.render.label.contains("@21195 WeakRef"))
         .expect("WeakRef @21195 should be visible");
     assert!(
         !weakref.render.is_root_holder,
@@ -3099,7 +3099,7 @@ fn test_weakrefs_7207_tui_auto_expansion() {
     let global = app
         .cached_rows
         .iter()
-        .find(|r| r.nav.depth == 0 && r.render.label.contains("global [JSGlobalObject] @7571"))
+        .find(|r| r.nav.depth == 0 && r.render.label.contains("@7571 global [JSGlobalObject]"))
         .expect("global @7571 should be at depth 0");
     assert!(
         global.nav.is_expanded,
@@ -3110,7 +3110,7 @@ fn test_weakrefs_7207_tui_auto_expansion() {
     let weakref = app
         .cached_rows
         .iter()
-        .find(|r| r.nav.depth == 0 && r.render.label.contains("WeakRef @21195"))
+        .find(|r| r.nav.depth == 0 && r.render.label.contains("@21195 WeakRef"))
         .expect("WeakRef @21195 should be at depth 0");
     assert!(
         !weakref.nav.is_expanded,

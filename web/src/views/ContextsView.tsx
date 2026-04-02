@@ -106,13 +106,10 @@ function ContextNode(props: {
           {(child) => (
             <TreeTableRow
               depth={1}
-              label={
-                <>
-                  <span style={{ color: '#888' }}>{child.edgeLabel}</span>
-                  {child.node.name}{' '}
-                  <span style={{ color: '#888' }}>@{child.node.id}</span>
-                </>
+              prefix={
+                <span style={{ color: '#888' }}>{child.edgeLabel}</span>
               }
+              label={<>{child.node.name}</>}
               linkId={child.node.id}
               onNavigate={props.onNavigate}
               onContextMenu={props.onContextMenu}

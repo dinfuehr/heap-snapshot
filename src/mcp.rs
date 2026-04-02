@@ -732,11 +732,9 @@ impl McpServer {
             if dom == current {
                 break;
             }
-            let id = snapshot.node_id(dom);
             lines.push(format!(
-                "  dominated by @{} {} (type: {}, self_size: {}, retained_size: {:.0})",
-                id.0,
-                snapshot.node_display_name(dom),
+                "  dominated by {} (type: {}, self_size: {}, retained_size: {:.0})",
+                snapshot.format_node_label(dom),
                 snapshot.node_type_name(dom),
                 snapshot.node_self_size(dom),
                 snapshot.node_retained_size(dom),

@@ -20,17 +20,14 @@ function PathNode(props: {
   return (
     <TreeTableRow
       depth={props.depth}
-      label={
-        <>
-          <span style={{ color: '#888' }}>
-            {props.path.edge_type === 'element' || props.path.edge_type === 'hidden'
-              ? `[${props.path.edge_name}]`
-              : props.path.edge_name}
-          </span>{' '}
-          in {props.path.node.name}{' '}
-          <span style={{ color: '#888' }}>@{props.path.node.id}</span>
-        </>
+      prefix={
+        <span style={{ color: '#888' }}>
+          {props.path.edge_type === 'element' || props.path.edge_type === 'hidden'
+            ? `[${props.path.edge_name}] in `
+            : `${props.path.edge_name} in `}
+        </span>
       }
+      label={<>{props.path.node.name}</>}
       linkId={props.path.node.id}
       onNavigate={props.onNavigate}
       onContextMenu={props.onContextMenu}

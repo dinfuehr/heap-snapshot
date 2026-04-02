@@ -12,6 +12,8 @@ import { TreeTableLoading } from '../components/TreeTable.tsx';
 
 const PAGE_SIZE = 100;
 
+export { TreeNode as ContainmentTreeNode };
+
 function TreeNode(props: {
   edgeLabel?: string;
   node: NodeInfo;
@@ -76,15 +78,12 @@ function TreeNode(props: {
       depth={props.depth}
       expanded={expanded()}
       onToggle={hasChildren ? toggle : undefined}
-      label={
-        <>
-          {props.edgeLabel && (
-            <span style={{ color: '#888' }}>{props.edgeLabel}</span>
-          )}
-          {props.node.name}{' '}
-          <span style={{ color: '#888' }}>@{props.node.id}</span>
-        </>
+      prefix={
+        props.edgeLabel ? (
+          <span style={{ color: '#888' }}>{props.edgeLabel}</span>
+        ) : undefined
       }
+      label={<>{props.node.name}</>}
       linkId={props.node.id}
       onNavigate={props.onNavigate}
       onContextMenu={props.onContextMenu}

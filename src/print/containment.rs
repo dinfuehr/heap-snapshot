@@ -22,32 +22,6 @@ pub fn print_containment(
     println!("\nContainment for {name} @{id}:");
     print_tree_header(COL_NAME_TREE);
 
-    fn print_node_line(
-        snap: &HeapSnapshot,
-        node_ordinal: NodeOrdinal,
-        prefix: &str,
-        total_shallow: f64,
-        total_retained: f64,
-    ) {
-        let label = format!(
-            "{} @{}",
-            snap.node_display_name(node_ordinal),
-            snap.node_id(node_ordinal)
-        );
-        let max_name_len = COL_NAME_TREE.saturating_sub(display_width(prefix));
-        let label = truncate_str(&label, max_name_len);
-        let name_col = pad_str(&format!("{prefix}{label}"), COL_NAME_TREE);
-
-        print_data_cols(
-            &name_col,
-            snap.node_distance(node_ordinal),
-            snap.node_self_size(node_ordinal) as f64,
-            snap.node_retained_size(node_ordinal),
-            total_shallow,
-            total_retained,
-        );
-    }
-
     fn edge_window(
         snap: &HeapSnapshot,
         node_ordinal: NodeOrdinal,
@@ -87,8 +61,6 @@ pub fn print_containment(
             .skip(start)
             .take(w.count)
         {
-            let edge_name = snap.edge_name(edge_idx);
-            let edge_type = snap.edge_type_name(edge_idx);
             let child_id = snap.node_id(child_ordinal);
 
             let indent = "  ".repeat(depth);
@@ -102,14 +74,20 @@ pub fn print_containment(
                 "\u{25b6} " /* ▶ */
             };
 
-            let edge_label = if edge_type == "element" || edge_type == "hidden" {
-                format!("[{edge_name}]")
-            } else {
-                edge_name
-            };
+            let label = snap.format_edge_label(edge_idx, child_ordinal);
+            let prefix = format!("{indent}{marker}");
+            let max_name_len = COL_NAME_TREE.saturating_sub(display_width(&prefix));
+            let label = truncate_str(&label, max_name_len);
+            let name_col = pad_str(&format!("{prefix}{label}"), COL_NAME_TREE);
 
-            let prefix = format!("{indent}{marker}{edge_label} :: ");
-            print_node_line(snap, child_ordinal, &prefix, total_shallow, total_retained);
+            print_data_cols(
+                &name_col,
+                snap.node_distance(child_ordinal),
+                snap.node_self_size(child_ordinal) as f64,
+                snap.node_retained_size(child_ordinal),
+                total_shallow,
+                total_retained,
+            );
 
             if should_expand
                 || (!visited.contains(&child_ordinal) && expand.contains_key(&child_id))
@@ -139,7 +117,19 @@ pub fn print_containment(
         }
     }
 
-    print_node_line(snap, node_ordinal, "", total_shallow, total_retained);
+    {
+        let label = snap.format_node_label(node_ordinal);
+        let label = truncate_str(&label, COL_NAME_TREE);
+        let name_col = pad_str(&label, COL_NAME_TREE);
+        print_data_cols(
+            &name_col,
+            snap.node_distance(node_ordinal),
+            snap.node_self_size(node_ordinal) as f64,
+            snap.node_retained_size(node_ordinal),
+            total_shallow,
+            total_retained,
+        );
+    }
     let mut visited: FxHashSet<NodeOrdinal> = FxHashSet::default();
     visited.insert(node_ordinal);
     walk(

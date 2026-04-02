@@ -102,8 +102,5 @@ fn summary_shows_statistics() {
         stdout.contains("Extra Native:"),
         "expected Extra Native stat"
     );
-    assert!(
-        stdout.contains("Unreachable:"),
-        "expected Unreachable stat"
-    );
+    assert!(stdout.contains("Unreachable:"), "expected Unreachable stat");
 }

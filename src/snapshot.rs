@@ -3176,6 +3176,44 @@ impl HeapSnapshot {
         self.strings[name_or_index as usize].clone()
     }
 
+    /// Format a node label: `@id name` (or just `@id` if name is empty)
+    pub fn format_node_label(&self, ordinal: NodeOrdinal) -> String {
+        let name = self.node_display_name(ordinal);
+        let id = self.node_id(ordinal);
+        if name.is_empty() {
+            format!("@{id}")
+        } else {
+            format!("@{id} {name}")
+        }
+    }
+
+    /// Format the edge name portion, bracketing element/hidden edges.
+    fn format_edge_name(&self, edge_idx: usize) -> String {
+        let edge_name = self.edge_name(edge_idx);
+        let edge_type = self.edge_type_name(edge_idx);
+        if edge_type == "element" || edge_type == "hidden" {
+            format!("[{edge_name}]")
+        } else if edge_name.is_empty() {
+            "??".to_string()
+        } else {
+            edge_name
+        }
+    }
+
+    /// Format an outgoing edge label: `edge :: @id name`
+    pub fn format_edge_label(&self, edge_idx: usize, child_ord: NodeOrdinal) -> String {
+        let edge = self.format_edge_name(edge_idx);
+        let node = self.format_node_label(child_ord);
+        format!("{edge} :: {node}")
+    }
+
+    /// Format a retainer edge label: `edge in @id name`
+    pub fn format_retainer_label(&self, edge_idx: usize, ret_ord: NodeOrdinal) -> String {
+        let edge = self.format_edge_name(edge_idx);
+        let node = self.format_node_label(ret_ord);
+        format!("{edge} in {node}")
+    }
+
     pub fn is_invisible_edge(&self, edge_index: usize) -> bool {
         self.edges[edge_index + self.edge_type_offset] == self.edge_invisible_type
     }
