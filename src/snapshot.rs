@@ -2951,8 +2951,7 @@ impl HeapSnapshot {
                 let edge_name = &self.strings[name_idx];
                 if edge_name == "first" || edge_name == "second" {
                     let child_index = self.edges[ei + self.edge_to_node_offset] as usize;
-                    let child_name_idx =
-                        self.nodes[child_index + self.node_name_offset] as usize;
+                    let child_name_idx = self.nodes[child_index + self.node_name_offset] as usize;
                     if self.strings[child_name_idx].is_empty() {
                         return true;
                     }

@@ -5714,9 +5714,9 @@ fn test_duplicate_strings_sliced_strings_excluded() {
     let snap = build_snapshot(
         standard_node_fields(),
         vec![
-            9, 0, 1, 0, 1,   // 0: root
-            9, 1, 3, 0, 2,   // 1: GC roots
-            2, 2, 5, 40, 0,  // 2: string "hello"
+            9, 0, 1, 0, 1, // 0: root
+            9, 1, 3, 0, 2, // 1: GC roots
+            2, 2, 5, 40, 0, // 2: string "hello"
             11, 2, 7, 20, 0, // 3: sliced string "hello"
         ],
         vec![1, 0, n(1), 2, 3, n(2), 2, 3, n(3)],
@@ -5736,19 +5736,31 @@ fn test_duplicate_strings_flat_cons_string_excluded() {
     let snap = build_snapshot(
         standard_node_fields(),
         vec![
-            9, 0, 1, 0, 1,   // 0: root
-            9, 1, 3, 0, 3,   // 1: GC roots
-            2, 2, 5, 40, 0,  // 2: string "hello"
+            9, 0, 1, 0, 1, // 0: root
+            9, 1, 3, 0, 3, // 1: GC roots
+            2, 2, 5, 40, 0, // 2: string "hello"
             10, 2, 7, 40, 2, // 3: cons string "hello" (flat: second is "")
-            2, 0, 9, 0, 0,   // 4: string "" (empty, target of "second")
+            2, 0, 9, 0, 0, // 4: string "" (empty, target of "second")
         ],
         vec![
-            1, 0, n(1),  // root -> GC roots
-            2, 4, n(2),  // GC roots -> string "hello"
-            2, 4, n(3),  // GC roots -> cons string "hello"
-            2, 4, n(4),  // GC roots -> string ""
-            3, 3, n(2),  // cons string: internal "first" -> string "hello"
-            3, 5, n(4),  // cons string: internal "second" -> string ""
+            1,
+            0,
+            n(1), // root -> GC roots
+            2,
+            4,
+            n(2), // GC roots -> string "hello"
+            2,
+            4,
+            n(3), // GC roots -> cons string "hello"
+            2,
+            4,
+            n(4), // GC roots -> string ""
+            3,
+            3,
+            n(2), // cons string: internal "first" -> string "hello"
+            3,
+            5,
+            n(4), // cons string: internal "second" -> string ""
         ],
         s(&["", "(GC roots)", "hello", "first", "ref", "second"]),
     );
@@ -5768,36 +5780,54 @@ fn test_duplicate_strings_non_flat_cons_string_included() {
     let snap = build_snapshot(
         standard_node_fields(),
         vec![
-            9, 0, 1, 0, 1,    // 0: root
-            9, 1, 3, 0, 4,    // 1: GC roots
-            2, 5, 5, 40, 0,   // 2: string "helloworld"
-            10, 5, 7, 40, 2,  // 3: cons string "helloworld" (first="hello", second="world")
-            2, 2, 9, 20, 0,   // 4: string "hello" (first part)
-            2, 6, 11, 20, 0,  // 5: string "world" (second part)
+            9, 0, 1, 0, 1, // 0: root
+            9, 1, 3, 0, 4, // 1: GC roots
+            2, 5, 5, 40, 0, // 2: string "helloworld"
+            10, 5, 7, 40, 2, // 3: cons string "helloworld" (first="hello", second="world")
+            2, 2, 9, 20, 0, // 4: string "hello" (first part)
+            2, 6, 11, 20, 0, // 5: string "world" (second part)
         ],
         vec![
-            1, 0, n(1),  // root -> GC roots
-            2, 7, n(2),  // GC roots -> string "helloworld"
-            2, 7, n(3),  // GC roots -> cons string
-            2, 7, n(4),  // GC roots -> "hello"
-            2, 7, n(5),  // GC roots -> "world"
-            3, 3, n(4),  // cons: internal "first" -> "hello"
-            3, 8, n(5),  // cons: internal "second" -> "world"
+            1,
+            0,
+            n(1), // root -> GC roots
+            2,
+            7,
+            n(2), // GC roots -> string "helloworld"
+            2,
+            7,
+            n(3), // GC roots -> cons string
+            2,
+            7,
+            n(4), // GC roots -> "hello"
+            2,
+            7,
+            n(5), // GC roots -> "world"
+            3,
+            3,
+            n(4), // cons: internal "first" -> "hello"
+            3,
+            8,
+            n(5), // cons: internal "second" -> "world"
         ],
         s(&[
-            "",            // 0
-            "(GC roots)",  // 1
-            "hello",       // 2
-            "first",       // 3
-            "ref",         // 4
-            "helloworld",  // 5
-            "world",       // 6
-            "ref",         // 7
-            "second",      // 8
+            "",           // 0
+            "(GC roots)", // 1
+            "hello",      // 2
+            "first",      // 3
+            "ref",        // 4
+            "helloworld", // 5
+            "world",      // 6
+            "ref",        // 7
+            "second",     // 8
         ]),
     );
     let dupes = snap.duplicate_strings();
-    assert_eq!(dupes.len(), 1, "non-flat cons string duplicate should be reported");
+    assert_eq!(
+        dupes.len(),
+        1,
+        "non-flat cons string duplicate should be reported"
+    );
     assert_eq!(dupes[0].value, "helloworld");
     assert_eq!(dupes[0].count, 2);
 }
