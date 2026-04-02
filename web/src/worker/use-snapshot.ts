@@ -63,12 +63,15 @@ export function createSnapshot() {
     });
   };
 
+  const [filename, setFilename] = createSignal<string | null>(null);
+
   async function loadFile(file: File) {
     setLoading(true);
     setError(null);
     try {
       const buffer = await file.arrayBuffer();
       await call({ type: 'load', data: buffer });
+      setFilename(file.name);
       setLoaded(true);
     } catch (err) {
       setError(String(err));
@@ -77,5 +80,5 @@ export function createSnapshot() {
     }
   }
 
-  return { loading, loaded, error, loadFile, call };
+  return { loading, loaded, error, filename, loadFile, call };
 }
