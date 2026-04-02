@@ -367,6 +367,10 @@ export function App(): JSX.Element {
                     navigate({ nodeId: m().nodeId, target: 'Summary' }),
                 },
                 {
+                  label: 'Remember object',
+                  action: () => pushHistory(active(), m().nodeId),
+                },
+                {
                   label: 'Compute reachable size',
                   action: () => computeReachableSize(m().nodeId),
                 },

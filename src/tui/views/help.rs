@@ -57,6 +57,7 @@ impl App {
             Line::from("  s jumps the selected object back to Summary"),
             Line::from("  d opens the selected object in Dominators view"),
             Line::from("  c opens the selected object in Containment view"),
+            Line::from("  m remembers the selected object (adds to History)"),
             Line::from("  R computes Reachable Size for the selected object"),
             Line::from("  A computes Reachable Size for the selected object and its outgoing refs"),
             Line::from(""),

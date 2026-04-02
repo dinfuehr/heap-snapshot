@@ -321,6 +321,13 @@ impl App {
                     }
                 }
             }
+            KeyCode::Char('m') => {
+                if let Some(row) = self.current_row() {
+                    if let Some(ordinal) = row.node_ordinal() {
+                        self.push_history(ordinal);
+                    }
+                }
+            }
             KeyCode::Char('+') | KeyCode::Char('=') => {
                 self.adjust_edge_count(EDGE_PAGE_SIZE as isize, snap);
             }

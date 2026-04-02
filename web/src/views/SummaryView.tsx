@@ -41,13 +41,29 @@ function ExpandableObject(props: {
   onSelect: (sel: RowSelection) => void;
 }): JSX.Element {
   const [expanded, setExpanded] = createSignal(false);
+  const [loading, setLoading] = createSignal(false);
+  const [childrenLoaded, setChildrenLoaded] = createSignal(false);
 
-  const toggle = () => setExpanded((v) => !v);
+  const toggle = async () => {
+    if (expanded()) {
+      setExpanded(false);
+      return;
+    }
+    if (!childrenLoaded()) {
+      setLoading(true);
+      // Children will be loaded by ObjectChildren on mount;
+      // we set expanded to trigger the mount, then wait for it.
+      setExpanded(true);
+      return;
+    }
+    setExpanded(true);
+  };
 
   return (
     <TreeTableRow
       depth={1}
-      expanded={expanded()}
+      expanded={expanded() && !loading()}
+      loading={loading()}
       onToggle={toggle}
       label={<>{props.obj.name}</>}
       linkId={props.obj.id}
@@ -68,6 +84,10 @@ function ExpandableObject(props: {
           selection={props.selection}
           onSelect={props.onSelect}
           depth={2}
+          onLoaded={() => {
+            setChildrenLoaded(true);
+            setLoading(false);
+          }}
         />
       </Show>
     </TreeTableRow>
@@ -82,6 +102,7 @@ function ObjectChildren(props: {
   selection: () => RowSelection | null;
   onSelect: (sel: RowSelection) => void;
   depth: number;
+  onLoaded?: () => void;
 }): JSX.Element {
   const [children, setChildren] = createSignal<
     {
@@ -124,6 +145,7 @@ function ObjectChildren(props: {
     setOffset(o);
     setFilter(f);
     setLoaded(true);
+    props.onLoaded?.();
   };
 
   loadChildren(0, PAGE_SIZE, '');

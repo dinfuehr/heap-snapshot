@@ -46,6 +46,7 @@ export function TreeTableHeader(): JSX.Element {
 export function TreeTableRow(props: {
   depth: number;
   expanded?: boolean;
+  loading?: boolean;
   onToggle?: () => void;
   prefix?: JSX.Element;
   label: JSX.Element;
@@ -66,10 +67,14 @@ export function TreeTableRow(props: {
 
   const handleClick = (e: MouseEvent) => {
     if ((e.target as HTMLElement).closest('a')) return;
-    props.onToggle?.();
     if (props.linkId !== undefined && props.onSelect) {
       props.onSelect({ rowId, nodeId: props.linkId });
     }
+  };
+
+  const handleDblClick = (e: MouseEvent) => {
+    if ((e.target as HTMLElement).closest('a')) return;
+    props.onToggle?.();
   };
 
   const handleContextMenu = (e: MouseEvent) => {
@@ -97,8 +102,9 @@ export function TreeTableRow(props: {
     <>
       <tr
         onClick={handleClick}
+        onDblClick={handleDblClick}
         onContextMenu={handleContextMenu}
-        style={{ cursor: 'pointer', background: bg() }}
+        style={{ cursor: 'pointer', background: bg(), 'user-select': 'none' }}
       >
         <td
           style={{
@@ -111,8 +117,14 @@ export function TreeTableRow(props: {
           }}
         >
           {props.onToggle !== undefined ? (
-            <span style={{ display: 'inline-block', width: '16px' }}>
-              {props.expanded ? '\u25bc' : '\u25b6'}
+            <span
+              style={{ display: 'inline-block', width: '16px', cursor: 'pointer' }}
+              onClick={(e) => {
+                e.stopPropagation();
+                props.onToggle?.();
+              }}
+            >
+              {props.loading ? '\u23F3' : props.expanded ? '\u25bc' : '\u25b6'}
             </span>
           ) : (
             <span style={{ display: 'inline-block', width: '16px' }}> </span>

@@ -26,6 +26,7 @@ function TreeNode(props: {
   initialExpanded?: boolean;
 }): JSX.Element {
   const [expanded, setExpanded] = createSignal(props.initialExpanded ?? false);
+  const [loading, setLoading] = createSignal(false);
   const [children, setChildren] = createSignal<
     { edgeLabel: string; node: NodeInfo }[] | null
   >(null);
@@ -65,10 +66,12 @@ function TreeNode(props: {
       setExpanded(false);
       return;
     }
-    setExpanded(true);
     if (!children()) {
+      setLoading(true);
       await loadChildren(0, PAGE_SIZE, '');
+      setLoading(false);
     }
+    setExpanded(true);
   };
 
   const hasChildren = props.node.edge_count > 0;
@@ -77,6 +80,7 @@ function TreeNode(props: {
     <TreeTableRow
       depth={props.depth}
       expanded={expanded()}
+      loading={loading()}
       onToggle={hasChildren ? toggle : undefined}
       prefix={
         props.edgeLabel ? (
