@@ -135,6 +135,16 @@ struct CompareSnapshotsParams {
     limit: Option<usize>,
 }
 
+#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+struct GetDuplicateStringsParams {
+    /// Snapshot ID returned by load_snapshot
+    snapshot_id: u32,
+    /// Number of entries to skip (default: 0)
+    offset: Option<usize>,
+    /// Maximum number of entries to return (default: 20)
+    limit: Option<usize>,
+}
+
 // ---------------------------------------------------------------------------
 // Server state
 // ---------------------------------------------------------------------------
@@ -1023,6 +1033,72 @@ impl McpServer {
                     lines.join("\n"),
                 )]))
             }
+        })
+        .await
+        .map_err(|e| McpError::internal_error(format!("Task failed: {e}"), None))?
+    }
+
+    #[tool(
+        description = "Find duplicate strings in the heap. Shows strings that appear more than once, sorted by wasted bytes (total size minus one instance). Returns the string value, count, instance size, total size, and wasted bytes for each duplicate."
+    )]
+    async fn get_duplicate_strings(
+        &self,
+        Parameters(params): Parameters<GetDuplicateStringsParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let snapshot = {
+            let snapshots = self.snapshots.lock().await;
+            Arc::clone(snapshots.get(&params.snapshot_id).ok_or_else(|| {
+                McpError::invalid_params(
+                    format!("No snapshot found with id {}", params.snapshot_id),
+                    None,
+                )
+            })?)
+        };
+
+        let offset = params.offset.unwrap_or(0);
+        let limit = params.limit.unwrap_or(20);
+
+        tokio::task::spawn_blocking(move || {
+            let duplicates = snapshot.duplicate_strings();
+            let total = duplicates.len();
+            let total_wasted: f64 = duplicates.iter().map(|d| d.wasted_size()).sum();
+            let start = offset.min(total);
+            let end = (start + limit).min(total);
+
+            let mut lines = Vec::new();
+            lines.push(format!(
+                "{total} duplicate string groups, {total_wasted:.0} bytes wasted total"
+            ));
+            lines.push(format!("Showing entries {start}..{end}:"));
+            lines.push(String::new());
+
+            for entry in &duplicates[start..end] {
+                let display = if entry.value.len() > 80 {
+                    format!("{}...", &entry.value[..77])
+                } else {
+                    entry.value.clone()
+                };
+                lines.push(format!(
+                    "\"{}\" x{} (instance_size: {:.0}, total: {:.0}, wasted: {:.0})",
+                    display,
+                    entry.count,
+                    entry.instance_size,
+                    entry.total_size,
+                    entry.wasted_size(),
+                ));
+            }
+
+            if end < total {
+                lines.push(String::new());
+                lines.push(format!(
+                    "Use offset={end} to see more entries ({} remaining).",
+                    total - end
+                ));
+            }
+
+            Ok(CallToolResult::success(vec![Content::text(
+                lines.join("\n"),
+            )]))
         })
         .await
         .map_err(|e| McpError::internal_error(format!("Task failed: {e}"), None))?

@@ -1143,3 +1143,76 @@ fn compare_snapshots_invalid_snapshot_id() {
         "expected missing snapshot error, got: {err}"
     );
 }
+
+// ── get_duplicate_strings ──────────────────────────────────────────────
+
+#[test]
+fn get_duplicate_strings_basic() {
+    let mut proc = McpProcess::start();
+    let path = format!("{}/heap-1.heapsnapshot", test_dir());
+
+    proc.call_tool(1, "load_snapshot", serde_json::json!({ "path": path }));
+
+    let resp = proc.call_tool(
+        2,
+        "get_duplicate_strings",
+        serde_json::json!({ "snapshot_id": 1 }),
+    );
+    let text = get_text(&resp);
+    assert!(
+        text.contains("duplicate string groups"),
+        "expected summary header, got: {text}"
+    );
+    assert!(
+        text.contains("bytes wasted total"),
+        "expected wasted bytes in header, got: {text}"
+    );
+}
+
+#[test]
+fn get_duplicate_strings_pagination() {
+    let mut proc = McpProcess::start();
+    let path = format!("{}/heap-1.heapsnapshot", test_dir());
+
+    proc.call_tool(1, "load_snapshot", serde_json::json!({ "path": path }));
+
+    // Request only 2 entries
+    let resp = proc.call_tool(
+        2,
+        "get_duplicate_strings",
+        serde_json::json!({ "snapshot_id": 1, "limit": 2 }),
+    );
+    let text = get_text(&resp);
+    assert!(
+        text.contains("Showing entries 0..2"),
+        "expected paginated range, got: {text}"
+    );
+
+    // Request with offset
+    let resp2 = proc.call_tool(
+        3,
+        "get_duplicate_strings",
+        serde_json::json!({ "snapshot_id": 1, "offset": 2, "limit": 2 }),
+    );
+    let text2 = get_text(&resp2);
+    assert!(
+        text2.contains("Showing entries 2..4"),
+        "expected offset range, got: {text2}"
+    );
+}
+
+#[test]
+fn get_duplicate_strings_invalid_snapshot() {
+    let mut proc = McpProcess::start();
+
+    let resp = proc.call_tool(
+        1,
+        "get_duplicate_strings",
+        serde_json::json!({ "snapshot_id": 999 }),
+    );
+    let err = get_error_message(&resp);
+    assert!(
+        err.contains("No snapshot found"),
+        "expected not-found error, got: {err}"
+    );
+}

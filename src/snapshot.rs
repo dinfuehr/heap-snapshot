@@ -2933,6 +2933,36 @@ impl HeapSnapshot {
         Self::normalize_display_name(self.node_raw_name(ordinal))
     }
 
+    /// Returns true if this cons string has been "flattened" by V8, meaning
+    /// one of its two parts (`first` or `second`) is the empty string.
+    fn is_flat_cons_string(&self, ordinal: NodeOrdinal) -> bool {
+        let ni = ordinal.0 * self.node_field_count;
+        if self.nodes[ni + self.node_type_offset] != self.node_cons_string_type {
+            return false;
+        }
+        let efc = self.edge_fields_count;
+        let begin = self.first_edge_indexes[ordinal.0] as usize;
+        let end = self.first_edge_indexes[ordinal.0 + 1] as usize;
+        let mut ei = begin;
+        while ei < end {
+            let edge_type = self.edges[ei + self.edge_type_offset];
+            if edge_type == self.edge_internal_type {
+                let name_idx = self.edges[ei + self.edge_name_offset] as usize;
+                let edge_name = &self.strings[name_idx];
+                if edge_name == "first" || edge_name == "second" {
+                    let child_index = self.edges[ei + self.edge_to_node_offset] as usize;
+                    let child_name_idx =
+                        self.nodes[child_index + self.node_name_offset] as usize;
+                    if self.strings[child_name_idx].is_empty() {
+                        return true;
+                    }
+                }
+            }
+            ei += efc;
+        }
+        false
+    }
+
     fn cons_string_name(&self, ordinal: NodeOrdinal) -> String {
         let nfc = self.node_field_count;
         let efc = self.edge_fields_count;
@@ -3346,9 +3376,15 @@ impl HeapSnapshot {
         for ordinal in 0..self.node_count {
             let ni = ordinal * nfc;
             let raw_type = self.nodes[ni + self.node_type_offset];
-            if raw_type != self.node_string_type
-                && raw_type != self.node_cons_string_type
-                && raw_type != self.node_sliced_string_type
+            if raw_type != self.node_string_type && raw_type != self.node_cons_string_type {
+                continue;
+            }
+
+            // Skip flattened cons strings — V8 internal artifacts where one
+            // part is empty.  Reporting these as duplicates of their own
+            // content is just noise.
+            if raw_type == self.node_cons_string_type
+                && self.is_flat_cons_string(NodeOrdinal(ordinal))
             {
                 continue;
             }
