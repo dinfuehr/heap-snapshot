@@ -46,6 +46,9 @@ heap-snapshot stack snapshot.heapsnapshot
 
 # Dump native context info
 heap-snapshot contexts snapshot.heapsnapshot
+
+# Print allocation timeline (for snapshots with allocation tracking)
+heap-snapshot timeline snapshot.heaptimeline
 ```
 
 ### Snapshot options
@@ -61,10 +64,44 @@ heap-snapshot tui --weak-is-reachable snapshot.heapsnapshot
 
 Run `heap-snapshot --help` or `heap-snapshot <subcommand> --help` for full option details.
 
-## Running tests
+## Web UI
+
+The web UI is a Solid.js app in `web/` that uses a WASM build of the Rust core.
+
+### Development
 
 ```sh
-cargo test
+cd web
+npm install
+npm run dev        # builds WASM + starts vite dev server
+```
+
+### Available scripts
+
+```sh
+npm run build:wasm   # build the WASM module
+npm run dev          # build WASM + start dev server
+npm run build        # build WASM + production build
+npm run typecheck    # run TypeScript type checking
+npm run fmt          # format code with prettier
+npm run test:e2e     # run Playwright end-to-end tests
+```
+
+## Running tests
+
+Run all tests and checks with:
+
+```sh
+./test.py
+```
+
+This runs Rust formatting and tests, builds WASM, checks TypeScript types, verifies prettier formatting, and runs Playwright e2e tests. Requires [uv](https://docs.astral.sh/uv/).
+
+Individual test suites can also be run separately:
+
+```sh
+cargo test                     # Rust unit + e2e tests
+cd web && npm run test:e2e     # Playwright e2e tests (requires WASM built)
 ```
 
 ## Running benchmarks

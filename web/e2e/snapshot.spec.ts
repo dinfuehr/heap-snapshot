@@ -1,5 +1,9 @@
 import { test, expect } from '@playwright/test';
+import * as path from 'path';
+import { fileURLToPath } from 'url';
 import { loadSnapshot } from './helpers';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 test.describe('Heap Snapshot Viewer', () => {
   test.beforeEach(async ({ page }) => {
@@ -256,5 +260,242 @@ test.describe('Heap Snapshot Viewer', () => {
 
     // Menu should be gone
     await expect(page.locator('text=Show retainers')).not.toBeVisible();
+  });
+
+  // ── Containment view ──────────────────────────────────────────────────
+
+  test('containment view shows GC roots', async ({ page }) => {
+    await page.locator('button:has-text("Containment")').click();
+
+    // Should show (GC roots) in the tree
+    await expect(page.locator('text=(GC roots)').first()).toBeVisible();
+  });
+
+  test('containment view can expand nodes', async ({ page }) => {
+    await page.locator('button:has-text("Containment")').click();
+
+    // (GC roots) should be auto-expanded, showing child nodes with edge labels
+    // Look for edge separator " :: " which indicates edge labels are present
+    await expect(
+      page.locator('tr:visible').filter({ hasText: '::' }).first(),
+    ).toBeVisible({ timeout: 5000 });
+  });
+
+  // ── Dominators view ───────────────────────────────────────────────────
+
+  test('dominators view shows root', async ({ page }) => {
+    await page.locator('button:has-text("Dominators")').click();
+
+    // Should show a tree with at least one visible row containing an object ID
+    await expect(
+      page.locator('tr:visible').filter({ hasText: '@' }).first(),
+    ).toBeVisible({ timeout: 5000 });
+  });
+
+  test('dominators view can expand root', async ({ page }) => {
+    await page.locator('button:has-text("Dominators")').click();
+
+    // Double-click the first row to expand
+    const firstRow = page
+      .locator('tr:visible')
+      .filter({ hasText: '@' })
+      .first();
+    await firstRow.dblclick();
+
+    // Should show more rows after expanding
+    const rows = page.locator('tr:visible').filter({ hasText: '@' });
+    await expect(rows.nth(1)).toBeVisible({ timeout: 5000 });
+  });
+
+  // ── Retainers view ────────────────────────────────────────────────────
+
+  test('retainers view can look up an object', async ({ page }) => {
+    // First get an object ID from the summary
+    const firstGroup = page
+      .locator('table')
+      .first()
+      .locator('tbody tr')
+      .first();
+    await firstGroup.dblclick();
+
+    const objectLink = page
+      .locator('a[href="#"]')
+      .filter({ hasText: '@' })
+      .first();
+    await expect(objectLink).toBeVisible({ timeout: 5000 });
+    const linkText = await objectLink.textContent();
+    const objectId = linkText!.trim();
+
+    // Navigate to retainers
+    await page.locator('button:has-text("Retainers")').click();
+
+    const input = page.locator('input[placeholder="@12345"]');
+    await input.fill(objectId);
+    await page.locator('button:has-text("Go")').click();
+
+    // Should show the object info header (rendered as <strong>@id</strong>)
+    await expect(
+      page.locator('strong').filter({ hasText: objectId }).first(),
+    ).toBeVisible({ timeout: 5000 });
+  });
+
+  test('clicking @id link navigates to retainers', async ({ page }) => {
+    // Go to containment view and find a link
+    await page.locator('button:has-text("Containment")').click();
+    const link = page.locator('a[href="#"]').filter({ hasText: '@' }).first();
+    await expect(link).toBeVisible({ timeout: 5000 });
+
+    // Click the link (left click navigates to retainers)
+    await link.click();
+
+    // Should switch to Retainers tab
+    const retainersTab = page.locator('button:has-text("Retainers")');
+    await expect(retainersTab).toHaveCSS('font-weight', '700');
+  });
+
+  // ── Multiple snapshots ────────────────────────────────────────────────
+
+  test('can load two snapshots and switch between them', async ({ page }) => {
+    const loadButton = page.locator('button:has-text("+ Load snapshot")');
+
+    // Load a second snapshot via the "+ Load snapshot" button
+    // We need to intercept the file input it creates
+    const [fileChooser] = await Promise.all([
+      page.waitForEvent('filechooser'),
+      loadButton.click(),
+    ]);
+    await fileChooser.setFiles(
+      path.resolve(__dirname, '../../tests/data/heap-2.heapsnapshot'),
+    );
+
+    // Wait for the second snapshot to load — should show two snapshot buttons
+    await expect(
+      page.locator('button').filter({ hasText: 'heap-2' }),
+    ).toBeVisible({
+      timeout: 15000,
+    });
+
+    // Both snapshot buttons should be visible
+    await expect(
+      page.locator('button').filter({ hasText: 'heap-1' }),
+    ).toBeVisible();
+    await expect(
+      page.locator('button').filter({ hasText: 'heap-2' }),
+    ).toBeVisible();
+
+    // Switch back to first snapshot
+    await page.locator('button').filter({ hasText: 'heap-1' }).click();
+
+    // Summary should still show content
+    const rows = page.locator('table').first().locator('tbody tr');
+    await expect(rows.first()).toBeVisible();
+  });
+
+  // ── Edge labels ───────────────────────────────────────────────────────
+
+  test('containment edges show correct format', async ({ page }) => {
+    await page.locator('button:has-text("Containment")').click();
+
+    // Wait for edges to appear — they should have " :: " separator
+    const edgeRow = page
+      .locator('tr:visible')
+      .filter({ hasText: '::' })
+      .first();
+    await expect(edgeRow).toBeVisible({ timeout: 5000 });
+
+    // Edge should contain @id
+    const text = await edgeRow.textContent();
+    expect(text).toMatch(/@\d+/);
+  });
+
+  // ── Summary object expansion ──────────────────────────────────────────
+
+  test('expanding an object in summary shows its children', async ({
+    page,
+  }) => {
+    // Expand a constructor group
+    const firstGroup = page
+      .locator('table')
+      .first()
+      .locator('tbody tr')
+      .first();
+    await firstGroup.dblclick();
+
+    // Find an expandable object (has ▶ marker)
+    const objectRow = page
+      .locator('tr:visible')
+      .filter({ hasText: '@' })
+      .first();
+    await expect(objectRow).toBeVisible({ timeout: 5000 });
+
+    // Double-click to expand the object
+    await objectRow.dblclick();
+
+    // Should show children with edge labels (:: separator)
+    await expect(
+      page.locator('tr:visible').filter({ hasText: '::' }).first(),
+    ).toBeVisible({ timeout: 5000 });
+  });
+
+  // ── Keyboard shortcuts ────────────────────────────────────────────────
+
+  test('number keys switch tabs', async ({ page }) => {
+    // Press 2 to switch to Containment
+    await page.keyboard.press('2');
+    await expect(page.locator('button:has-text("Containment")')).toHaveCSS(
+      'font-weight',
+      '700',
+    );
+
+    // Press 3 for Dominators
+    await page.keyboard.press('3');
+    await expect(page.locator('button:has-text("Dominators")')).toHaveCSS(
+      'font-weight',
+      '700',
+    );
+
+    // Press 4 for Retainers
+    await page.keyboard.press('4');
+    await expect(page.locator('button:has-text("Retainers")')).toHaveCSS(
+      'font-weight',
+      '700',
+    );
+
+    // Press 1 to go back to Summary
+    await page.keyboard.press('1');
+    await expect(page.locator('button:has-text("Summary")')).toHaveCSS(
+      'font-weight',
+      '700',
+    );
+
+    // Press 7 for Statistics
+    await page.keyboard.press('7');
+    await expect(page.locator('button:has-text("Statistics")')).toHaveCSS(
+      'font-weight',
+      '700',
+    );
+  });
+
+  test('keyboard shortcuts do not fire when typing in input', async ({
+    page,
+  }) => {
+    // Focus the filter input
+    const filterInput = page.locator(
+      'input[placeholder="Filter constructors..."]',
+    );
+    await filterInput.click();
+    await filterInput.fill('');
+
+    // Type "2" in the input — should not switch tabs
+    await page.keyboard.type('2');
+
+    // Summary tab should still be active
+    await expect(page.locator('button:has-text("Summary")')).toHaveCSS(
+      'font-weight',
+      '700',
+    );
+
+    // Input should contain "2"
+    await expect(filterInput).toHaveValue('2');
   });
 });

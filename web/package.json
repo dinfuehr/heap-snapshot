@@ -8,7 +8,8 @@
     "build": "npm run build:wasm && vite build",
     "preview": "vite preview",
     "test:e2e": "npx playwright test",
-    "fmt": "prettier --write 'src/**/*.{ts,tsx}' 'e2e/**/*.ts'"
+    "fmt": "prettier --write 'src/**/*.{ts,tsx}' 'e2e/**/*.ts'",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "solid-js": "^1.9.0"

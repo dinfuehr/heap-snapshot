@@ -57,13 +57,12 @@ enum Command {
         /// Expand a node's edges: @id, @id:start, or @id:start:count (can be repeated)
         #[arg(short = 'e', long, value_name = "ID")]
         expand: Vec<String>,
-        /// Show only unreachable objects
-        #[arg(long)]
-        unreachable: bool,
-        /// Show only fully unreachable objects (distance U), excluding those
-        /// only reachable from other unreachable objects (U+1, U+2, …)
-        #[arg(long)]
-        really_unreachable: bool,
+        /// Filter objects: unreachable, unreachable-roots, detached-dom, console, event-handlers
+        #[arg(long, value_name = "FILTER")]
+        filter: Option<String>,
+        /// Show summary for a specific allocation timeline interval (0-based index)
+        #[arg(long, value_name = "INDEX")]
+        filter_interval: Option<usize>,
     },
     /// Print heap statistics
     Statistics {
@@ -317,18 +316,32 @@ fn main() {
             depth,
             expand_group,
             expand,
-            unreachable,
-            really_unreachable,
+            filter,
+            filter_interval,
         } => {
             let snap = load_snapshot(&snap_args.to_options(), &file);
             let expand_ctors = parse_expand_group(&expand_group);
             let expand_ids = parse_expand(&expand);
-            let mode = if really_unreachable {
-                print::summary::UnreachableMode::RootsOnly
-            } else if unreachable {
-                print::summary::UnreachableMode::All
+
+            let mode = if let Some(idx) = filter_interval {
+                print::summary::SummaryFilter::Interval(idx)
             } else {
-                print::summary::UnreachableMode::Off
+                match filter.as_deref() {
+                    Some("unreachable") => print::summary::SummaryFilter::Unreachable,
+                    Some("unreachable-roots") => print::summary::SummaryFilter::UnreachableRoots,
+                    Some("detached-dom") => print::summary::SummaryFilter::RetainedByDetachedDom,
+                    Some("console") => print::summary::SummaryFilter::RetainedByConsole,
+                    Some("event-handlers") => {
+                        print::summary::SummaryFilter::RetainedByEventHandlers
+                    }
+                    None => print::summary::SummaryFilter::All,
+                    Some(other) => {
+                        eprintln!(
+                            "Error: unknown filter '{other}'. Valid filters: unreachable, unreachable-roots, detached-dom, console, event-handlers"
+                        );
+                        std::process::exit(1);
+                    }
+                }
             };
             print::summary::print_summary(&snap, depth, &expand_ctors, &expand_ids, mode);
         }

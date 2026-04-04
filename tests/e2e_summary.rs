@@ -104,3 +104,67 @@ fn summary_shows_statistics() {
     );
     assert!(stdout.contains("Unreachable:"), "expected Unreachable stat");
 }
+
+#[test]
+fn summary_filter_unreachable() {
+    let output = run_summary("heap-1.heapsnapshot", &["--filter", "unreachable"]);
+    // heap-1 has 0 unreachable objects
+    assert!(
+        output.contains("No matching objects found"),
+        "expected no matching objects for unreachable filter, got: {output}"
+    );
+}
+
+#[test]
+fn summary_filter_unreachable_roots() {
+    let output = run_summary("heap-1.heapsnapshot", &["--filter", "unreachable-roots"]);
+    assert!(
+        output.contains("No matching objects found"),
+        "expected no matching objects for unreachable-roots filter, got: {output}"
+    );
+}
+
+#[test]
+fn summary_filter_detached_dom() {
+    let output = run_summary("heap-1.heapsnapshot", &["--filter", "detached-dom"]);
+    // Should not crash; may or may not have detached DOM nodes
+    assert!(
+        output.contains("Computing aggregates") || output.contains("No matching objects"),
+        "expected valid output for detached-dom filter, got: {output}"
+    );
+}
+
+#[test]
+fn summary_filter_console() {
+    let output = run_summary("heap-1.heapsnapshot", &["--filter", "console"]);
+    assert!(
+        output.contains("Computing aggregates") || output.contains("No matching objects"),
+        "expected valid output for console filter, got: {output}"
+    );
+}
+
+#[test]
+fn summary_filter_event_handlers() {
+    let output = run_summary("heap-1.heapsnapshot", &["--filter", "event-handlers"]);
+    assert!(
+        output.contains("Computing aggregates") || output.contains("No matching objects"),
+        "expected valid output for event-handlers filter, got: {output}"
+    );
+}
+
+#[test]
+fn summary_filter_invalid() {
+    let path = format!("{}/{}", test_dir(), "heap-1.heapsnapshot");
+    let mut cmd = heap_snapshot_bin();
+    cmd.arg("summary").arg(&path).arg("--filter").arg("bogus");
+    let output = cmd.output().expect("failed to run heap-snapshot");
+    assert!(
+        !output.status.success(),
+        "expected non-zero exit for invalid filter"
+    );
+    let stderr = String::from_utf8(output.stderr).expect("invalid utf-8");
+    assert!(
+        stderr.contains("unknown filter"),
+        "expected error message about unknown filter, got: {stderr}"
+    );
+}

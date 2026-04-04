@@ -8,10 +8,15 @@ use super::{
 use crate::snapshot::HeapSnapshot;
 use crate::types::{Distance, NodeOrdinal};
 
-pub enum UnreachableMode {
-    Off,
+pub enum SummaryFilter {
     All,
-    RootsOnly,
+    Unreachable,
+    UnreachableRoots,
+    RetainedByDetachedDom,
+    RetainedByConsole,
+    RetainedByEventHandlers,
+    /// Objects allocated in a specific timeline interval (by index).
+    Interval(usize),
 }
 
 fn print_row(
@@ -63,7 +68,7 @@ fn walk_edges(
     base_indent: &str,
     expand: &ExpandMap,
     visited: &mut FxHashSet<NodeOrdinal>,
-    unreachable: bool,
+    is_filtered: bool,
     total_shallow: f64,
     total_retained: f64,
 ) {
@@ -100,7 +105,7 @@ fn walk_edges(
         let label = format!("{base_indent}{marker} {edge_label}");
         let display = truncate_str(&label, COL_NAME_SUMMARY);
 
-        if unreachable {
+        if is_filtered {
             print_row_shallow(
                 &display,
                 snap.node_distance(child_ordinal),
@@ -129,7 +134,7 @@ fn walk_edges(
                 &child_indent,
                 expand,
                 visited,
-                unreachable,
+                is_filtered,
                 total_shallow,
                 total_retained,
             );
@@ -151,24 +156,47 @@ pub fn print_summary(
     max_depth: usize,
     expand_constructors: &GroupExpandMap,
     expand_ids: &ExpandMap,
-    unreachable_mode: UnreachableMode,
+    filter: SummaryFilter,
 ) {
-    let unreachable = !matches!(unreachable_mode, UnreachableMode::Off);
+    let is_filtered = !matches!(filter, SummaryFilter::All);
 
     println!("Computing aggregates...");
-    let aggregates = match unreachable_mode {
-        UnreachableMode::Off => snap.aggregates_with_filter(),
-        UnreachableMode::All => snap.unreachable_aggregates(),
-        UnreachableMode::RootsOnly => snap.unreachable_root_aggregates(),
+    let aggregates = match filter {
+        SummaryFilter::All => snap.aggregates_with_filter(),
+        SummaryFilter::Unreachable => snap.unreachable_aggregates(),
+        SummaryFilter::UnreachableRoots => snap.unreachable_root_aggregates(),
+        SummaryFilter::RetainedByDetachedDom => snap.retained_by_detached_dom(),
+        SummaryFilter::RetainedByConsole => snap.retained_by_console(),
+        SummaryFilter::RetainedByEventHandlers => snap.retained_by_event_handlers(),
+        SummaryFilter::Interval(idx) => {
+            let intervals = snap.get_timeline();
+            if idx >= intervals.len() {
+                println!(
+                    "Invalid interval index {idx}, snapshot has {} intervals.",
+                    intervals.len()
+                );
+                return;
+            }
+            let interval = &intervals[idx];
+            let ts_sec = interval.timestamp_us as f64 / 1_000_000.0;
+            println!(
+                "Interval {} ({:.1}s): {} objects, {}",
+                idx,
+                ts_sec,
+                interval.count,
+                format_size(interval.size as f64),
+            );
+            snap.aggregates_for_id_range(interval.id_from, interval.id_to)
+        }
     };
 
-    if unreachable && aggregates.is_empty() {
-        println!("No unreachable objects found.");
+    if is_filtered && aggregates.is_empty() {
+        println!("No matching objects found.");
         return;
     }
 
     let mut entries: Vec<_> = aggregates.values().collect();
-    if unreachable {
+    if is_filtered {
         entries.sort_by(|a, b| {
             b.self_size
                 .partial_cmp(&a.self_size)
@@ -187,13 +215,13 @@ pub fn print_summary(
     let total_shallow: f64 = entries.iter().map(|e| e.self_size).sum();
     let total_retained: f64 = entries.iter().map(|e| e.max_ret).sum();
 
-    let tw = if unreachable {
+    let tw = if is_filtered {
         COL_NAME_SUMMARY + COL_DIST + COL_SHALLOW + COL_SHALLOW_PCT
     } else {
         total_width(COL_NAME_SUMMARY)
     };
 
-    if unreachable {
+    if is_filtered {
         println!(
             "{:<w_name$}{:>w_dist$}{:>w_ss$}",
             "Constructor",
@@ -245,7 +273,7 @@ pub fn print_summary(
             COL_NAME_SUMMARY,
         );
 
-        if unreachable {
+        if is_filtered {
             print_row_shallow(&name_col, entry.distance, entry.self_size, total_shallow);
         } else {
             print_row(
@@ -276,7 +304,7 @@ pub fn print_summary(
                 let label = format!("  {node_marker} {} @{id}", entry.name);
                 let display = truncate_str(&label, COL_NAME_SUMMARY);
 
-                if unreachable {
+                if is_filtered {
                     print_row_shallow(
                         &display,
                         snap.node_distance(ordinal),
@@ -305,7 +333,7 @@ pub fn print_summary(
                         "    ",
                         expand_ids,
                         &mut visited,
-                        unreachable,
+                        is_filtered,
                         total_shallow,
                         total_retained,
                     );
@@ -328,7 +356,7 @@ pub fn print_summary(
         "\u{2500}" /* ─ */
             .repeat(tw)
     );
-    if unreachable {
+    if is_filtered {
         println!(
             "{:<w_name$}{:>w_dist$}{:>w_s$}{:>w_sp$}",
             format!("Total ({} constructors)", entries.len()),
