@@ -8,6 +8,8 @@ use heap_snapshot::retaining_path::{
     RetainerAutoExpandLimits, RetainerPathEdge, plan_gc_root_retainer_paths,
 };
 use heap_snapshot::snapshot::{HeapSnapshot, RootKind, SnapshotOptions};
+use heap_snapshot::types::AggregateInfo;
+use rustc_hash::FxHashMap;
 use heap_snapshot::types::{NodeId, NodeOrdinal};
 
 // ---------------------------------------------------------------------------
@@ -130,6 +132,26 @@ struct JsDominator {
     retained_size: f64,
 }
 
+#[derive(Serialize)]
+struct JsAllocationFrame {
+    function_name: String,
+    script_name: String,
+    line: u32,
+    column: u32,
+}
+
+#[derive(Serialize)]
+struct JsAllocationStack {
+    frames: Vec<JsAllocationFrame>,
+}
+
+#[derive(Serialize)]
+struct JsTimelineInterval {
+    timestamp_us: u64,
+    count: u32,
+    size: u64,
+}
+
 // ---------------------------------------------------------------------------
 // WASM wrapper
 // ---------------------------------------------------------------------------
@@ -137,6 +159,7 @@ struct JsDominator {
 #[wasm_bindgen]
 pub struct WasmHeapSnapshot {
     inner: HeapSnapshot,
+    cached_aggregates: Option<FxHashMap<String, AggregateInfo>>,
 }
 
 impl WasmHeapSnapshot {
@@ -179,7 +202,11 @@ impl WasmHeapSnapshot {
                 weak_is_reachable: false,
             },
         );
-        Ok(WasmHeapSnapshot { inner })
+        let cached_aggregates = Some(inner.aggregates_with_filter());
+        Ok(WasmHeapSnapshot {
+            inner,
+            cached_aggregates,
+        })
     }
 
     pub fn node_count(&self) -> usize {
@@ -204,8 +231,18 @@ impl WasmHeapSnapshot {
         })
     }
 
+    /// Recompute cached aggregates with the given unreachable filter mode.
+    /// 0 = all objects, 1 = all unreachable, 2 = roots only.
+    pub fn set_unreachable_mode(&mut self, mode: u32) {
+        self.cached_aggregates = Some(match mode {
+            1 => self.inner.unreachable_aggregates(),
+            2 => self.inner.unreachable_root_aggregates(),
+            _ => self.inner.aggregates_with_filter(),
+        });
+    }
+
     pub fn get_summary(&self) -> String {
-        let aggregates = self.inner.aggregates_with_filter();
+        let aggregates = self.cached_aggregates.as_ref().unwrap();
         let mut entries: Vec<JsAggregateEntry> = aggregates
             .iter()
             .map(|(key, agg)| JsAggregateEntry {
@@ -226,7 +263,7 @@ impl WasmHeapSnapshot {
         offset: usize,
         limit: usize,
     ) -> Result<String, JsError> {
-        let aggregates = self.inner.aggregates_with_filter();
+        let aggregates = self.cached_aggregates.as_ref().unwrap();
         let entry = aggregates
             .get(constructor)
             .ok_or_else(|| JsError::new(&format!("No constructor group \"{constructor}\"")))?;
@@ -588,5 +625,69 @@ impl WasmHeapSnapshot {
             "Node @{} not found in any aggregate",
             node_id as u64
         )))
+    }
+
+    pub fn has_allocation_data(&self) -> bool {
+        self.inner.has_allocation_data()
+    }
+
+    pub fn get_timeline(&self) -> String {
+        let intervals: Vec<JsTimelineInterval> = self
+            .inner
+            .get_timeline()
+            .iter()
+            .map(|i| JsTimelineInterval {
+                timestamp_us: i.timestamp_us,
+                count: i.count,
+                size: i.size,
+            })
+            .collect();
+        to_json(&intervals)
+    }
+
+    pub fn get_summary_for_interval(&self, interval_index: usize) -> Result<String, JsError> {
+        let intervals = self.inner.get_timeline();
+        let interval = intervals.get(interval_index).ok_or_else(|| {
+            JsError::new(&format!(
+                "Invalid interval index {interval_index}, have {} intervals",
+                intervals.len()
+            ))
+        })?;
+        let aggregates =
+            self.inner
+                .aggregates_for_id_range(interval.id_from, interval.id_to);
+        let mut entries: Vec<JsAggregateEntry> = aggregates
+            .iter()
+            .map(|(key, agg)| JsAggregateEntry {
+                key: key.clone(),
+                name: agg.name.clone(),
+                count: agg.count,
+                self_size: agg.self_size,
+                retained_size: agg.max_ret,
+            })
+            .collect();
+        entries.sort_by(|a, b| b.retained_size.partial_cmp(&a.retained_size).unwrap());
+        Ok(to_json(&entries))
+    }
+
+    pub fn get_allocation_stack(&self, node_id: f64) -> Result<String, JsError> {
+        let ordinal = self.resolve_ordinal(node_id)?;
+        match self.inner.get_allocation_stack(ordinal) {
+            Some(stack) => {
+                let result = JsAllocationStack {
+                    frames: stack
+                        .iter()
+                        .map(|f| JsAllocationFrame {
+                            function_name: f.function_name.clone(),
+                            script_name: f.script_name.clone(),
+                            line: f.line,
+                            column: f.column,
+                        })
+                        .collect(),
+                };
+                Ok(to_json(&result))
+            }
+            None => Ok("null".to_string()),
+        }
     }
 }

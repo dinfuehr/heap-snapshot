@@ -129,6 +129,10 @@ fn make_test_snapshot() -> HeapSnapshot {
         edges,
         strings,
         locations: vec![],
+        trace_function_infos: vec![],
+        trace_tree_parents: vec![],
+        trace_tree_func_idxs: vec![],
+        samples: vec![],
     };
 
     HeapSnapshot::new(raw)
@@ -285,6 +289,10 @@ fn make_js_global_snapshot() -> HeapSnapshot {
         edges,
         strings,
         locations: vec![],
+        trace_function_infos: vec![],
+        trace_tree_parents: vec![],
+        trace_tree_func_idxs: vec![],
+        samples: vec![],
     };
 
     HeapSnapshot::new(raw)
@@ -618,6 +626,10 @@ fn test_node_display_name_number_types() {
         edges,
         strings,
         locations: vec![],
+        trace_function_infos: vec![],
+        trace_tree_parents: vec![],
+        trace_tree_func_idxs: vec![],
+        samples: vec![],
     };
 
     let snap = HeapSnapshot::new(raw);
@@ -796,6 +808,10 @@ fn build_snapshot(
         edges,
         strings,
         locations: vec![],
+        trace_function_infos: vec![],
+        trace_tree_parents: vec![],
+        trace_tree_func_idxs: vec![],
+        samples: vec![],
     };
     HeapSnapshot::new(raw)
 }
@@ -831,6 +847,10 @@ fn build_snapshot_with_options(
         edges,
         strings,
         locations: vec![],
+        trace_function_infos: vec![],
+        trace_tree_parents: vec![],
+        trace_tree_func_idxs: vec![],
+        samples: vec![],
     };
     HeapSnapshot::new_with_options(raw, options)
 }
@@ -1831,6 +1851,10 @@ fn make_location_snapshot() -> HeapSnapshot {
         edges,
         strings,
         locations,
+        trace_function_infos: vec![],
+        trace_tree_parents: vec![],
+        trace_tree_func_idxs: vec![],
+        samples: vec![],
     };
     HeapSnapshot::new(raw)
 }
@@ -2988,6 +3012,10 @@ fn test_statistics_extra_native_bytes() {
         ],
         strings: s(&["", "(GC roots)", "Obj", "o"]),
         locations: vec![],
+        trace_function_infos: vec![],
+        trace_tree_parents: vec![],
+        trace_tree_func_idxs: vec![],
+        samples: vec![],
     };
     let snap = HeapSnapshot::new(raw);
 
@@ -3213,6 +3241,10 @@ fn make_unreachable_snapshot() -> HeapSnapshot {
         edges,
         strings,
         locations: vec![],
+        trace_function_infos: vec![],
+        trace_tree_parents: vec![],
+        trace_tree_func_idxs: vec![],
+        samples: vec![],
     };
 
     HeapSnapshot::new(raw)
@@ -3382,6 +3414,10 @@ fn make_isolated_unreachable_snapshot() -> HeapSnapshot {
         edges,
         strings,
         locations: vec![],
+        trace_function_infos: vec![],
+        trace_tree_parents: vec![],
+        trace_tree_func_idxs: vec![],
+        samples: vec![],
     };
 
     HeapSnapshot::new(raw)
@@ -3526,6 +3562,10 @@ fn test_unreachable_weak_and_strong_to_same_target() {
         edges,
         strings,
         locations: vec![],
+        trace_function_infos: vec![],
+        trace_tree_parents: vec![],
+        trace_tree_func_idxs: vec![],
+        samples: vec![],
     };
 
     let snap = HeapSnapshot::new(raw);
@@ -3678,6 +3718,10 @@ fn test_unreachable_strong_from_unreachable_and_weak_from_reachable() {
         edges,
         strings,
         locations: vec![],
+        trace_function_infos: vec![],
+        trace_tree_parents: vec![],
+        trace_tree_func_idxs: vec![],
+        samples: vec![],
     };
 
     let snap = HeapSnapshot::new(raw);
@@ -3807,6 +3851,10 @@ fn test_unreachable_weak_only_does_not_propagate() {
         edges,
         strings,
         locations: vec![],
+        trace_function_infos: vec![],
+        trace_tree_parents: vec![],
+        trace_tree_func_idxs: vec![],
+        samples: vec![],
     };
 
     let snap = HeapSnapshot::new(raw);
@@ -3945,6 +3993,10 @@ fn build_test_snapshot(strings: Vec<String>, nodes: Vec<u32>, edges: Vec<u32>) -
         edges,
         strings,
         locations: vec![],
+        trace_function_infos: vec![],
+        trace_tree_parents: vec![],
+        trace_tree_func_idxs: vec![],
+        samples: vec![],
     };
 
     HeapSnapshot::new(raw)
@@ -4017,6 +4069,10 @@ fn build_test_snapshot_with_options(
         edges,
         strings,
         locations: vec![],
+        trace_function_infos: vec![],
+        trace_tree_parents: vec![],
+        trace_tree_func_idxs: vec![],
+        samples: vec![],
     };
 
     HeapSnapshot::new_with_options(raw, options)
@@ -6499,6 +6555,10 @@ fn make_function_snapshot() -> HeapSnapshot {
         edges,
         strings,
         locations,
+        trace_function_infos: vec![],
+        trace_tree_parents: vec![],
+        trace_tree_func_idxs: vec![],
+        samples: vec![],
     };
 
     HeapSnapshot::new(raw)
@@ -6624,4 +6684,242 @@ fn test_sfi_unnamed_location() {
     assert_eq!(loc.line, 0);
     assert_eq!(loc.column, 0);
     assert_eq!(snap.format_location(&loc), "utils.js:1:1");
+}
+
+// ── allocation tracking ─────────────────────────────────────────────────
+
+/// Build a snapshot with allocation tracking data.
+///
+/// Nodes include a `trace_node_id` field.
+/// Trace tree:
+///   root (id=1, func_info=0)
+///   └── main (id=2, func_info=1)
+///       ├── alloc_a (id=3, func_info=2)
+///       └── alloc_b (id=4, func_info=3)
+///
+/// Node 2 (Object, id=3) allocated via alloc_a (trace_node_id=3)
+/// Node 3 (Object, id=5) allocated via alloc_b (trace_node_id=4)
+/// Node 4 (Array, id=7) has no allocation info (trace_node_id=0)
+fn make_alloc_tracking_snapshot() -> HeapSnapshot {
+    // 6 fields: type, name, id, self_size, edge_count, trace_node_id
+    let node_fields = s(&[
+        "type",
+        "name",
+        "id",
+        "self_size",
+        "edge_count",
+        "trace_node_id",
+    ]);
+    let nfc = node_fields.len(); // 6
+
+    let nodes: Vec<u32> = vec![
+        9, 0, 1, 0, 1, 0, // node 0: synthetic root
+        9, 1, 2, 0, 3, 0, // node 1: (GC roots)
+        3, 2, 3, 100, 0, 3, // node 2: object "Obj", id=3, trace_node_id=3
+        3, 2, 5, 60, 0, 4, // node 3: object "Obj", id=5, trace_node_id=4
+        1, 3, 7, 200, 0, 0, // node 4: array "Arr", id=7, no trace
+    ];
+    let efc = 3u32;
+    let n = |ord: u32| ord * nfc as u32;
+    let edges: Vec<u32> = vec![
+        1,
+        0,
+        n(1), // root -> GC roots (element)
+        2,
+        4,
+        n(2), // GC roots -> node 2 (property "a")
+        2,
+        5,
+        n(3), // GC roots -> node 3 (property "b")
+        2,
+        6,
+        n(4), // GC roots -> node 4 (property "c")
+    ];
+
+    // trace_function_infos: 4 functions * 6 fields each
+    // fields: function_id, name, script_name, script_id, line, column
+    // strings: 0="", 1="(GC roots)", 2="Obj", 3="Arr", 4="a", 5="b", 6="c",
+    //          7="(root)", 8="main", 9="alloc_a", 10="alloc_b", 11="app.js"
+    let strings = s(&[
+        "",
+        "(GC roots)",
+        "Obj",
+        "Arr",
+        "a",
+        "b",
+        "c",
+        "(root)",
+        "main",
+        "alloc_a",
+        "alloc_b",
+        "app.js",
+    ]);
+
+    let trace_function_infos: Vec<u32> = vec![
+        0, 7, 0, 0, 0, 0, // func 0: "(root)"
+        0, 8, 11, 1, 0, 0, // func 1: "main" in app.js:1:1
+        0, 9, 11, 1, 9, 4, // func 2: "alloc_a" in app.js:10:5
+        0, 10, 11, 1, 19, 4, // func 3: "alloc_b" in app.js:20:5
+    ];
+
+    // Flattened trace tree: id -> parent, id -> func_info_index
+    // root(1) -> main(2) -> alloc_a(3), alloc_b(4)
+    let trace_tree_parents: Vec<u32> = vec![0, 0, 1, 2, 2]; // [unused, root's parent=0, 1's parent=root, 3's parent=2, 4's parent=2]
+    let trace_tree_func_idxs: Vec<u32> = vec![0, 0, 1, 2, 3]; // [unused, root=func0, 2=func1, 3=func2, 4=func3]
+
+    let raw = RawHeapSnapshot {
+        snapshot: SnapshotHeader {
+            meta: SnapshotMeta {
+                node_fields,
+                node_type_enum: standard_node_type_enum(),
+                edge_fields: standard_edge_fields(),
+                edge_type_enum: standard_edge_type_enum(),
+                location_fields: vec![],
+                sample_fields: s(&["timestamp_us", "last_assigned_id"]),
+                trace_function_info_fields: s(&[
+                    "function_id",
+                    "name",
+                    "script_name",
+                    "script_id",
+                    "line",
+                    "column",
+                ]),
+                trace_node_fields: s(&["id", "function_info_index", "count", "size", "children"]),
+            },
+            node_count: nodes.len() / nfc,
+            edge_count: edges.len() / efc as usize,
+            trace_function_count: 4,
+            root_index: Some(0),
+            extra_native_bytes: None,
+        },
+        nodes,
+        edges,
+        strings,
+        locations: vec![],
+        trace_function_infos,
+        trace_tree_parents,
+        trace_tree_func_idxs,
+        // samples: two intervals
+        // interval 1: ts=50000, last_id=3  (node 2 with id=3 falls here)
+        // interval 2: ts=100000, last_id=7 (nodes 3,4 with ids 5,7 fall here)
+        samples: vec![50000, 3, 100000, 7],
+    };
+    HeapSnapshot::new(raw)
+}
+
+#[test]
+fn test_has_allocation_data() {
+    let snap = make_alloc_tracking_snapshot();
+    assert!(snap.has_allocation_data());
+}
+
+#[test]
+fn test_has_allocation_data_without_tracking() {
+    let snap = make_test_snapshot();
+    assert!(!snap.has_allocation_data());
+}
+
+#[test]
+fn test_allocation_stack_via_alloc_a() {
+    let snap = make_alloc_tracking_snapshot();
+    // Node 2 (ordinal 2) has trace_node_id=3 -> alloc_a -> main
+    let stack = snap.get_allocation_stack(NodeOrdinal(2)).unwrap();
+    assert_eq!(stack.len(), 2);
+    assert_eq!(stack[0].function_name, "alloc_a");
+    assert_eq!(stack[0].script_name, "app.js");
+    assert_eq!(stack[0].line, 9);
+    assert_eq!(stack[0].column, 4);
+    assert_eq!(stack[1].function_name, "main");
+}
+
+#[test]
+fn test_allocation_stack_via_alloc_b() {
+    let snap = make_alloc_tracking_snapshot();
+    // Node 3 (ordinal 3) has trace_node_id=4 -> alloc_b -> main
+    let stack = snap.get_allocation_stack(NodeOrdinal(3)).unwrap();
+    assert_eq!(stack.len(), 2);
+    assert_eq!(stack[0].function_name, "alloc_b");
+    assert_eq!(stack[1].function_name, "main");
+}
+
+#[test]
+fn test_allocation_stack_none_for_untracked() {
+    let snap = make_alloc_tracking_snapshot();
+    // Node 4 (ordinal 4) has trace_node_id=0 -> no allocation info
+    assert!(snap.get_allocation_stack(NodeOrdinal(4)).is_none());
+}
+
+#[test]
+fn test_allocation_stack_none_without_tracking() {
+    let snap = make_test_snapshot();
+    assert!(snap.get_allocation_stack(NodeOrdinal(2)).is_none());
+}
+
+#[test]
+fn test_format_allocation_frame() {
+    let frame = AllocationFrame {
+        function_name: "alloc_a".to_string(),
+        script_name: "app.js".to_string(),
+        line: 9,
+        column: 4,
+    };
+    assert_eq!(
+        HeapSnapshot::format_allocation_frame(&frame),
+        "alloc_a (app.js:10:5)"
+    );
+}
+
+#[test]
+fn test_format_allocation_frame_with_path() {
+    let frame = AllocationFrame {
+        function_name: "foo".to_string(),
+        script_name: "/home/user/project/src/bar.js".to_string(),
+        line: 0,
+        column: 0,
+    };
+    assert_eq!(
+        HeapSnapshot::format_allocation_frame(&frame),
+        "foo (bar.js:1:1)"
+    );
+}
+
+#[test]
+fn test_format_allocation_frame_unknown_script() {
+    let frame = AllocationFrame {
+        function_name: "foo".to_string(),
+        script_name: "".to_string(),
+        line: 5,
+        column: 10,
+    };
+    assert_eq!(
+        HeapSnapshot::format_allocation_frame(&frame),
+        "foo (<unknown>:6:11)"
+    );
+}
+
+// ── timeline ────────────────────────────────────────────────────────────
+
+#[test]
+fn test_timeline_intervals() {
+    let snap = make_alloc_tracking_snapshot();
+    let timeline = snap.get_timeline();
+    assert_eq!(timeline.len(), 2);
+
+    // Interval 1: ts=50000, last_id=3
+    // Live objects with id in (0, 3]: node 2 (id=3, size=100)
+    assert_eq!(timeline[0].timestamp_us, 50000);
+    assert_eq!(timeline[0].count, 1);
+    assert_eq!(timeline[0].size, 100);
+
+    // Interval 2: ts=100000, last_id=7
+    // Live objects with id in (3, 7]: node 3 (id=5, size=60), node 4 (id=7, size=200)
+    assert_eq!(timeline[1].timestamp_us, 100000);
+    assert_eq!(timeline[1].count, 2);
+    assert_eq!(timeline[1].size, 260);
+}
+
+#[test]
+fn test_timeline_empty_without_samples() {
+    let snap = make_test_snapshot();
+    assert!(snap.get_timeline().is_empty());
 }

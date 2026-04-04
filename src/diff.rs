@@ -171,6 +171,10 @@ mod tests {
             edges,
             strings,
             locations: vec![],
+            trace_function_infos: vec![],
+            trace_tree_parents: vec![],
+            trace_tree_func_idxs: vec![],
+            samples: vec![],
         };
         HeapSnapshot::new(raw)
     }

@@ -11,6 +11,7 @@ pub mod show_retainers;
 pub mod statistics;
 pub mod strings;
 pub mod summary;
+pub mod timeline;
 
 pub const EDGE_PAGE_SIZE: usize = 10;
 

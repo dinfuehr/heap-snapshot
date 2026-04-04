@@ -1,7 +1,8 @@
 import init, { WasmHeapSnapshot } from '../../wasm-pkg/heap_snapshot_wasm.js';
 
-let snapshot: WasmHeapSnapshot | null = null;
 let initialized = false;
+const snapshots = new Map<number, WasmHeapSnapshot>();
+let nextSnapshotId = 1;
 
 interface WorkerMsg {
   id: number;
@@ -24,6 +25,12 @@ function respondError(id: number, error: string) {
   self.postMessage({ id, type: 'error', error } satisfies WorkerResponse);
 }
 
+function getSnapshot(snapshotId: number): WasmHeapSnapshot {
+  const snap = snapshots.get(snapshotId);
+  if (!snap) throw new Error(`No snapshot with id ${snapshotId}`);
+  return snap;
+}
+
 self.onmessage = async (e: MessageEvent<WorkerMsg>) => {
   const msg = e.data;
   const { id } = msg;
@@ -35,19 +42,26 @@ self.onmessage = async (e: MessageEvent<WorkerMsg>) => {
         initialized = true;
       }
       const bytes = new Uint8Array(msg.data as ArrayBuffer);
-      snapshot = new WasmHeapSnapshot(bytes);
-      respond(id, { nodeCount: snapshot.node_count() });
+      const snapshot = new WasmHeapSnapshot(bytes);
+      const snapshotId = nextSnapshotId++;
+      snapshots.set(snapshotId, snapshot);
+      respond(id, {
+        snapshotId,
+        nodeCount: snapshot.node_count(),
+        hasAllocationData: snapshot.has_allocation_data(),
+      });
       return;
     }
 
-    if (!snapshot) {
-      respondError(id, 'No snapshot loaded');
-      return;
-    }
+    const snapshot = getSnapshot(msg.snapshotId as number);
 
     switch (msg.type) {
       case 'getStatistics':
         respond(id, JSON.parse(snapshot.get_statistics()));
+        break;
+      case 'setUnreachableMode':
+        snapshot.set_unreachable_mode((msg.mode as number) || 0);
+        respond(id, null);
         break;
       case 'getSummary':
         respond(id, JSON.parse(snapshot.get_summary()));
@@ -147,6 +161,22 @@ self.onmessage = async (e: MessageEvent<WorkerMsg>) => {
           JSON.parse(snapshot.get_children_ids(msg.nodeId as number)),
         );
         break;
+      case 'getTimeline':
+        respond(id, JSON.parse(snapshot.get_timeline()));
+        break;
+      case 'getSummaryForInterval':
+        respond(
+          id,
+          JSON.parse(
+            snapshot.get_summary_for_interval(msg.intervalIndex as number),
+          ),
+        );
+        break;
+      case 'getAllocationStack': {
+        const result = snapshot.get_allocation_stack(msg.nodeId as number);
+        respond(id, result === 'null' ? null : JSON.parse(result));
+        break;
+      }
     }
   } catch (err) {
     respondError(id, String(err));

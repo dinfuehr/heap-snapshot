@@ -31,9 +31,9 @@ impl App {
             Line::from(Span::styled("Views", Style::default().bold())),
             Line::from("  1 Summary, 2 Containment, 3 Dominators, 4 Retainers"),
             Line::from(if self.diff.has_diff {
-                "  5 Diff, 6 Contexts, 7 History, 8 Statistics, ? Help"
+                "  5 Diff, 6 Contexts, 7 History, 8 Statistics, 9 Timeline, ? Help"
             } else {
-                "  6 Contexts, 7 History, 8 Statistics, ? Help"
+                "  6 Contexts, 7 History, 8 Statistics, 9 Timeline, ? Help"
             }),
             Line::from("  Tab / Shift-Tab cycle between views"),
             Line::from(""),

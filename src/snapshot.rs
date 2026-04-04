@@ -48,6 +48,29 @@ pub struct SourceLocation {
     pub column: u32,
 }
 
+#[derive(Clone, Debug)]
+pub struct AllocationFrame {
+    pub function_name: String,
+    pub script_name: String,
+    pub line: u32,
+    pub column: u32,
+}
+
+/// A time interval in the allocation timeline.
+#[derive(Clone, Debug)]
+pub struct TimelineInterval {
+    /// Timestamp in microseconds since tracking started.
+    pub timestamp_us: u64,
+    /// Start of the object ID range (exclusive).
+    pub id_from: u64,
+    /// End of the object ID range (inclusive).
+    pub id_to: u64,
+    /// Number of live objects allocated in this interval.
+    pub count: u32,
+    /// Total size of live objects allocated in this interval.
+    pub size: u64,
+}
+
 pub struct ReachableInfo {
     pub size: f64,
     pub native_contexts: Vec<NodeOrdinal>,
@@ -66,7 +89,8 @@ pub struct HeapSnapshot {
     node_id_offset: usize,
     node_self_size_offset: usize,
     node_edge_count_offset: usize,
-    node_detachedness_offset: i32, // -1 if not present
+    node_detachedness_offset: i32,  // -1 if not present
+    node_trace_node_id_offset: i32, // -1 if not present
 
     edge_fields_count: usize,
     edge_type_offset: usize,
@@ -150,6 +174,12 @@ pub struct HeapSnapshot {
     js_global_object_fields: FxHashSet<String>,
     js_global_proxy_fields: FxHashSet<String>,
 
+    // Allocation trace data
+    trace_parents: Vec<u32>,               // trace_node_id -> parent_id
+    trace_func_idxs: Vec<u32>,             // trace_node_id -> function_info_index
+    trace_functions: Vec<AllocationFrame>, // function_info_index -> frame
+    timeline: Vec<TimelineInterval>,       // allocation timeline intervals
+
     // Extra native bytes from snapshot header
     extra_native_bytes: f64,
 
@@ -189,6 +219,12 @@ impl HeapSnapshot {
             .node_fields
             .iter()
             .position(|f| f == "detachedness")
+            .map(|p| p as i32)
+            .unwrap_or(-1);
+        let node_trace_node_id_offset = meta
+            .node_fields
+            .iter()
+            .position(|f| f == "trace_node_id")
             .map(|p| p as i32)
             .unwrap_or(-1);
         let node_field_count = meta.node_fields.len();
@@ -286,6 +322,7 @@ impl HeapSnapshot {
             node_self_size_offset,
             node_edge_count_offset,
             node_detachedness_offset,
+            node_trace_node_id_offset,
             edge_fields_count,
             edge_type_offset,
             edge_name_offset,
@@ -336,6 +373,10 @@ impl HeapSnapshot {
             js_global_proxies: Vec::new(),
             js_global_object_fields: FxHashSet::default(),
             js_global_proxy_fields: FxHashSet::default(),
+            trace_parents: Vec::new(),
+            trace_func_idxs: Vec::new(),
+            trace_functions: Vec::new(),
+            timeline: Vec::new(),
             location_map: FxHashMap::default(),
             script_names: FxHashMap::default(),
             location_field_count,
@@ -486,6 +527,18 @@ impl HeapSnapshot {
         }
 
         snap.compute_script_names();
+
+        // Build allocation trace data
+        if !raw.trace_tree_parents.is_empty() {
+            snap.trace_parents = raw.trace_tree_parents;
+            snap.trace_func_idxs = raw.trace_tree_func_idxs;
+            snap.build_trace_functions(&raw.trace_function_infos, &meta);
+        }
+
+        // Build allocation timeline from samples
+        if !raw.samples.is_empty() {
+            snap.build_timeline(&raw.samples, &meta);
+        }
 
         // Calculate statistics
         snap.calculate_statistics();
@@ -2691,6 +2744,169 @@ impl HeapSnapshot {
             + &format!(":{}:{}", loc.line + 1, loc.column + 1)
     }
 
+    // --- Allocation trace data ---
+
+    fn build_trace_functions(
+        &mut self,
+        trace_function_infos: &[u32],
+        meta: &crate::types::SnapshotMeta,
+    ) {
+        let fields = &meta.trace_function_info_fields;
+        let fcount = fields.len().max(6);
+        let name_off = fields.iter().position(|f| f == "name").unwrap_or(1);
+        let script_name_off = fields.iter().position(|f| f == "script_name").unwrap_or(2);
+        let line_off = fields.iter().position(|f| f == "line").unwrap_or(4);
+        let column_off = fields.iter().position(|f| f == "column").unwrap_or(5);
+
+        let count = trace_function_infos.len() / fcount;
+        let mut functions = Vec::with_capacity(count);
+        for i in 0..count {
+            let base = i * fcount;
+            let name_idx = trace_function_infos[base + name_off] as usize;
+            let script_idx = trace_function_infos[base + script_name_off] as usize;
+            functions.push(AllocationFrame {
+                function_name: self.strings.get(name_idx).cloned().unwrap_or_default(),
+                script_name: self.strings.get(script_idx).cloned().unwrap_or_default(),
+                line: trace_function_infos[base + line_off],
+                column: trace_function_infos[base + column_off],
+            });
+        }
+        self.trace_functions = functions;
+    }
+
+    /// Returns true if the snapshot contains allocation tracking data.
+    pub fn has_allocation_data(&self) -> bool {
+        self.node_trace_node_id_offset >= 0 && !self.trace_parents.is_empty()
+    }
+
+    /// Get the allocation call stack for a node, innermost frame first.
+    pub fn get_allocation_stack(&self, ordinal: NodeOrdinal) -> Option<Vec<AllocationFrame>> {
+        if !self.has_allocation_data() {
+            return None;
+        }
+        let node_index = ordinal.0 * self.node_field_count;
+        let trace_id = self.nodes[node_index + self.node_trace_node_id_offset as usize] as usize;
+        if trace_id == 0 || trace_id >= self.trace_parents.len() {
+            return None;
+        }
+
+        let mut stack = Vec::new();
+        let mut current = trace_id;
+        loop {
+            let parent = self.trace_parents[current] as usize;
+            // Skip the root trace node (parent == 0) — it's V8's synthetic "(root)"
+            if parent == 0 || parent == current || parent >= self.trace_parents.len() {
+                break;
+            }
+            let fi_idx = self.trace_func_idxs[current] as usize;
+            if fi_idx < self.trace_functions.len() {
+                let frame = &self.trace_functions[fi_idx];
+                if !frame.function_name.is_empty() {
+                    stack.push(frame.clone());
+                }
+            }
+            current = parent;
+        }
+        if stack.is_empty() { None } else { Some(stack) }
+    }
+
+    /// Format an allocation frame as "function (script:line:col)".
+    pub fn format_allocation_frame(frame: &AllocationFrame) -> String {
+        let script = if frame.script_name.is_empty() {
+            "<unknown>".to_string()
+        } else {
+            frame
+                .script_name
+                .rsplit_once('/')
+                .map_or(frame.script_name.as_str(), |(_, file)| file)
+                .to_string()
+        };
+        format!(
+            "{} ({}:{}:{})",
+            frame.function_name,
+            script,
+            frame.line + 1,
+            frame.column + 1,
+        )
+    }
+
+    // --- Allocation timeline ---
+
+    fn build_timeline(&mut self, samples: &[u32], meta: &crate::types::SnapshotMeta) {
+        let fields = &meta.sample_fields;
+        let fcount = fields.len().max(2);
+        let ts_off = fields.iter().position(|f| f == "timestamp_us").unwrap_or(0);
+        let id_off = fields
+            .iter()
+            .position(|f| f == "last_assigned_id")
+            .unwrap_or(1);
+
+        // Parse sample entries: [(timestamp_us, last_assigned_id), ...]
+        let mut sample_entries: Vec<(u64, u64)> = Vec::new();
+        let mut i = 0;
+        while i + fcount <= samples.len() {
+            let ts = samples[i + ts_off] as u64;
+            let last_id = samples[i + id_off] as u64;
+            sample_entries.push((ts, last_id));
+            i += fcount;
+        }
+
+        if sample_entries.is_empty() {
+            return;
+        }
+
+        // Collect all live object IDs and their sizes, sorted by ID.
+        let nfc = self.node_field_count;
+        let ido = self.node_id_offset;
+        let sso = self.node_self_size_offset;
+        let mut objects: Vec<(u64, u32)> = Vec::with_capacity(self.node_count);
+        for ordinal in 0..self.node_count {
+            let ni = ordinal * nfc;
+            let id = self.nodes[ni + ido] as u64;
+            let size = self.nodes[ni + sso];
+            if size > 0 {
+                objects.push((id, size));
+            }
+        }
+        objects.sort_unstable_by_key(|&(id, _)| id);
+
+        // For each interval between consecutive samples, count live objects
+        // whose ID falls in [prev_last_id+1, this_last_id].
+        let mut intervals = Vec::with_capacity(sample_entries.len());
+        let mut obj_idx = 0;
+        let mut prev_last_id = 0u64;
+
+        for &(ts, last_id) in &sample_entries {
+            // Skip objects below this interval
+            while obj_idx < objects.len() && objects[obj_idx].0 <= prev_last_id {
+                obj_idx += 1;
+            }
+            // Count objects in [prev_last_id+1, last_id]
+            let mut count = 0u32;
+            let mut size = 0u64;
+            let mut j = obj_idx;
+            while j < objects.len() && objects[j].0 <= last_id {
+                count += 1;
+                size += objects[j].1 as u64;
+                j += 1;
+            }
+            intervals.push(TimelineInterval {
+                timestamp_us: ts,
+                id_from: prev_last_id,
+                id_to: last_id,
+                count,
+                size,
+            });
+            prev_last_id = last_id;
+        }
+        self.timeline = intervals;
+    }
+
+    /// Returns the allocation timeline intervals, or empty if no samples.
+    pub fn get_timeline(&self) -> &[TimelineInterval] {
+        &self.timeline
+    }
+
     #[allow(dead_code)]
     pub fn node_count(&self) -> usize {
         self.node_count
@@ -3305,6 +3521,20 @@ impl HeapSnapshot {
     /// Build aggregates for fully unreachable nodes only (distance == UNREACHABLE_BASE).
     pub fn unreachable_root_aggregates(&self) -> FxHashMap<String, AggregateInfo> {
         self.build_aggregates(|ordinal| self.node_distances[ordinal].is_unreachable_root())
+    }
+
+    /// Build aggregates for objects whose ID falls in (id_from, id_to].
+    pub fn aggregates_for_id_range(
+        &self,
+        id_from: u64,
+        id_to: u64,
+    ) -> FxHashMap<String, AggregateInfo> {
+        let nfc = self.node_field_count;
+        let ido = self.node_id_offset;
+        self.build_aggregates(|ordinal| {
+            let id = self.nodes[ordinal * nfc + ido] as u64;
+            id > id_from && id <= id_to
+        })
     }
 
     fn build_aggregates(&self, filter: impl Fn(usize) -> bool) -> FxHashMap<String, AggregateInfo> {

@@ -17,6 +17,13 @@ pub fn print_show(snap: &HeapSnapshot, node_id: NodeId, depth: usize, offset: us
         snap.node_self_size(ordinal),
     );
 
+    if let Some(stack) = snap.get_allocation_stack(ordinal) {
+        println!("  Allocated at:");
+        for frame in &stack {
+            println!("    {}", HeapSnapshot::format_allocation_frame(frame));
+        }
+    }
+
     show_edges(snap, ordinal, 1, depth, offset, limit);
 }
 

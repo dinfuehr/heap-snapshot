@@ -287,6 +287,16 @@ impl McpServer {
                 snapshot.node_self_size(ordinal),
             ));
 
+            if let Some(stack) = snapshot.get_allocation_stack(ordinal) {
+                lines.push("  Allocated at:".to_string());
+                for frame in &stack {
+                    lines.push(format!(
+                        "    {}",
+                        HeapSnapshot::format_allocation_frame(frame),
+                    ));
+                }
+            }
+
             fn show_edges(
                 snap: &HeapSnapshot,
                 ordinal: NodeOrdinal,

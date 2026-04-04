@@ -11,4 +11,5 @@ heap-snapshot = { path = "../..", default-features = false }
 wasm-bindgen = "0.2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+rustc-hash = "2"
 js-sys = "0.3"

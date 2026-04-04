@@ -139,8 +139,7 @@ impl App {
 
     pub(super) fn handle_normal_key(&mut self, key: KeyEvent, snap: &HeapSnapshot) -> bool {
         let row_count = self.cached_rows.len();
-        let is_help_view =
-            self.current_view == ViewType::Help || self.current_view == ViewType::Statistics;
+        let is_scroll_view = self.is_scroll_view();
 
         if self.handle_page_key(key, row_count) {
             return false;
@@ -156,11 +155,13 @@ impl App {
             KeyCode::Char('6') => self.set_view(ViewType::Contexts, snap),
             KeyCode::Char('7') => self.set_view(ViewType::History, snap),
             KeyCode::Char('8') => self.set_view(ViewType::Statistics, snap),
+            KeyCode::Char('9') => self.set_view(ViewType::Timeline, snap),
             KeyCode::Char('?') => self.set_view(ViewType::Help, snap),
             KeyCode::BackTab => {
                 let next_view = match (self.current_view, self.diff.has_diff) {
                     (ViewType::Summary, _) => ViewType::Help,
-                    (ViewType::Help, _) => ViewType::Statistics,
+                    (ViewType::Help, _) => ViewType::Timeline,
+                    (ViewType::Timeline, _) => ViewType::Statistics,
                     (ViewType::Statistics, _) => ViewType::History,
                     (ViewType::History, _) => ViewType::Contexts,
                     (ViewType::Contexts, true) => ViewType::Diff,
@@ -182,7 +183,8 @@ impl App {
                     (ViewType::Diff, _) => ViewType::Contexts,
                     (ViewType::Contexts, _) => ViewType::History,
                     (ViewType::History, _) => ViewType::Statistics,
-                    (ViewType::Statistics, _) => ViewType::Help,
+                    (ViewType::Statistics, _) => ViewType::Timeline,
+                    (ViewType::Timeline, _) => ViewType::Help,
                     (ViewType::Help, _) => ViewType::Summary,
                 };
                 self.set_view(next_view, snap);
@@ -193,35 +195,37 @@ impl App {
                 self.search_error = None;
             }
             KeyCode::Up => {
-                let state = self.current_tree_state_mut();
-                if is_help_view {
-                    state.scroll_offset = state.scroll_offset.saturating_sub(1);
+                if is_scroll_view {
+                    self.current_scroll_state_mut().scroll_offset =
+                        self.current_scroll_state().scroll_offset.saturating_sub(1);
                 } else {
-                    state.cursor = state.cursor.saturating_sub(1);
+                    self.current_tree_state_mut().cursor =
+                        self.current_tree_state().cursor.saturating_sub(1);
                 }
             }
             KeyCode::Down => {
-                let state = self.current_tree_state_mut();
-                if is_help_view {
-                    state.scroll_offset = state.scroll_offset.saturating_add(1);
-                } else if state.cursor + 1 < row_count {
-                    state.cursor += 1;
+                if is_scroll_view {
+                    self.current_scroll_state_mut().scroll_offset =
+                        self.current_scroll_state().scroll_offset.saturating_add(1);
+                } else {
+                    let cursor = self.current_tree_state().cursor;
+                    if cursor + 1 < row_count {
+                        self.current_tree_state_mut().cursor = cursor + 1;
+                    }
                 }
             }
             KeyCode::Char('g') | KeyCode::Home => {
-                let state = self.current_tree_state_mut();
-                if is_help_view {
-                    state.scroll_offset = 0;
+                if is_scroll_view {
+                    self.current_scroll_state_mut().scroll_offset = 0;
                 } else {
-                    state.cursor = 0;
+                    self.current_tree_state_mut().cursor = 0;
                 }
             }
             KeyCode::Char('G') | KeyCode::End => {
-                let state = self.current_tree_state_mut();
-                if is_help_view {
-                    state.scroll_offset = usize::MAX;
+                if is_scroll_view {
+                    self.current_scroll_state_mut().scroll_offset = usize::MAX;
                 } else {
-                    state.cursor = row_count.saturating_sub(1);
+                    self.current_tree_state_mut().cursor = row_count.saturating_sub(1);
                 }
             }
             KeyCode::Enter => {
@@ -473,16 +477,18 @@ impl App {
     }
 
     fn page_step(&self) -> usize {
-        self.current_tree_state()
-            .page_height
-            .saturating_sub(1)
-            .max(1)
+        let height = if self.is_scroll_view() {
+            self.current_scroll_state().page_height
+        } else {
+            self.current_tree_state().page_height
+        };
+        height.saturating_sub(1).max(1)
     }
 
     fn page_up(&mut self, row_count: usize) {
-        if self.current_view == ViewType::Help || self.current_view == ViewType::Statistics {
+        if self.is_scroll_view() {
             let step = self.page_step();
-            let state = self.current_tree_state_mut();
+            let state = self.current_scroll_state_mut();
             state.scroll_offset = state.scroll_offset.saturating_sub(step);
             return;
         }
@@ -491,9 +497,9 @@ impl App {
     }
 
     fn page_down(&mut self, row_count: usize) {
-        if self.current_view == ViewType::Help || self.current_view == ViewType::Statistics {
+        if self.is_scroll_view() {
             let step = self.page_step();
-            let state = self.current_tree_state_mut();
+            let state = self.current_scroll_state_mut();
             state.scroll_offset = state.scroll_offset.saturating_add(step);
             return;
         }

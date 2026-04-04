@@ -12,6 +12,7 @@ import { RetainersView } from './views/RetainersView.tsx';
 import { DominatorsView } from './views/DominatorsView.tsx';
 import { ContextsView } from './views/ContextsView.tsx';
 import { HistoryView } from './views/HistoryView.tsx';
+import { TimelineView } from './views/TimelineView.tsx';
 
 const TABS = [
   'Summary',
@@ -21,6 +22,7 @@ const TABS = [
   'Contexts',
   'History',
   'Statistics',
+  'Timeline',
 ] as const;
 type Tab = (typeof TABS)[number];
 
@@ -215,7 +217,7 @@ export function App(): JSX.Element {
             onClick={() => {
               const input = document.createElement('input');
               input.type = 'file';
-              input.accept = '.heapsnapshot';
+              input.accept = '.heapsnapshot,.heaptimeline';
               input.onchange = () => {
                 const file = input.files?.[0];
                 if (file) handleLoadFile(file);
@@ -240,6 +242,7 @@ export function App(): JSX.Element {
           tabs={TABS}
           active={active().tab[0]()}
           onChange={(t) => active().tab[1](t)}
+          disabled={active().hasAllocationData() ? undefined : new Set(['Timeline'] as Tab[])}
         />
 
         <For each={snapshots()}>
@@ -338,6 +341,18 @@ export function App(): JSX.Element {
                 }}
               >
                 <StatisticsView call={inst.call} />
+              </div>
+              <div
+                style={{
+                  'margin-top': '16px',
+                  display: inst.tab[0]() === 'Timeline' ? undefined : 'none',
+                }}
+              >
+                <TimelineView
+                  call={inst.call}
+                  onNavigate={navigate}
+                  onContextMenu={handleContextMenu}
+                />
               </div>
               </Show>
             </div>

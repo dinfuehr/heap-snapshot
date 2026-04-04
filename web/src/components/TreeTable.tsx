@@ -124,7 +124,7 @@ export function TreeTableRow(props: {
                 props.onToggle?.();
               }}
             >
-              {props.loading ? '\u23F3' : props.expanded ? '\u25bc' : '\u25b6'}
+              {props.loading ? '\u22EF' : props.expanded ? '\u25bc' : '\u25b6'}
             </span>
           ) : (
             <span style={{ display: 'inline-block', width: '16px' }}> </span>

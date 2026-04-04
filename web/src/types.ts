@@ -110,6 +110,23 @@ export interface DominatedChildren {
   children: NodeInfo[];
 }
 
+export interface AllocationFrame {
+  function_name: string;
+  script_name: string;
+  line: number;
+  column: number;
+}
+
+export interface AllocationStack {
+  frames: AllocationFrame[];
+}
+
+export interface TimelineInterval {
+  timestamp_us: number;
+  count: number;
+  size: number;
+}
+
 export interface Dominator {
   id: number;
   name: string;
@@ -121,6 +138,7 @@ export interface Dominator {
 export type WorkerRequest =
   | { id: number; type: 'load'; data: ArrayBuffer }
   | { id: number; type: 'getStatistics' }
+  | { id: number; type: 'setUnreachableMode'; mode: number }
   | { id: number; type: 'getSummary' }
   | {
       id: number;
@@ -153,7 +171,10 @@ export type WorkerRequest =
     }
   | { id: number; type: 'getNativeContexts' }
   | { id: number; type: 'getDominatorsOf'; nodeId: number }
-  | { id: number; type: 'getNodeInfo'; nodeId: number };
+  | { id: number; type: 'getNodeInfo'; nodeId: number }
+  | { id: number; type: 'getAllocationStack'; nodeId: number }
+  | { id: number; type: 'getSummaryForInterval'; intervalIndex: number }
+  | { id: number; type: 'getTimeline' };
 
 export type WorkerResponse =
   | { id: number; type: 'success'; data: unknown }

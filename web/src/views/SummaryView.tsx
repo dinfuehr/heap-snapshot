@@ -51,8 +51,6 @@ function ExpandableObject(props: {
     }
     if (!childrenLoaded()) {
       setLoading(true);
-      // Children will be loaded by ObjectChildren on mount;
-      // we set expanded to trigger the mount, then wait for it.
       setExpanded(true);
       return;
     }
@@ -180,20 +178,195 @@ function ObjectChildren(props: {
   );
 }
 
+function SummaryGroup(props: {
+  entry: AggregateEntry;
+  call: SnapshotCall;
+  onNavigate: (opts: NavigateOptions) => void;
+  onContextMenu: (e: MouseEvent, nodeId: number) => void;
+  selection: () => RowSelection | null;
+  onSelect: (sel: RowSelection) => void;
+}): JSX.Element {
+  const [expanded, setExpanded] = createSignal(false);
+  const [loading, setLoading] = createSignal(false);
+  const [objects, setObjects] = createSignal<SummaryExpanded | null>(null);
+  const [objOffset, setObjOffset] = createSignal(0);
+
+  const loadObjects = async (o: number, l: number) => {
+    const result = await props.call<SummaryExpanded>({
+      type: 'getSummaryObjects',
+      constructor: props.entry.key,
+      offset: o,
+      limit: l,
+    });
+    setObjects(result);
+    setObjOffset(o);
+  };
+
+  const toggle = async () => {
+    if (expanded()) {
+      setExpanded(false);
+      return;
+    }
+    setExpanded(true);
+    setLoading(true);
+    setObjects(null);
+    await loadObjects(0, 100);
+    setLoading(false);
+  };
+
+  return (
+    <>
+      <tr
+        onClick={toggle}
+        onDblClick={toggle}
+        style={{
+          cursor: 'pointer',
+          'user-select': 'none',
+          background: expanded() ? '#f0f0f0' : undefined,
+        }}
+      >
+        <td
+          style={{
+            padding: '2px 8px',
+            overflow: 'hidden',
+            'text-overflow': 'ellipsis',
+            'white-space': 'nowrap',
+            'max-width': '0',
+          }}
+        >
+          {expanded()
+            ? loading()
+              ? '\u22EF'
+              : '\u25bc'
+            : '\u25b6'}{' '}
+          {props.entry.name}{' '}
+          <span style={{ color: '#888' }}>
+            {'\u00d7'}
+            {props.entry.count.toLocaleString()}
+          </span>
+        </td>
+        <td style={numTd} />
+        <td style={numTd}>{formatBytes(props.entry.self_size)}</td>
+        <td style={numTd}>{formatBytes(props.entry.retained_size)}</td>
+        <td style={{ ...numTd, color: '#ccc' }}>{'\u2014'}</td>
+        <td />
+      </tr>
+      <Show when={expanded() && objects()}>
+        {(objs) => (
+          <>
+            <For each={objs().objects}>
+              {(obj) => (
+                <ExpandableObject
+                  obj={obj}
+                  call={props.call}
+                  onNavigate={props.onNavigate}
+                  onContextMenu={props.onContextMenu}
+                  selection={props.selection}
+                  onSelect={props.onSelect}
+                />
+              )}
+            </For>
+            <tr>
+              <td colSpan={6}>
+                <TreeTablePager
+                  depth={1}
+                  shown={objs().objects.length}
+                  total={objs().total}
+                  offset={objOffset()}
+                  filter=""
+                  onPageChange={(o, l) => loadObjects(o, l)}
+                  onFilterChange={() => {}}
+                  onShowAll={() => loadObjects(0, 999999)}
+                />
+              </td>
+            </tr>
+          </>
+        )}
+      </Show>
+    </>
+  );
+}
+
+export function SummaryTable(props: {
+  entries: AggregateEntry[];
+  call: SnapshotCall;
+  onNavigate: (opts: NavigateOptions) => void;
+  onContextMenu: (e: MouseEvent, nodeId: number) => void;
+}): JSX.Element {
+  const [selection, setSelection] = createSignal<RowSelection | null>(null);
+
+  return (
+    <table
+      style={{
+        'border-collapse': 'collapse',
+        width: '100%',
+        'font-size': '13px',
+        'table-layout': 'fixed',
+      }}
+    >
+      <colgroup>
+        <col />
+        <col style={{ width: '70px' }} />
+        <col style={{ width: '90px' }} />
+        <col style={{ width: '100px' }} />
+        <col style={{ width: '110px' }} />
+        <col style={{ width: '75px' }} />
+      </colgroup>
+      <thead>
+        <tr
+          style={{
+            'text-align': 'left',
+            'border-bottom': '1px solid #ccc',
+          }}
+        >
+          <th style={{ padding: '4px 8px' }}>Constructor</th>
+          <th style={{ padding: '4px 8px', 'text-align': 'right', 'white-space': 'nowrap' }}>
+            Distance
+          </th>
+          <th style={{ padding: '4px 8px', 'text-align': 'right', 'white-space': 'nowrap' }}>
+            Shallow Size
+          </th>
+          <th style={{ padding: '4px 8px', 'text-align': 'right', 'white-space': 'nowrap' }}>
+            Retained Size
+          </th>
+          <th style={{ padding: '4px 8px', 'text-align': 'right', 'white-space': 'nowrap' }}>
+            Reachable Size
+          </th>
+          <th style={{ padding: '4px 8px', 'text-align': 'right', 'white-space': 'nowrap' }}>
+            Status
+          </th>
+        </tr>
+      </thead>
+      <tbody>
+        <For each={props.entries}>
+          {(entry) => (
+            <SummaryGroup
+              entry={entry}
+              call={props.call}
+              onNavigate={props.onNavigate}
+              onContextMenu={props.onContextMenu}
+              selection={selection}
+              onSelect={setSelection}
+            />
+          )}
+        </For>
+      </tbody>
+    </table>
+  );
+}
+
 export function SummaryView(props: {
   call: SnapshotCall;
   onNavigate: (opts: NavigateOptions) => void;
   onContextMenu: (e: MouseEvent, nodeId: number) => void;
   highlightNodeId: number | null;
 }): JSX.Element {
-  const [entries] = createResource(() =>
-    props.call<AggregateEntry[]>({ type: 'getSummary' }),
-  );
-  const [expanded, setExpanded] = createSignal<string | null>(null);
-  const [objects, setObjects] = createSignal<SummaryExpanded | null>(null);
-  const [objOffset, setObjOffset] = createSignal(0);
+  const [unreachableMode, setUnreachableMode] = createSignal(0);
+  const [entries] = createResource(unreachableMode, async (mode) => {
+    await props.call({ type: 'setUnreachableMode', mode });
+    return props.call<AggregateEntry[]>({ type: 'getSummary' });
+  });
   const [filter, setFilter] = createSignal('');
-  const [selection, setSelection] = createSignal<RowSelection | null>(null);
 
   const filtered = createMemo(() => {
     const e = entries();
@@ -203,40 +376,17 @@ export function SummaryView(props: {
     return e.filter((entry) => entry.name.toLowerCase().includes(f));
   });
 
-  const loadObjects = async (key: string, o: number, l: number) => {
-    const result = await props.call<SummaryExpanded>({
-      type: 'getSummaryObjects',
-      constructor: key,
-      offset: o,
-      limit: l,
-    });
-    setObjects(result);
-    setObjOffset(o);
-  };
-
-  const toggleExpand = async (key: string) => {
-    if (expanded() === key) {
-      setExpanded(null);
-      setObjects(null);
-      return;
-    }
-    setExpanded(key);
-    await loadObjects(key, 0, 100);
-  };
-
   return (
-    <Show when={filtered()} fallback={<p>Loading...</p>}>
-      {(list) => (
-        <div>
-          <div
-            style={{
-              'margin-bottom': '8px',
-              display: 'flex',
-              'align-items': 'center',
-              gap: '8px',
-            }}
-          >
-            <input
+    <div>
+      <div
+        style={{
+          'margin-bottom': '8px',
+          display: 'flex',
+          'align-items': 'center',
+          gap: '8px',
+        }}
+      >
+        <input
               type="text"
               value={filter()}
               onInput={(e) => setFilter(e.currentTarget.value)}
@@ -247,130 +397,55 @@ export function SummaryView(props: {
                 width: '250px',
               }}
             />
-            <Show when={filter()}>
-              <span style={{ 'font-size': '12px', color: '#888' }}>
-                {list().length} of {entries()!.length} groups
-              </span>
+            <select
+              value={unreachableMode()}
+              onChange={(e) => {
+                setUnreachableMode(parseInt(e.currentTarget.value, 10));
+              }}
+              style={{
+                padding: '4px 8px',
+                'font-size': '13px',
+              }}
+            >
+              <option value={0}>All objects</option>
+              <option value={1}>Unreachable (all)</option>
+              <option value={2}>Unreachable (roots only)</option>
+            </select>
+            <Show when={entries.loading}>
+              <span style={{ 'font-size': '12px', color: '#888' }}>Loading...</span>
             </Show>
           </div>
-          <table
-            style={{
-              'border-collapse': 'collapse',
-              width: '100%',
-              'font-size': '13px',
-              'table-layout': 'fixed',
-            }}
-          >
-            <colgroup>
-              <col />
-              <col style={{ width: '70px' }} />
-              <col style={{ width: '90px' }} />
-              <col style={{ width: '100px' }} />
-              <col style={{ width: '110px' }} />
-              <col style={{ width: '75px' }} />
-            </colgroup>
-            <thead>
-              <tr
-                style={{
-                  'text-align': 'left',
-                  'border-bottom': '1px solid #ccc',
-                }}
-              >
-                <th style={{ padding: '4px 8px' }}>Constructor</th>
-                <th style={{ padding: '4px 8px', 'text-align': 'right', 'white-space': 'nowrap' }}>
-                  Distance
-                </th>
-                <th style={{ padding: '4px 8px', 'text-align': 'right', 'white-space': 'nowrap' }}>
-                  Shallow Size
-                </th>
-                <th style={{ padding: '4px 8px', 'text-align': 'right', 'white-space': 'nowrap' }}>
-                  Retained Size
-                </th>
-                <th style={{ padding: '4px 8px', 'text-align': 'right', 'white-space': 'nowrap' }}>
-                  Reachable Size
-                </th>
-                <th style={{ padding: '4px 8px', 'text-align': 'right', 'white-space': 'nowrap' }}>
-                  Status
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              <For each={list()}>
-                {(entry) => (
-                  <>
-                    <tr
-                      onClick={() => toggleExpand(entry.key)}
-                      style={{
-                        cursor: 'pointer',
-                        background:
-                          expanded() === entry.key ? '#f0f0f0' : undefined,
-                      }}
-                    >
-                      <td
-                        style={{
-                          padding: '2px 8px',
-                          overflow: 'hidden',
-                          'text-overflow': 'ellipsis',
-                          'white-space': 'nowrap',
-                          'max-width': '0',
-                        }}
-                      >
-                        {expanded() === entry.key ? '\u25bc' : '\u25b6'}{' '}
-                        {entry.name}{' '}
-                        <span style={{ color: '#888' }}>
-                          {'\u00d7'}
-                          {entry.count.toLocaleString()}
-                        </span>
-                      </td>
-                      <td style={numTd} />
-                      <td style={numTd}>{formatBytes(entry.self_size)}</td>
-                      <td style={numTd}>{formatBytes(entry.retained_size)}</td>
-                      <td style={{ ...numTd, color: '#ccc' }}>{'\u2014'}</td>
-                      <td />
-                    </tr>
-                    <Show when={expanded() === entry.key && objects()}>
-                      {(objs) => (
-                        <>
-                          <For each={objs().objects}>
-                            {(obj) => (
-                              <ExpandableObject
-                                obj={obj}
-                                call={props.call}
-                                onNavigate={props.onNavigate}
-                                onContextMenu={props.onContextMenu}
-                                selection={selection}
-                                onSelect={setSelection}
-                              />
-                            )}
-                          </For>
-                          <tr>
-                            <td colSpan={6}>
-                              <TreeTablePager
-                                depth={1}
-                                shown={objs().objects.length}
-                                total={objs().total}
-                                offset={objOffset()}
-                                filter=""
-                                onPageChange={(o, l) =>
-                                  loadObjects(expanded()!, o, l)
-                                }
-                                onFilterChange={() => {}}
-                                onShowAll={() =>
-                                  loadObjects(expanded()!, 0, 999999)
-                                }
-                              />
-                            </td>
-                          </tr>
-                        </>
-                      )}
-                    </Show>
-                  </>
-                )}
-              </For>
-            </tbody>
-          </table>
+          <Show when={filtered()} fallback={
+            <Show when={!entries.loading}>
+              <p>Loading...</p>
+            </Show>
+          }>
+            {(list) => (
+              <>
+                <div style={{ 'margin-bottom': '4px', 'font-size': '12px', color: '#888', display: 'flex', gap: '8px' }}>
+                  <Show when={filter()}>
+                    <span>{list().length} of {entries()!.length} groups</span>
+                  </Show>
+                  <span>
+                    {list()
+                      .reduce((s, e) => s + e.count, 0)
+                      .toLocaleString()}{' '}
+                    objects,{' '}
+                    {formatBytes(list().reduce((s, e) => s + e.self_size, 0))}{' '}
+                    shallow,{' '}
+                    {formatBytes(list().reduce((s, e) => s + e.retained_size, 0))}{' '}
+                    retained
+                  </span>
+                </div>
+                <SummaryTable
+                  entries={list()}
+                  call={props.call}
+                  onNavigate={props.onNavigate}
+                  onContextMenu={props.onContextMenu}
+                />
+              </>
+            )}
+          </Show>
         </div>
-      )}
-    </Show>
   );
 }

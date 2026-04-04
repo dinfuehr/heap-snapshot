@@ -180,8 +180,9 @@ struct App {
     history: Vec<NodeOrdinal>,
     history_ids: Vec<NodeId>,
     history_state: TreeState,
-    help_state: TreeState,
-    statistics_state: TreeState,
+    help_state: ScrollState,
+    statistics_state: ScrollState,
+    timeline_state: ScrollState,
     // retainers view
     retainers: RetainersViewState,
 }
@@ -318,8 +319,9 @@ impl App {
             history: Vec::new(),
             history_ids: Vec::new(),
             history_state: TreeState::new(),
-            help_state: TreeState::new(),
-            statistics_state: TreeState::new(),
+            help_state: ScrollState::new(),
+            statistics_state: ScrollState::new(),
+            timeline_state: ScrollState::new(),
             retainers: RetainersViewState::new(),
         }
     }
@@ -333,8 +335,9 @@ impl App {
             ViewType::Diff => &self.diff.tree_state,
             ViewType::Contexts => &self.contexts_state,
             ViewType::History => &self.history_state,
-            ViewType::Statistics => &self.statistics_state,
-            ViewType::Help => &self.help_state,
+            ViewType::Help | ViewType::Statistics | ViewType::Timeline => {
+                panic!("scroll-only view has no TreeState")
+            }
         }
     }
 
@@ -347,8 +350,27 @@ impl App {
             ViewType::Diff => &mut self.diff.tree_state,
             ViewType::Contexts => &mut self.contexts_state,
             ViewType::History => &mut self.history_state,
-            ViewType::Statistics => &mut self.statistics_state,
+            ViewType::Help | ViewType::Statistics | ViewType::Timeline => {
+                panic!("scroll-only view has no TreeState")
+            }
+        }
+    }
+
+    fn current_scroll_state(&self) -> &ScrollState {
+        match self.current_view {
+            ViewType::Help => &self.help_state,
+            ViewType::Statistics => &self.statistics_state,
+            ViewType::Timeline => &self.timeline_state,
+            _ => panic!("tree view has no ScrollState"),
+        }
+    }
+
+    fn current_scroll_state_mut(&mut self) -> &mut ScrollState {
+        match self.current_view {
             ViewType::Help => &mut self.help_state,
+            ViewType::Statistics => &mut self.statistics_state,
+            ViewType::Timeline => &mut self.timeline_state,
+            _ => panic!("tree view has no ScrollState"),
         }
     }
 
@@ -465,7 +487,17 @@ impl App {
         }
     }
 
+    fn is_scroll_view(&self) -> bool {
+        matches!(
+            self.current_view,
+            ViewType::Help | ViewType::Statistics | ViewType::Timeline
+        )
+    }
+
     fn mark_rows_dirty(&mut self) {
+        if self.is_scroll_view() {
+            return;
+        }
         if !self.rows_dirty {
             // First dirty — snapshot the NodeId at the cursor so we can
             // restore the cursor position after the tree is rebuilt.
@@ -479,6 +511,10 @@ impl App {
         let anchor = self.cursor_anchor.take();
         self.cached_rows = self.flatten_tree(snap);
         self.rows_dirty = false;
+
+        if self.is_scroll_view() {
+            return;
+        }
 
         // Try to restore the cursor to the same node it was on before.
         if let Some(target_id) = anchor {

@@ -15,13 +15,15 @@ impl App {
     pub(super) fn render(&mut self, frame: &mut Frame, snap: &HeapSnapshot) {
         self.ensure_rows(snap);
 
-        // Clamp cursor
-        let row_count = self.cached_rows.len();
-        let state = self.current_tree_state_mut();
-        if row_count == 0 {
-            state.cursor = 0;
-        } else if state.cursor >= row_count {
-            state.cursor = row_count - 1;
+        // Clamp cursor (only for tree views)
+        if !self.is_scroll_view() {
+            let row_count = self.cached_rows.len();
+            let state = self.current_tree_state_mut();
+            if row_count == 0 {
+                state.cursor = 0;
+            } else if state.cursor >= row_count {
+                state.cursor = row_count - 1;
+            }
         }
 
         let area = frame.area();
@@ -52,6 +54,9 @@ impl App {
         tabs.push(("6:Contexts", ViewType::Contexts));
         tabs.push(("7:History", ViewType::History));
         tabs.push(("8:Statistics", ViewType::Statistics));
+        if snap.has_allocation_data() {
+            tabs.push(("9:Timeline", ViewType::Timeline));
+        }
         tabs.push(("?:Help", ViewType::Help));
 
         let mut spans = Vec::new();
@@ -107,6 +112,11 @@ impl App {
 
         if self.current_view == ViewType::Statistics {
             self.render_statistics(frame, area, snap);
+            return;
+        }
+
+        if self.current_view == ViewType::Timeline {
+            self.render_timeline(frame, area, snap);
             return;
         }
 

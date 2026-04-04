@@ -32,10 +32,10 @@ export function FileLoader(props: {
         <p>Loading snapshot...</p>
       ) : (
         <>
-          <p>Drop a .heapsnapshot file here, or click to select</p>
+          <p>Drop a .heapsnapshot or .heaptimeline file here, or click to select</p>
           <input
             type="file"
-            accept=".heapsnapshot"
+            accept=".heapsnapshot,.heaptimeline"
             onChange={handleChange}
             style={{ 'margin-top': '8px' }}
           />

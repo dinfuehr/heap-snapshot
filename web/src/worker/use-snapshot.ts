@@ -11,67 +11,94 @@ export type SnapshotCall = <T = unknown>(
   request: Record<string, any>,
 ) => Promise<T>;
 
+// ---------------------------------------------------------------------------
+// Shared worker singleton
+// ---------------------------------------------------------------------------
+
+let sharedWorker: Worker | null = null;
+let nextMsgId = 1;
+const pending = new Map<number, PendingRequest>();
+
+function getWorker(): Worker {
+  if (!sharedWorker) {
+    sharedWorker = new Worker(
+      new URL('./snapshot-worker.ts', import.meta.url),
+      { type: 'module' },
+    );
+    sharedWorker.onmessage = (e: MessageEvent<WorkerResponse>) => {
+      const msg = e.data;
+      if ('id' in msg) {
+        const p = pending.get(msg.id);
+        if (p) {
+          pending.delete(msg.id);
+          if (msg.type === 'success') {
+            p.resolve(msg.data);
+          } else {
+            p.reject(new Error(msg.error));
+          }
+        }
+      }
+    };
+  }
+  return sharedWorker;
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function workerCall<T = unknown>(request: Record<string, any>): Promise<T> {
+  const w = getWorker();
+  const id = nextMsgId++;
+  return new Promise<T>((resolve, reject) => {
+    pending.set(id, {
+      resolve: resolve as (data: unknown) => void,
+      reject,
+    });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const msg: any = { ...request, id };
+    if (msg.type === 'load' && msg.data instanceof ArrayBuffer) {
+      w.postMessage(msg, [msg.data]);
+    } else {
+      w.postMessage(msg);
+    }
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Per-snapshot instance
+// ---------------------------------------------------------------------------
+
 export function createSnapshot() {
-  let worker: Worker | null = null;
-  let nextId = 1;
-  const pending = new Map<number, PendingRequest>();
   const [loading, setLoading] = createSignal(false);
   const [loaded, setLoaded] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
+  const [filename, setFilename] = createSignal<string | null>(null);
+  const [hasAllocationData, setHasAllocationData] = createSignal(false);
 
-  function getWorker() {
-    if (!worker) {
-      worker = new Worker(new URL('./snapshot-worker.ts', import.meta.url), {
-        type: 'module',
-      });
-      worker.onmessage = (e: MessageEvent<WorkerResponse>) => {
-        const msg = e.data;
-        if ('id' in msg) {
-          const p = pending.get(msg.id);
-          if (p) {
-            pending.delete(msg.id);
-            if (msg.type === 'success') {
-              p.resolve(msg.data);
-            } else {
-              p.reject(new Error(msg.error));
-            }
-          }
-        }
-      };
-    }
-    return worker;
-  }
+  let snapshotId: number | null = null;
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  // Bound call that injects this snapshot's ID into every request.
   const call: SnapshotCall = <T = unknown>(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     request: Record<string, any>,
   ): Promise<T> => {
-    const w = getWorker();
-    const id = nextId++;
-    return new Promise<T>((resolve, reject) => {
-      pending.set(id, {
-        resolve: resolve as (data: unknown) => void,
-        reject,
-      });
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const msg: any = { ...request, id };
-      if (msg.type === 'load' && msg.data instanceof ArrayBuffer) {
-        w.postMessage(msg, [msg.data]);
-      } else {
-        w.postMessage(msg);
-      }
-    });
+    if (snapshotId === null) {
+      return Promise.reject(new Error('No snapshot loaded'));
+    }
+    return workerCall<T>({ ...request, snapshotId });
   };
-
-  const [filename, setFilename] = createSignal<string | null>(null);
 
   async function loadFile(file: File) {
     setLoading(true);
     setError(null);
     try {
       const buffer = await file.arrayBuffer();
-      await call({ type: 'load', data: buffer });
+      const result = await workerCall<{
+        snapshotId: number;
+        nodeCount: number;
+        hasAllocationData: boolean;
+      }>({ type: 'load', data: buffer });
+      snapshotId = result.snapshotId;
       setFilename(file.name);
+      setHasAllocationData(result.hasAllocationData);
       setLoaded(true);
     } catch (err) {
       setError(String(err));
@@ -80,5 +107,5 @@ export function createSnapshot() {
     }
   }
 
-  return { loading, loaded, error, filename, loadFile, call };
+  return { loading, loaded, error, filename, hasAllocationData, loadFile, call };
 }

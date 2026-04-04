@@ -54,13 +54,20 @@ pub struct RawHeapSnapshot {
     pub edges: Vec<u32>,
     pub strings: Vec<String>,
     pub locations: Vec<u32>,
+    /// Flat array of trace function info entries (6 fields each).
+    pub trace_function_infos: Vec<u32>,
+    /// Flattened trace tree: trace_node_id -> parent trace_node_id.
+    pub trace_tree_parents: Vec<u32>,
+    /// Flattened trace tree: trace_node_id -> function_info index.
+    pub trace_tree_func_idxs: Vec<u32>,
+    /// Samples: flat array of [timestamp_us, last_assigned_id] pairs.
+    pub samples: Vec<u32>,
 }
 
 pub struct SnapshotHeader {
     pub meta: SnapshotMeta,
     pub node_count: usize,
     pub edge_count: usize,
-    #[allow(dead_code)]
     pub trace_function_count: usize,
     pub root_index: Option<usize>,
     pub extra_native_bytes: Option<f64>,
@@ -72,11 +79,8 @@ pub struct SnapshotMeta {
     pub edge_fields: Vec<String>,
     pub edge_type_enum: Vec<String>,
     pub location_fields: Vec<String>,
-    #[allow(dead_code)]
     pub sample_fields: Vec<String>,
-    #[allow(dead_code)]
     pub trace_function_info_fields: Vec<String>,
-    #[allow(dead_code)]
     pub trace_node_fields: Vec<String>,
 }
 

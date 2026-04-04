@@ -9,8 +9,15 @@ use super::types::*;
 impl App {
     pub(super) fn flatten_tree(&self, snap: &HeapSnapshot) -> Vec<FlatRow> {
         let mut rows = Vec::new();
-        let state = self.current_tree_state();
 
+        match self.current_view {
+            ViewType::Help | ViewType::Statistics | ViewType::Timeline => {
+                return rows;
+            }
+            _ => {}
+        }
+
+        let state = self.current_tree_state();
         match self.current_view {
             ViewType::Summary => self.flatten_summary(state, &mut rows, snap),
             ViewType::Containment => self.flatten_containment(state, &mut rows, snap),
@@ -19,7 +26,7 @@ impl App {
             ViewType::Contexts => self.flatten_contexts(state, &mut rows, snap),
             ViewType::History => self.flatten_history(state, &mut rows, snap),
             ViewType::Diff => self.flatten_diff(state, &mut rows, snap),
-            ViewType::Help | ViewType::Statistics => {}
+            ViewType::Help | ViewType::Statistics | ViewType::Timeline => unreachable!(),
         }
 
         rows

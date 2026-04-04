@@ -72,6 +72,13 @@ enum Command {
         /// Path to .heapsnapshot file
         file: String,
     },
+    /// Print allocation timeline (requires snapshot with allocation tracking)
+    Timeline {
+        #[command(flatten)]
+        snap_args: SnapshotArgs,
+        /// Path to .heapsnapshot file
+        file: String,
+    },
     /// Show duplicate strings
     Strings {
         #[command(flatten)]
@@ -328,6 +335,10 @@ fn main() {
         Command::Statistics { snap_args, file } => {
             let snap = load_snapshot(&snap_args.to_options(), &file);
             print::statistics::print_statistics(&snap);
+        }
+        Command::Timeline { snap_args, file } => {
+            let snap = load_snapshot(&snap_args.to_options(), &file);
+            print::timeline::print_timeline(&snap);
         }
         Command::Strings {
             snap_args,

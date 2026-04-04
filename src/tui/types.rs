@@ -18,6 +18,7 @@ pub(super) enum ViewType {
     Contexts,
     History,
     Statistics,
+    Timeline,
     Help,
 }
 
@@ -166,6 +167,20 @@ impl Default for EdgeWindow {
 }
 
 // UI state for a single tree view (Summary, Containment, or Retainers).
+pub(super) struct ScrollState {
+    pub(super) scroll_offset: usize,
+    pub(super) page_height: usize,
+}
+
+impl ScrollState {
+    pub(super) fn new() -> Self {
+        Self {
+            scroll_offset: 0,
+            page_height: 1,
+        }
+    }
+}
+
 pub(super) struct TreeState {
     // set of expanded tree path keys
     pub(super) expanded: FxHashSet<NodeId>,

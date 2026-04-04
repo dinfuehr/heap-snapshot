@@ -742,6 +742,67 @@ fn parse_snapshot_header(data: &[u8]) -> io::Result<SnapshotHeader> {
     })
 }
 
+// --- Trace tree flattening ---
+
+/// Parse the nested trace_tree JSON and flatten into parent-pointer arrays.
+///
+/// The trace tree format is a nested array:
+///   `[id, function_info_index, count, size, [children...]]`
+/// where children is a flat array of child nodes (each 5 elements + their nested children).
+///
+/// Returns `(parents, func_idxs)` indexed by trace node ID.
+fn flatten_trace_tree(raw: &[u8]) -> io::Result<(Vec<u32>, Vec<u32>)> {
+    let mut jp = JsonParser::new(raw);
+    let tree = jp.parse_value()?;
+
+    let arr = tree
+        .as_array()
+        .ok_or_else(|| parse_err("trace_tree: expected array"))?;
+
+    // First pass: find max ID to size the output vectors.
+    let mut max_id = 0u32;
+    fn find_max_id(arr: &[JsonValue], max: &mut u32) {
+        // The array is a flattened list of fields: [id, func_idx, count, size, [children], ...]
+        // Each node is 5 elements: id, func_idx, count, size, children_array
+        let mut i = 0;
+        while i + 4 < arr.len() {
+            if let Some(id) = arr[i].as_u64() {
+                *max = (*max).max(id as u32);
+            }
+            if let Some(children) = arr[i + 4].as_array() {
+                find_max_id(children, max);
+            }
+            i += 5;
+        }
+    }
+    find_max_id(arr, &mut max_id);
+
+    let size = (max_id as usize) + 1;
+    let mut parents = vec![0u32; size];
+    let mut func_idxs = vec![0u32; size];
+
+    fn walk(arr: &[JsonValue], parent_id: u32, parents: &mut [u32], func_idxs: &mut [u32]) {
+        let mut i = 0;
+        while i + 4 < arr.len() {
+            let id = arr[i].as_u64().unwrap_or(0) as u32;
+            let func_idx = arr[i + 1].as_u64().unwrap_or(0) as u32;
+            // arr[i+2] = count, arr[i+3] = size — not needed for stack reconstruction
+            let idx = id as usize;
+            if idx < parents.len() {
+                parents[idx] = parent_id;
+                func_idxs[idx] = func_idx;
+            }
+            if let Some(children) = arr[i + 4].as_array() {
+                walk(children, id, parents, func_idxs);
+            }
+            i += 5;
+        }
+    }
+    walk(arr, 0, &mut parents, &mut func_idxs);
+
+    Ok((parents, func_idxs))
+}
+
 // --- Main entry point ---
 
 pub fn parse(file: File) -> io::Result<RawHeapSnapshot> {
@@ -767,7 +828,33 @@ pub fn parse_from_reader<R: Read>(reader: R) -> io::Result<RawHeapSnapshot> {
     p.find_token(b"\"edges\"")?;
     let edges = p.parse_uint_array(edge_capacity)?;
 
-    // 4. Parse locations (optional) — searches forward, skipping trace/sample sections
+    // 4. Parse trace data (optional, appears between edges and locations)
+    let (trace_function_infos, trace_tree_parents, trace_tree_func_idxs) =
+        if header.trace_function_count > 0 {
+            let tfi_fields = header.meta.trace_function_info_fields.len().max(6);
+            let tfi_capacity = header.trace_function_count * tfi_fields;
+            p.find_token(b"\"trace_function_infos\"")?;
+            let tfi = p.parse_uint_array(tfi_capacity)?;
+
+            p.find_token(b"\"trace_tree\"")?;
+            p.find_byte(b':')?;
+            let tree_bytes = p.extract_balanced()?;
+            let (parents, func_idxs) = flatten_trace_tree(&tree_bytes)?;
+
+            (tfi, parents, func_idxs)
+        } else {
+            (Vec::new(), Vec::new(), Vec::new())
+        };
+
+    // 4b. Parse samples (optional, appears after trace_tree)
+    let samples = if !header.meta.sample_fields.is_empty() && header.trace_function_count > 0 {
+        p.find_token(b"\"samples\"")?;
+        p.parse_uint_array(0)?
+    } else {
+        Vec::new()
+    };
+
+    // 5. Parse locations (optional)
     let locations = if !header.meta.location_fields.is_empty() {
         p.find_token(b"\"locations\"")?;
         p.parse_uint_array(0)?
@@ -775,7 +862,7 @@ pub fn parse_from_reader<R: Read>(reader: R) -> io::Result<RawHeapSnapshot> {
         Vec::new()
     };
 
-    // 5. Parse strings (always last)
+    // 6. Parse strings (always last)
     p.find_token(b"\"strings\"")?;
     let strings = p.parse_string_array()?;
 
@@ -785,5 +872,9 @@ pub fn parse_from_reader<R: Read>(reader: R) -> io::Result<RawHeapSnapshot> {
         edges,
         strings,
         locations,
+        trace_function_infos,
+        trace_tree_parents,
+        trace_tree_func_idxs,
+        samples,
     })
 }

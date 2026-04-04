@@ -9,6 +9,37 @@ use super::UnreachableFilter;
 use super::contains_ignore_case;
 use super::types::*;
 
+/// Insert allocation stack frames as pseudo-children at the given position.
+fn insert_allocation_stack(
+    snap: &HeapSnapshot,
+    ord: NodeOrdinal,
+    children: &mut Vec<ChildNode>,
+    pos: usize,
+    next_id: &Cell<u64>,
+) {
+    if let Some(stack) = snap.get_allocation_stack(ord) {
+        for (i, frame) in stack.iter().enumerate() {
+            let label = HeapSnapshot::format_allocation_frame(frame);
+            let prefix = if i == 0 { "alloc: " } else { "    <- " };
+            children.insert(
+                pos + i,
+                ChildNode {
+                    id: mint_id(next_id),
+                    label: format!("{prefix}{label}").into(),
+                    distance: None,
+                    shallow_size: 0.0,
+                    retained_size: 0.0,
+                    node_ordinal: None,
+                    has_children: false,
+                    children_key: None,
+                    is_weak: false,
+                    is_root_holder: false,
+                },
+            );
+        }
+    }
+}
+
 /// Format an outgoing edge label: `edge :: @id name`
 pub(super) fn format_edge_label(
     snap: &HeapSnapshot,
@@ -311,6 +342,14 @@ pub(super) fn compute_edges(
             }
         }
 
+        // Insert allocation stack after location (or at position 0)
+        let alloc_pos = if children.first().map_or(false, |c| c.node_ordinal.is_none()) {
+            1
+        } else {
+            0
+        };
+        insert_allocation_stack(snap, ord, &mut children, alloc_pos, next_id);
+
         return children;
     }
 
@@ -401,6 +440,14 @@ pub(super) fn compute_edges(
             );
         }
     }
+
+    // Insert allocation stack after location (or at position 0)
+    let alloc_pos = if children.first().map_or(false, |c| c.node_ordinal.is_none()) {
+        1
+    } else {
+        0
+    };
+    insert_allocation_stack(snap, ord, &mut children, alloc_pos, next_id);
 
     // Status line: show range and filter info
     if total > 0 && (visible < total || !filter.is_empty()) {
