@@ -74,7 +74,7 @@ test.describe('Heap Snapshot Viewer', () => {
   });
 
   test('can switch summary filter mode', async ({ page }) => {
-    const select = page.locator('select');
+    const select = page.locator('select').first();
     await expect(select).toBeVisible();
 
     // Default should be "All objects"
@@ -468,8 +468,8 @@ test.describe('Heap Snapshot Viewer', () => {
       '700',
     );
 
-    // Press 7 for Statistics
-    await page.keyboard.press('7');
+    // Press 8 for Statistics
+    await page.keyboard.press('8');
     await expect(page.locator('button:has-text("Statistics")')).toHaveCSS(
       'font-weight',
       '700',
@@ -497,5 +497,298 @@ test.describe('Heap Snapshot Viewer', () => {
 
     // Input should contain "2"
     await expect(filterInput).toHaveValue('2');
+  });
+
+  // ── Close snapshot ────────────────────────────────────────────────────
+
+  test('closing single snapshot returns to file loader', async ({ page }) => {
+    // Click the close button (✕)
+    const closeButton = page.locator('button[title="Close snapshot"]');
+    await expect(closeButton).toBeVisible();
+    await closeButton.click();
+
+    // Should return to the file loader screen
+    await expect(page.locator('text=Heap Snapshot Viewer')).toBeVisible();
+    await expect(page.locator('input[type="file"]')).toBeVisible();
+  });
+
+  test('closing one of two snapshots keeps the other', async ({ page }) => {
+    // Load a second snapshot
+    const loadButton = page.locator('button:has-text("+ Load snapshot")');
+    const [fileChooser] = await Promise.all([
+      page.waitForEvent('filechooser'),
+      loadButton.click(),
+    ]);
+    await fileChooser.setFiles(
+      path.resolve(__dirname, '../../tests/data/heap-2.heapsnapshot'),
+    );
+
+    // Wait for both to be loaded
+    await expect(
+      page.locator('button').filter({ hasText: 'heap-2' }),
+    ).toBeVisible({ timeout: 15000 });
+    await expect(
+      page.locator('button').filter({ hasText: 'heap-1' }),
+    ).toBeVisible();
+
+    // Switch to heap-1 and close it
+    await page.locator('button').filter({ hasText: 'heap-1' }).click();
+    // Close the active snapshot (heap-1) via its close button
+    const heap1Close = page
+      .locator('span')
+      .filter({ hasText: 'heap-1' })
+      .locator('button[title="Close snapshot"]');
+    await heap1Close.click();
+
+    // heap-2 should still be visible as the filename
+    await expect(
+      page.locator('span').filter({ hasText: 'heap-2' }).first(),
+    ).toBeVisible({ timeout: 5000 });
+
+    // The UI should still be functional — summary table should show
+    const rows = page.locator('table').first().locator('tbody tr');
+    await expect(rows.first()).toBeVisible();
+  });
+
+  // ── Diff view ─────────────────────────────────────────────────────────
+
+  test('diff tab is disabled with single snapshot', async ({ page }) => {
+    const diffTab = page.locator('button:has-text("Diff")');
+    await expect(diffTab).toBeDisabled();
+  });
+
+  test('diff tab shows results after loading two snapshots', async ({
+    page,
+  }) => {
+    // Load second snapshot
+    const [fileChooser] = await Promise.all([
+      page.waitForEvent('filechooser'),
+      page.locator('button:has-text("+ Load snapshot")').click(),
+    ]);
+    await fileChooser.setFiles(
+      path.resolve(__dirname, '../../tests/data/heap-2.heapsnapshot'),
+    );
+    await expect(
+      page.locator('button').filter({ hasText: 'heap-2' }),
+    ).toBeVisible({ timeout: 15000 });
+
+    // Switch back to heap-1
+    await page.locator('button').filter({ hasText: 'heap-1' }).click();
+
+    // Diff tab should now be enabled
+    const diffTab = page.locator('button:has-text("Diff")');
+    await expect(diffTab).not.toBeDisabled();
+
+    // Click on Diff tab
+    await diffTab.click();
+
+    // Should see the baseline selector
+    await expect(page.locator('text=Compare against:').first()).toBeVisible();
+
+    // Select heap-2 as baseline (index 1 in the snapshots array)
+    const diffSelect = page.locator(
+      '[data-testid="diff-baseline-select"]:visible',
+    );
+    await diffSelect.waitFor({ state: 'visible', timeout: 5000 });
+    await diffSelect.selectOption({ index: 1 });
+
+    // Wait for diff results
+    await expect(page.locator('text=/constructors changed/')).toBeVisible({
+      timeout: 15000,
+    });
+
+    // Should show a table with diff columns
+    await expect(page.locator('th:has-text("# New")').first()).toBeVisible();
+    await expect(
+      page.locator('th:has-text("# Deleted")').first(),
+    ).toBeVisible();
+    await expect(
+      page.locator('th:has-text("Size Delta")').first(),
+    ).toBeVisible();
+
+    // Should have at least one diff row
+    const diffTable = page
+      .locator('table')
+      .filter({ has: page.locator('th:has-text("# New")') })
+      .first();
+    await expect(diffTable.locator('tbody tr').first()).toBeVisible();
+  });
+
+  test('diff shows new objects between heap-1 and heap-2', async ({ page }) => {
+    // Load heap-2
+    const [fileChooser] = await Promise.all([
+      page.waitForEvent('filechooser'),
+      page.locator('button:has-text("+ Load snapshot")').click(),
+    ]);
+    await fileChooser.setFiles(
+      path.resolve(__dirname, '../../tests/data/heap-2.heapsnapshot'),
+    );
+    await expect(
+      page.locator('button').filter({ hasText: 'heap-2' }),
+    ).toBeVisible({ timeout: 15000 });
+
+    // Switch back to heap-1 and go to Diff tab
+    await page.locator('button').filter({ hasText: 'heap-1' }).click();
+    await page.locator('button:has-text("Diff")').click();
+    const diffSelect = page.locator(
+      '[data-testid="diff-baseline-select"]:visible',
+    );
+    await diffSelect.waitFor({ state: 'visible', timeout: 5000 });
+    await diffSelect.selectOption({ index: 1 });
+
+    await expect(page.locator('text=/constructors changed/')).toBeVisible({
+      timeout: 15000,
+    });
+
+    // heap-2 has NewObject ×2 that don't exist in heap-1
+    // So the diff should show NewObject with new_count > 0
+    const newObjectRow = page
+      .locator('tr:visible')
+      .filter({ hasText: 'NewObject' });
+    await expect(newObjectRow).toBeVisible();
+  });
+
+  test('diff shows new objects when heap-2 compares against heap-1', async ({
+    page,
+  }) => {
+    // Load heap-2
+    const [fileChooser] = await Promise.all([
+      page.waitForEvent('filechooser'),
+      page.locator('button:has-text("+ Load snapshot")').click(),
+    ]);
+    await fileChooser.setFiles(
+      path.resolve(__dirname, '../../tests/data/heap-2.heapsnapshot'),
+    );
+    await expect(
+      page.locator('button').filter({ hasText: 'heap-2' }),
+    ).toBeVisible({ timeout: 15000 });
+
+    // heap-2 is active after loading. Go to Diff tab.
+    await page.locator('button:has-text("Diff")').click();
+
+    // Select heap-1 as baseline (first option after "Select a snapshot...")
+    const diffSelect = page.locator(
+      '[data-testid="diff-baseline-select"]:visible',
+    );
+    await diffSelect.waitFor({ state: 'visible', timeout: 5000 });
+    await diffSelect.selectOption({ index: 1 });
+
+    await expect(page.locator('text=/constructors changed/')).toBeVisible({
+      timeout: 15000,
+    });
+
+    // heap-2 has NewObject ×2 that don't exist in heap-1
+    // With heap-2 as main and heap-1 as baseline, NewObject should appear as new
+    const newObjectRow = page
+      .locator('tr:visible')
+      .filter({ hasText: 'NewObject' });
+    await expect(newObjectRow).toBeVisible();
+  });
+
+  test('comparing a snapshot against itself shows no differences', async ({
+    page,
+  }) => {
+    // Load a second copy of the same snapshot
+    const [fileChooser] = await Promise.all([
+      page.waitForEvent('filechooser'),
+      page.locator('button:has-text("+ Load snapshot")').click(),
+    ]);
+    await fileChooser.setFiles(
+      path.resolve(__dirname, '../../tests/data/heap-1.heapsnapshot'),
+    );
+    await expect(
+      page.locator('button[title="Close snapshot"]').first(),
+    ).toBeVisible({
+      timeout: 15000,
+    });
+
+    // Go to Diff tab and compare against the second copy
+    await page.locator('button:has-text("Diff")').click();
+    const diffSelect = page.locator(
+      '[data-testid="diff-baseline-select"]:visible',
+    );
+    await diffSelect.waitFor({ state: 'visible', timeout: 5000 });
+    await diffSelect.selectOption({ index: 1 });
+
+    // Should show "No differences found"
+    await expect(page.locator('text=No differences found')).toBeVisible({
+      timeout: 15000,
+    });
+  });
+
+  test('diff heap-1 against heap-2 shows deleted NewObjects', async ({
+    page,
+  }) => {
+    // Load heap-2
+    const [fileChooser] = await Promise.all([
+      page.waitForEvent('filechooser'),
+      page.locator('button:has-text("+ Load snapshot")').click(),
+    ]);
+    await fileChooser.setFiles(
+      path.resolve(__dirname, '../../tests/data/heap-2.heapsnapshot'),
+    );
+    await expect(
+      page.locator('button').filter({ hasText: 'heap-2' }),
+    ).toBeVisible({ timeout: 15000 });
+
+    // Switch to heap-1 and go to Diff tab
+    await page.locator('button').filter({ hasText: 'heap-1' }).click();
+    await page.locator('button:has-text("Diff")').click();
+
+    // Compare heap-1 (main) against heap-2 (baseline)
+    const diffSelect = page.locator(
+      '[data-testid="diff-baseline-select"]:visible',
+    );
+    await diffSelect.waitFor({ state: 'visible', timeout: 5000 });
+    await diffSelect.selectOption({ index: 1 });
+
+    await expect(page.locator('text=/constructors changed/')).toBeVisible({
+      timeout: 15000,
+    });
+
+    // heap-1 has no NewObjects, heap-2 has 2 NewObjects
+    // So from heap-1's perspective, NewObject should show as deleted
+    const newObjectRow = page
+      .locator('tr:visible')
+      .filter({ hasText: 'NewObject' });
+    await expect(newObjectRow).toBeVisible();
+
+    // The "# Deleted" column should show -2
+    const cells = await newObjectRow.locator('td').allTextContents();
+    const deletedCell = cells[2]; // # Deleted is the 3rd column
+    expect(deletedCell).toContain('-2');
+  });
+
+  test('diff shows computing message while loading', async ({ page }) => {
+    // Load heap-2
+    const [fileChooser] = await Promise.all([
+      page.waitForEvent('filechooser'),
+      page.locator('button:has-text("+ Load snapshot")').click(),
+    ]);
+    await fileChooser.setFiles(
+      path.resolve(__dirname, '../../tests/data/heap-2.heapsnapshot'),
+    );
+    await expect(
+      page.locator('button').filter({ hasText: 'heap-2' }),
+    ).toBeVisible({ timeout: 15000 });
+
+    // Switch to heap-1 and go to Diff tab
+    await page.locator('button').filter({ hasText: 'heap-1' }).click();
+    await page.locator('button:has-text("Diff")').click();
+
+    // Select baseline — should briefly show "Computing diff..."
+    const diffSelect = page.locator(
+      '[data-testid="diff-baseline-select"]:visible',
+    );
+    await diffSelect.waitFor({ state: 'visible', timeout: 5000 });
+    await diffSelect.selectOption({ index: 1 });
+
+    // Either the computing message or the results should appear
+    await expect(
+      page
+        .locator('text=Computing diff...')
+        .or(page.locator('text=/constructors changed/'))
+        .or(page.locator('text=No differences found')),
+    ).toBeVisible({ timeout: 15000 });
   });
 });

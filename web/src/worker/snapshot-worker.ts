@@ -36,6 +36,23 @@ self.onmessage = async (e: MessageEvent<WorkerMsg>) => {
   const { id } = msg;
 
   try {
+    if (msg.type === 'computeDiff') {
+      const main = getSnapshot(msg.snapshotId as number);
+      const baseline = getSnapshot(msg.baselineId as number);
+      respond(id, JSON.parse(main.compute_diff(baseline)));
+      return;
+    }
+
+    if (msg.type === 'close') {
+      const snap = snapshots.get(msg.snapshotId as number);
+      if (snap) {
+        snap.free();
+        snapshots.delete(msg.snapshotId as number);
+      }
+      respond(id, null);
+      return;
+    }
+
     if (msg.type === 'load') {
       if (!initialized) {
         await init();

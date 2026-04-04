@@ -44,7 +44,9 @@ function getWorker(): Worker {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function workerCall<T = unknown>(request: Record<string, any>): Promise<T> {
+export function workerCall<T = unknown>(
+  request: Record<string, any>,
+): Promise<T> {
   const w = getWorker();
   const id = nextMsgId++;
   return new Promise<T>((resolve, reject) => {
@@ -72,18 +74,18 @@ export function createSnapshot() {
   const [error, setError] = createSignal<string | null>(null);
   const [filename, setFilename] = createSignal<string | null>(null);
   const [hasAllocationData, setHasAllocationData] = createSignal(false);
-
-  let snapshotId: number | null = null;
+  const [snapshotId, setSnapshotId] = createSignal<number | null>(null);
 
   // Bound call that injects this snapshot's ID into every request.
   const call: SnapshotCall = <T = unknown>(
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     request: Record<string, any>,
   ): Promise<T> => {
-    if (snapshotId === null) {
+    const id = snapshotId();
+    if (id === null) {
       return Promise.reject(new Error('No snapshot loaded'));
     }
-    return workerCall<T>({ ...request, snapshotId });
+    return workerCall<T>({ ...request, snapshotId: id });
   };
 
   async function loadFile(file: File) {
@@ -96,7 +98,7 @@ export function createSnapshot() {
         nodeCount: number;
         hasAllocationData: boolean;
       }>({ type: 'load', data: buffer });
-      snapshotId = result.snapshotId;
+      setSnapshotId(result.snapshotId);
       setFilename(file.name);
       setHasAllocationData(result.hasAllocationData);
       setLoaded(true);
@@ -107,13 +109,26 @@ export function createSnapshot() {
     }
   }
 
+  async function close() {
+    const id = snapshotId();
+    if (id !== null) {
+      await workerCall({ type: 'close', snapshotId: id });
+      setSnapshotId(null);
+      setLoaded(false);
+      setFilename(null);
+      setHasAllocationData(false);
+    }
+  }
+
   return {
     loading,
     loaded,
     error,
     filename,
     hasAllocationData,
+    snapshotId,
     loadFile,
+    close,
     call,
   };
 }

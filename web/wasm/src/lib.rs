@@ -3,6 +3,7 @@ use std::io::Cursor;
 use serde::Serialize;
 use wasm_bindgen::prelude::*;
 
+use heap_snapshot::diff;
 use heap_snapshot::parser;
 use heap_snapshot::retaining_path::{
     RetainerAutoExpandLimits, RetainerPathEdge, plan_gc_root_retainer_paths,
@@ -150,6 +151,17 @@ struct JsTimelineInterval {
     timestamp_us: u64,
     count: u32,
     size: u64,
+}
+
+#[derive(Serialize)]
+struct JsClassDiff {
+    name: String,
+    new_count: u32,
+    deleted_count: u32,
+    delta_count: i64,
+    alloc_size: f64,
+    freed_size: f64,
+    size_delta: f64,
 }
 
 // ---------------------------------------------------------------------------
@@ -630,6 +642,23 @@ impl WasmHeapSnapshot {
             "Node @{} not found in any aggregate",
             node_id as u64
         )))
+    }
+
+    pub fn compute_diff(&self, baseline: &WasmHeapSnapshot) -> String {
+        let diffs = diff::compute_diff(&self.inner, &baseline.inner);
+        let entries: Vec<JsClassDiff> = diffs
+            .iter()
+            .map(|d| JsClassDiff {
+                name: d.name.clone(),
+                new_count: d.new_count,
+                deleted_count: d.deleted_count,
+                delta_count: d.delta_count(),
+                alloc_size: d.alloc_size,
+                freed_size: d.freed_size,
+                size_delta: d.size_delta(),
+            })
+            .collect();
+        to_json(&entries)
     }
 
     pub fn has_allocation_data(&self) -> bool {

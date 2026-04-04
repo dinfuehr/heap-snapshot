@@ -127,6 +127,16 @@ export interface TimelineInterval {
   size: number;
 }
 
+export interface ClassDiff {
+  name: string;
+  new_count: number;
+  deleted_count: number;
+  delta_count: number;
+  alloc_size: number;
+  freed_size: number;
+  size_delta: number;
+}
+
 export interface Dominator {
   id: number;
   name: string;
@@ -137,6 +147,7 @@ export interface Dominator {
 
 export type WorkerRequest =
   | { id: number; type: 'load'; data: ArrayBuffer }
+  | { id: number; type: 'close'; snapshotId: number }
   | { id: number; type: 'getStatistics' }
   | { id: number; type: 'setSummaryFilter'; mode: number }
   | { id: number; type: 'getSummary' }

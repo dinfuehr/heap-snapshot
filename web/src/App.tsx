@@ -20,12 +20,14 @@ import { DominatorsView } from './views/DominatorsView.tsx';
 import { ContextsView } from './views/ContextsView.tsx';
 import { HistoryView } from './views/HistoryView.tsx';
 import { TimelineView } from './views/TimelineView.tsx';
+import { DiffView } from './views/DiffView.tsx';
 
 const TABS = [
   'Summary',
   'Containment',
   'Dominators',
   'Retainers',
+  'Diff',
   'Contexts',
   'History',
   'Statistics',
@@ -163,6 +165,20 @@ export function App(): JSX.Element {
     }
   };
 
+  const closeSnapshot = async (index: number) => {
+    const inst = snapshots()[index];
+    await inst.close();
+    const remaining = snapshots().filter((_, i) => i !== index);
+    if (remaining.length === 0) {
+      // Reset to a fresh empty instance
+      setSnapshots([createSnapshotInstance()]);
+      setActiveIndex(0);
+    } else {
+      setSnapshots(remaining);
+      setActiveIndex(Math.min(activeIndex(), remaining.length - 1));
+    }
+  };
+
   const anyLoaded = () => snapshots().some((s) => s.loaded());
 
   return (
@@ -194,30 +210,80 @@ export function App(): JSX.Element {
             <For each={snapshots()}>
               {(inst, i) => (
                 <Show when={inst.loaded()}>
-                  <button
-                    onClick={() => setActiveIndex(i())}
+                  <span
                     style={{
-                      padding: '4px 12px',
+                      display: 'inline-flex',
+                      'align-items': 'center',
                       border:
                         i() === activeIndex()
                           ? '2px solid #333'
                           : '1px solid #ccc',
                       'border-radius': '4px',
                       background: i() === activeIndex() ? '#f0f0f0' : 'white',
-                      cursor: 'pointer',
                       'font-size': '13px',
-                      'font-weight': i() === activeIndex() ? 'bold' : 'normal',
                     }}
                   >
-                    {inst.filename() ?? `Snapshot ${i() + 1}`}
-                  </button>
+                    <button
+                      onClick={() => setActiveIndex(i())}
+                      style={{
+                        padding: '4px 8px 4px 12px',
+                        border: 'none',
+                        background: 'none',
+                        cursor: 'pointer',
+                        'font-weight':
+                          i() === activeIndex() ? 'bold' : 'normal',
+                        'font-size': '13px',
+                      }}
+                    >
+                      {inst.filename() ?? `Snapshot ${i() + 1}`}
+                    </button>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        closeSnapshot(i());
+                      }}
+                      title="Close snapshot"
+                      style={{
+                        padding: '4px 8px 4px 4px',
+                        border: 'none',
+                        background: 'none',
+                        cursor: 'pointer',
+                        'font-size': '11px',
+                        color: '#888',
+                      }}
+                    >
+                      {'\u2715'}
+                    </button>
+                  </span>
                 </Show>
               )}
             </For>
           </Show>
           <Show when={snapshots().length <= 1}>
-            <span style={{ 'font-weight': 'bold', 'font-size': '14px' }}>
-              {active().filename()}
+            <span
+              style={{
+                display: 'inline-flex',
+                'align-items': 'center',
+                gap: '4px',
+              }}
+            >
+              <span style={{ 'font-weight': 'bold', 'font-size': '14px' }}>
+                {active().filename()}
+              </span>
+              <button
+                onClick={() => closeSnapshot(0)}
+                title="Close snapshot"
+                style={{
+                  padding: '2px 6px',
+                  border: 'none',
+                  background: 'none',
+                  cursor: 'pointer',
+                  'font-size': '11px',
+                  color: '#888',
+                }}
+              >
+                {'\u2715'}
+              </button>
             </span>
           </Show>
           <button
@@ -249,16 +315,19 @@ export function App(): JSX.Element {
           tabs={TABS}
           active={active().tab[0]()}
           onChange={(t) => active().tab[1](t)}
-          disabled={
-            active().hasAllocationData()
-              ? undefined
-              : new Set(['Timeline'] as Tab[])
-          }
+          disabled={(() => {
+            const disabled = new Set<Tab>();
+            if (!active().hasAllocationData()) disabled.add('Timeline');
+            if (snapshots().filter((s) => s.loaded()).length < 2)
+              disabled.add('Diff');
+            return disabled.size > 0 ? disabled : undefined;
+          })()}
         />
 
         <For each={snapshots()}>
           {(inst, i) => (
             <div
+              data-testid={`snapshot-${i()}`}
               style={{
                 display: i() === activeIndex() ? undefined : 'none',
               }}
@@ -324,6 +393,19 @@ export function App(): JSX.Element {
                     nodeId={inst.retainersNodeId[0]()}
                     onNavigate={navigate}
                     onContextMenu={handleContextMenu}
+                  />
+                </div>
+                <div
+                  style={{
+                    'margin-top': '16px',
+                    display: inst.tab[0]() === 'Diff' ? undefined : 'none',
+                  }}
+                >
+                  <DiffView
+                    call={inst.call}
+                    snapshotId={inst.snapshotId}
+                    snapshots={snapshots}
+                    currentIndex={i}
                   />
                 </div>
                 <div
