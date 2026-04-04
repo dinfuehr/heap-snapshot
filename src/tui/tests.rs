@@ -3215,9 +3215,7 @@ fn test_unreachable_filter_hides_reachable_groups() {
     );
 
     // Enable unreachable filter
-    app.summary_unreachable_filter = UnreachableFilter::All;
-    app.summary_state = TreeState::new();
-    app.mark_rows_dirty();
+    app.set_summary_filter(SummaryFilterMode::Unreachable, &snap);
     app.rebuild_rows(&snap);
 
     let groups: Vec<&str> = app
@@ -3248,9 +3246,7 @@ fn test_unreachable_filter_shows_correct_count() {
     let (_result_tx, result_rx) = mpsc::channel();
     let mut app = App::new(&snap, Vec::new(), work_tx, result_rx);
 
-    app.summary_unreachable_filter = UnreachableFilter::All;
-    app.summary_state = TreeState::new();
-    app.mark_rows_dirty();
+    app.set_summary_filter(SummaryFilterMode::Unreachable, &snap);
     app.rebuild_rows(&snap);
 
     let myobj_group = app
@@ -3277,9 +3273,7 @@ fn test_unreachable_filter_expanded_members() {
     let (_result_tx, result_rx) = mpsc::channel();
     let mut app = App::new(&snap, Vec::new(), work_tx, result_rx);
 
-    app.summary_unreachable_filter = UnreachableFilter::All;
-    app.summary_state = TreeState::new();
-    app.mark_rows_dirty();
+    app.set_summary_filter(SummaryFilterMode::Unreachable, &snap);
     app.rebuild_rows(&snap);
 
     // Find and expand the MyObj group
@@ -3343,9 +3337,7 @@ fn test_unreachable_filter_toggle_restores_all() {
         .count();
 
     // Toggle on
-    app.summary_unreachable_filter = UnreachableFilter::All;
-    app.summary_state = TreeState::new();
-    app.mark_rows_dirty();
+    app.set_summary_filter(SummaryFilterMode::Unreachable, &snap);
     app.rebuild_rows(&snap);
     let count_filtered = app
         .cached_rows
@@ -3355,9 +3347,7 @@ fn test_unreachable_filter_toggle_restores_all() {
     assert!(count_filtered < count_before, "filter should reduce groups");
 
     // Toggle off
-    app.summary_unreachable_filter = UnreachableFilter::Off;
-    app.summary_state = TreeState::new();
-    app.mark_rows_dirty();
+    app.set_summary_filter(SummaryFilterMode::All, &snap);
     app.rebuild_rows(&snap);
     let count_after = app
         .cached_rows
@@ -3413,10 +3403,8 @@ fn test_unreachable_plus_text_filter_hides_group_matching_only_reachable() {
     let mut app = App::new(&snap, Vec::new(), work_tx, result_rx);
 
     // Enable unreachable-only + text filter "hello"
-    app.summary_unreachable_filter = UnreachableFilter::All;
+    app.set_summary_filter(SummaryFilterMode::Unreachable, &snap);
     app.summary_filter = "hello".to_string();
-    app.summary_state = TreeState::new();
-    app.mark_rows_dirty();
     app.rebuild_rows(&snap);
 
     let groups: Vec<&str> = app
@@ -3436,8 +3424,6 @@ fn test_unreachable_plus_text_filter_hides_group_matching_only_reachable() {
 
     // Now filter "world" — that one IS unreachable, group should appear
     app.summary_filter = "world".to_string();
-    app.summary_state = TreeState::new();
-    app.mark_rows_dirty();
     app.rebuild_rows(&snap);
 
     let groups: Vec<&str> = app
@@ -3485,9 +3471,7 @@ fn test_unreachable_filter_recomputes_group_sizes() {
     assert_eq!(full_shallow, 1000.0, "full group shallow = 100+200+300+400");
 
     // With unreachable filter: only nodes 4 (300) and 5 (400) → shallow = 700
-    app.summary_unreachable_filter = UnreachableFilter::All;
-    app.summary_state = TreeState::new();
-    app.mark_rows_dirty();
+    app.set_summary_filter(SummaryFilterMode::Unreachable, &snap);
     app.rebuild_rows(&snap);
 
     let myobj_filtered = app
@@ -4732,5 +4716,93 @@ fn self_cycle_does_not_cause_infinite_expansion() {
     assert!(
         new_rows <= 10,
         "expanding self-child should add a small number of rows, got {new_rows}"
+    );
+}
+
+// ── fit_tabs tests ──────────────────────────────────────────────────────
+
+use super::render::fit_tabs;
+
+fn make_test_tabs() -> Vec<(String, ViewType)> {
+    vec![
+        ("1:Summary".into(), ViewType::Summary),
+        ("2:Containment".into(), ViewType::Containment),
+        ("3:Dominators".into(), ViewType::Dominators),
+        ("4:Retainers".into(), ViewType::Retainers),
+        ("6:Contexts".into(), ViewType::Contexts),
+        ("7:History".into(), ViewType::History),
+        ("8:Statistics".into(), ViewType::Statistics),
+        ("?:Help".into(), ViewType::Help),
+    ]
+}
+
+fn tab_labels(tabs: &[(String, ViewType)]) -> Vec<&str> {
+    tabs.iter().map(|(l, _)| l.as_str()).collect()
+}
+
+#[test]
+fn test_fit_tabs_wide_enough() {
+    let mut tabs = make_test_tabs();
+    // Each tab: " label " = label.len() + 2. Total with full labels:
+    // 9+2 + 13+2 + 12+2 + 11+2 + 10+2 + 9+2 + 12+2 + 6+2 = 98
+    fit_tabs(&mut tabs, 200);
+    assert_eq!(
+        tab_labels(&tabs),
+        vec![
+            "1:Summary",
+            "2:Containment",
+            "3:Dominators",
+            "4:Retainers",
+            "6:Contexts",
+            "7:History",
+            "8:Statistics",
+            "?:Help"
+        ]
+    );
+}
+
+#[test]
+fn test_fit_tabs_shortens_help_first() {
+    let mut tabs = make_test_tabs();
+    // Total with full labels = 98. Set width to 95 — just need to shorten Help.
+    // "?:Help" (6+2=8) → "?" (1+2=3), saves 5. New total = 93.
+    fit_tabs(&mut tabs, 95);
+    let labels = tab_labels(&tabs);
+    assert_eq!(labels.last().unwrap(), &"?");
+    // Other labels unchanged
+    assert_eq!(labels[0], "1:Summary");
+    assert_eq!(labels[1], "2:Containment");
+}
+
+#[test]
+fn test_fit_tabs_trims_longest() {
+    let mut tabs = make_test_tabs();
+    // Very narrow: force trimming
+    fit_tabs(&mut tabs, 60);
+    let labels = tab_labels(&tabs);
+    // Help should be "?"
+    assert_eq!(labels.last().unwrap(), &"?");
+    // All labels should be short enough to fit
+    let total: usize = labels.iter().map(|l| l.len() + 2).sum();
+    assert!(total <= 60, "total {total} should be <= 60");
+    // Labels should still start with their key number
+    assert!(labels[0].starts_with("1:"));
+    assert!(labels[1].starts_with("2:"));
+}
+
+#[test]
+fn test_fit_tabs_extreme_narrow() {
+    let mut tabs = make_test_tabs();
+    // Extremely narrow — labels get trimmed to minimum
+    fit_tabs(&mut tabs, 20);
+    let total: usize = tab_labels(&tabs).iter().map(|l| l.len() + 2).sum();
+    // Should not panic, all labels should be at least 1 char
+    for (label, _) in &tabs {
+        assert!(!label.is_empty(), "label should not be empty");
+    }
+    // May still exceed width if 8 tabs * 3 min = 24 > 20, but shouldn't panic
+    assert!(
+        total <= 24,
+        "minimum possible total is 24 (8 * 3), got {total}"
     );
 }

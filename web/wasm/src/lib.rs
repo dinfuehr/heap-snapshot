@@ -9,8 +9,8 @@ use heap_snapshot::retaining_path::{
 };
 use heap_snapshot::snapshot::{HeapSnapshot, RootKind, SnapshotOptions};
 use heap_snapshot::types::AggregateInfo;
-use rustc_hash::FxHashMap;
 use heap_snapshot::types::{NodeId, NodeOrdinal};
+use rustc_hash::FxHashMap;
 
 // ---------------------------------------------------------------------------
 // Serialization types
@@ -231,12 +231,17 @@ impl WasmHeapSnapshot {
         })
     }
 
-    /// Recompute cached aggregates with the given unreachable filter mode.
-    /// 0 = all objects, 1 = all unreachable, 2 = roots only.
-    pub fn set_unreachable_mode(&mut self, mode: u32) {
+    /// Recompute cached aggregates with the given filter mode.
+    /// 0 = all objects, 1 = all unreachable, 2 = unreachable roots only,
+    /// 3 = retained by detached DOM, 4 = retained by console,
+    /// 5 = retained by event handlers.
+    pub fn set_summary_filter(&mut self, mode: u32) {
         self.cached_aggregates = Some(match mode {
             1 => self.inner.unreachable_aggregates(),
             2 => self.inner.unreachable_root_aggregates(),
+            3 => self.inner.retained_by_detached_dom(),
+            4 => self.inner.retained_by_console(),
+            5 => self.inner.retained_by_event_handlers(),
             _ => self.inner.aggregates_with_filter(),
         });
     }
@@ -653,9 +658,9 @@ impl WasmHeapSnapshot {
                 intervals.len()
             ))
         })?;
-        let aggregates =
-            self.inner
-                .aggregates_for_id_range(interval.id_from, interval.id_to);
+        let aggregates = self
+            .inner
+            .aggregates_for_id_range(interval.id_from, interval.id_to);
         let mut entries: Vec<JsAggregateEntry> = aggregates
             .iter()
             .map(|(key, agg)| JsAggregateEntry {

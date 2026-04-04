@@ -3,7 +3,7 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use crate::snapshot::HeapSnapshot;
 
 use super::types::*;
-use super::{App, EDGE_PAGE_SIZE, HORIZONTAL_SCROLL_STEP, UnreachableFilter};
+use super::{App, EDGE_PAGE_SIZE, HORIZONTAL_SCROLL_STEP};
 
 impl App {
     pub(super) fn handle_key(&mut self, key: KeyEvent, snap: &HeapSnapshot) -> bool {
@@ -340,26 +340,12 @@ impl App {
             }
             KeyCode::Char('u') => {
                 if self.current_view == ViewType::Summary {
-                    self.summary_unreachable_filter = match self.summary_unreachable_filter {
-                        UnreachableFilter::Off | UnreachableFilter::RootsOnly => {
-                            UnreachableFilter::All
-                        }
-                        UnreachableFilter::All => UnreachableFilter::Off,
-                    };
-                    self.summary_state = TreeState::new();
-                    self.mark_rows_dirty();
+                    self.set_summary_filter(self.summary_filter_mode.next(), snap);
                 }
             }
             KeyCode::Char('U') => {
                 if self.current_view == ViewType::Summary {
-                    self.summary_unreachable_filter = match self.summary_unreachable_filter {
-                        UnreachableFilter::Off | UnreachableFilter::All => {
-                            UnreachableFilter::RootsOnly
-                        }
-                        UnreachableFilter::RootsOnly => UnreachableFilter::Off,
-                    };
-                    self.summary_state = TreeState::new();
-                    self.mark_rows_dirty();
+                    self.set_summary_filter(self.summary_filter_mode.prev(), snap);
                 }
             }
             KeyCode::Char('n') => {

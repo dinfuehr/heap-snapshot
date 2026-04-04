@@ -101,17 +101,53 @@ fn contains_ignore_case(haystack: &str, needle: &str) -> bool {
         .any(|w| w.eq_ignore_ascii_case(needle.as_bytes()))
 }
 
-/// Unreachable filter mode for the Summary view.
+/// Summary view filter mode.
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum UnreachableFilter {
+pub(super) enum SummaryFilterMode {
     /// Show all objects (no filter).
-    Off,
-    /// Show all unreachable objects (distance >= UNREACHABLE_BASE), including
-    /// those only reachable from other unreachable objects (U+1, U+2, …).
     All,
-    /// Show only fully unreachable objects (distance == UNREACHABLE_BASE),
-    /// excluding those reachable from other unreachable objects.
-    RootsOnly,
+    /// Show all unreachable objects (distance >= UNREACHABLE_BASE).
+    Unreachable,
+    /// Show only fully unreachable roots (distance == UNREACHABLE_BASE).
+    UnreachableRoots,
+    /// Objects only retained by detached DOM nodes.
+    RetainedByDetachedDom,
+    /// Objects only retained by DevTools console references.
+    RetainedByConsole,
+    /// Objects only retained by event handlers.
+    RetainedByEventHandlers,
+}
+
+impl SummaryFilterMode {
+    fn label(self) -> &'static str {
+        match self {
+            Self::All => "All objects",
+            Self::Unreachable => "Unreachable (all)",
+            Self::UnreachableRoots => "Unreachable (roots only)",
+            Self::RetainedByDetachedDom => "Retained by detached DOM",
+            Self::RetainedByConsole => "Retained by DevTools console",
+            Self::RetainedByEventHandlers => "Retained by event handlers",
+        }
+    }
+
+    const MODES: [Self; 6] = [
+        Self::All,
+        Self::Unreachable,
+        Self::UnreachableRoots,
+        Self::RetainedByDetachedDom,
+        Self::RetainedByConsole,
+        Self::RetainedByEventHandlers,
+    ];
+
+    fn next(self) -> Self {
+        let idx = Self::MODES.iter().position(|&m| m == self).unwrap_or(0);
+        Self::MODES[(idx + 1) % Self::MODES.len()]
+    }
+
+    fn prev(self) -> Self {
+        let idx = Self::MODES.iter().position(|&m| m == self).unwrap_or(0);
+        Self::MODES[(idx + Self::MODES.len() - 1) % Self::MODES.len()]
+    }
 }
 
 // ── App ──────────────────────────────────────────────────────────────────
@@ -136,7 +172,7 @@ struct App {
     // lowercase substring filter applied to constructor names in Summary
     summary_filter: String,
     // unreachable filter mode for Summary view
-    summary_unreachable_filter: UnreachableFilter,
+    summary_filter_mode: SummaryFilterMode,
     // node whose edges are being filtered ("f" prompt)
     edge_filter_target: Option<NodeOrdinal>,
     // NodeId of the row whose edges are being filtered
@@ -145,6 +181,9 @@ struct App {
     edge_filter_is_compare: bool,
     // live text in the edge-filter prompt
     edge_filter_input: String,
+    // Cached tab labels for the header, recomputed when terminal width changes.
+    tab_cache: Vec<(String, ViewType)>,
+    tab_cache_width: usize,
     // class aggregates sorted by retained size (drives the Summary view)
     sorted_aggregates: Vec<AggregateInfo>,
     // totals used for percentage columns in Summary
@@ -189,21 +228,30 @@ struct App {
 
 // Core App methods used across multiple submodules.
 impl App {
-    fn new(
+    #[cfg(test)]
+    pub(super) fn new(
         snap: &HeapSnapshot,
         compare_snapshots: Vec<(String, HeapSnapshot)>,
         work_tx: mpsc::Sender<WorkItem>,
         result_rx: mpsc::Receiver<WorkResult>,
     ) -> Self {
-        let aggregates = snap.aggregates_with_filter();
-        let mut sorted: Vec<AggregateInfo> = aggregates.into_values().collect();
+        let mut sorted: Vec<AggregateInfo> = snap.aggregates_with_filter().into_values().collect();
         sorted.sort_by(|a, b| {
             b.max_ret
                 .partial_cmp(&a.max_ret)
                 .unwrap()
                 .then(a.first_seen.cmp(&b.first_seen))
         });
+        Self::new_with_aggregates(snap, sorted, compare_snapshots, work_tx, result_rx)
+    }
 
+    pub(super) fn new_with_aggregates(
+        snap: &HeapSnapshot,
+        sorted: Vec<AggregateInfo>,
+        compare_snapshots: Vec<(String, HeapSnapshot)>,
+        work_tx: mpsc::Sender<WorkItem>,
+        result_rx: mpsc::Receiver<WorkResult>,
+    ) -> Self {
         let summary_total_shallow: f64 = sorted.iter().map(|e| e.self_size).sum();
         let summary_total_retained: f64 = sorted.iter().map(|e| e.max_ret).sum();
         let heap_total = snap.get_statistics().total;
@@ -227,7 +275,7 @@ impl App {
             &containment_state.edge_filters,
             "",
             None,
-            UnreachableFilter::Off,
+            SummaryFilterMode::All,
             &next_id,
         );
         containment_state
@@ -248,7 +296,7 @@ impl App {
             &dominators_state.edge_filters,
             "",
             None,
-            UnreachableFilter::Off,
+            SummaryFilterMode::All,
             &next_id,
         );
         dominators_state
@@ -295,7 +343,9 @@ impl App {
             search_input: String::new(),
             search_error: None,
             summary_filter: String::new(),
-            summary_unreachable_filter: UnreachableFilter::Off,
+            summary_filter_mode: SummaryFilterMode::All,
+            tab_cache: Vec::new(),
+            tab_cache_width: 0,
             edge_filter_target: None,
             edge_filter_node_id: None,
             edge_filter_is_compare: false,
@@ -454,6 +504,32 @@ impl App {
         state.horizontal_scroll
     }
 
+    fn set_summary_filter(&mut self, mode: SummaryFilterMode, snap: &HeapSnapshot) {
+        self.summary_filter_mode = mode;
+        let aggregates = match mode {
+            SummaryFilterMode::All => snap.aggregates_with_filter(),
+            SummaryFilterMode::Unreachable => snap.unreachable_aggregates(),
+            SummaryFilterMode::UnreachableRoots => snap.unreachable_root_aggregates(),
+            SummaryFilterMode::RetainedByDetachedDom => snap.retained_by_detached_dom(),
+            SummaryFilterMode::RetainedByConsole => snap.retained_by_console(),
+            SummaryFilterMode::RetainedByEventHandlers => snap.retained_by_event_handlers(),
+        };
+        let mut sorted: Vec<AggregateInfo> = aggregates.into_values().collect();
+        sorted.sort_by(|a, b| {
+            b.max_ret
+                .partial_cmp(&a.max_ret)
+                .unwrap()
+                .then(a.first_seen.cmp(&b.first_seen))
+        });
+        let next_id = &self.next_id;
+        self.summary_ids = (0..sorted.len()).map(|_| mint_id(next_id)).collect();
+        self.summary_total_shallow = sorted.iter().map(|e| e.self_size).sum();
+        self.summary_total_retained = sorted.iter().map(|e| e.max_ret).sum();
+        self.sorted_aggregates = sorted;
+        self.summary_state = TreeState::new();
+        self.mark_rows_dirty();
+    }
+
     fn current_row(&self) -> Option<&FlatRow> {
         self.cached_rows.get(self.current_tree_state().cursor)
     }
@@ -594,7 +670,24 @@ pub fn run(
         });
     }
 
-    let mut app = App::new(&snap, compare, work_tx, result_rx);
+    // Show loading screen while computing aggregates
+    terminal.draw(|frame| {
+        let area = frame.area();
+        frame.render_widget(
+            ratatui::widgets::Paragraph::new("Computing aggregates..."),
+            area,
+        );
+    })?;
+    let aggregates = snap.aggregates_with_filter();
+    let mut sorted: Vec<AggregateInfo> = aggregates.into_values().collect();
+    sorted.sort_by(|a, b| {
+        b.max_ret
+            .partial_cmp(&a.max_ret)
+            .unwrap()
+            .then(a.first_seen.cmp(&b.first_seen))
+    });
+
+    let mut app = App::new_with_aggregates(&snap, sorted, compare, work_tx, result_rx);
 
     // Restore history and reachable sizes from disk
     let (restored, reachable) = load_history(&path, &snap);

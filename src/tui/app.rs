@@ -9,7 +9,7 @@ use super::children::{
 };
 use super::types::*;
 use super::{
-    App, EDGE_PAGE_SIZE, RETAINER_AUTO_EXPAND_DEPTH, RETAINER_AUTO_EXPAND_NODES, UnreachableFilter,
+    App, EDGE_PAGE_SIZE, RETAINER_AUTO_EXPAND_DEPTH, RETAINER_AUTO_EXPAND_NODES, SummaryFilterMode,
     contains_ignore_case,
 };
 
@@ -422,7 +422,7 @@ impl App {
             &self.retainers.tree_state.edge_filters,
             "",
             None,
-            UnreachableFilter::Off,
+            SummaryFilterMode::All,
             &self.next_id,
         );
         self.retainers.tree_state.children_map.insert(key, children);
@@ -486,7 +486,7 @@ impl App {
                 &self.summary_state.edge_filters,
                 self.member_filter_for(agg_idx),
                 Some(&self.retainers.gc_root_path_edges),
-                self.summary_unreachable_filter,
+                SummaryFilterMode::All,
                 &self.next_id,
             );
             self.summary_state.children_map.insert(ck, children);
@@ -548,7 +548,7 @@ impl App {
                     &self.dominators_state.edge_filters,
                     "",
                     None,
-                    UnreachableFilter::Off,
+                    SummaryFilterMode::All,
                     &self.next_id,
                 );
                 self.dominators_state
@@ -681,7 +681,7 @@ impl App {
                     &self.containment_state.edge_filters,
                     "",
                     None,
-                    UnreachableFilter::Off,
+                    SummaryFilterMode::All,
                     &self.next_id,
                 );
                 self.containment_state
@@ -755,9 +755,9 @@ impl App {
                             ""
                         };
                         let unreachable_filter = if self.current_view == ViewType::Summary {
-                            self.summary_unreachable_filter
+                            SummaryFilterMode::All
                         } else {
-                            UnreachableFilter::Off
+                            SummaryFilterMode::All
                         };
                         Some(compute_children(
                             &ck,
@@ -1118,7 +1118,7 @@ impl App {
                     &self.sorted_aggregates[agg_idx],
                     w,
                     self.member_filter_for(agg_idx),
-                    self.summary_unreachable_filter,
+                    SummaryFilterMode::All,
                     &self.next_id,
                 );
                 (ck, children)

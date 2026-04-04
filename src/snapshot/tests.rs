@@ -6923,3 +6923,276 @@ fn test_timeline_empty_without_samples() {
     let snap = make_test_snapshot();
     assert!(snap.get_timeline().is_empty());
 }
+
+// ── retained-by filters ─────────────────────────────────────────────────
+
+fn agg_names(aggs: &FxHashMap<String, AggregateInfo>) -> Vec<String> {
+    let mut names: Vec<String> = aggs.values().map(|a| a.name.clone()).collect();
+    names.sort();
+    names
+}
+
+// ── retained by detached DOM ────────────────────────────────────────────
+
+/// Graph:
+///   0: synthetic root → 1
+///   1: (GC roots) → 2, 3
+///   2: "Normal" (attached, det=1) — reachable normally
+///   3: "DetachedDiv" (detached, det=2) → 4
+///   4: "Leaked" — only reachable through the detached node
+///   5: "Orphan" — no edges to it (truly unreachable)
+fn make_detached_dom_snapshot() -> HeapSnapshot {
+    let node_fields = s(&[
+        "type",
+        "name",
+        "id",
+        "self_size",
+        "edge_count",
+        "detachedness",
+    ]);
+    let nfc = node_fields.len();
+    let n = |ord: u32| ord * nfc as u32;
+
+    let nodes: Vec<u32> = vec![
+        9, 0, 1, 0, 1, 0, // 0: synthetic root
+        9, 1, 2, 0, 2, 0, // 1: (GC roots)
+        3, 2, 3, 50, 0, 1, // 2: "Normal" attached
+        3, 3, 5, 20, 1, 2, // 3: "DetachedDiv" detached
+        3, 4, 7, 30, 0, 0, // 4: "Leaked"
+        3, 5, 9, 100, 0, 0, // 5: "Orphan" — nothing points here
+    ];
+    let strings = s(&[
+        "",
+        "(GC roots)",
+        "Normal",
+        "DetachedDiv",
+        "Leaked",
+        "Orphan",
+        "a",
+        "b",
+        "c",
+    ]);
+    let edges: Vec<u32> = vec![
+        1,
+        0,
+        n(1), // root → GC roots
+        2,
+        6,
+        n(2), // GC roots → Normal
+        2,
+        7,
+        n(3), // GC roots → DetachedDiv
+        2,
+        8,
+        n(4), // DetachedDiv → Leaked
+    ];
+
+    let raw = RawHeapSnapshot {
+        snapshot: SnapshotHeader {
+            meta: SnapshotMeta {
+                node_fields,
+                node_type_enum: standard_node_type_enum(),
+                edge_fields: standard_edge_fields(),
+                edge_type_enum: standard_edge_type_enum(),
+                location_fields: vec![],
+                sample_fields: vec![],
+                trace_function_info_fields: vec![],
+                trace_node_fields: vec![],
+            },
+            node_count: nodes.len() / nfc,
+            edge_count: edges.len() / 3,
+            trace_function_count: 0,
+            root_index: Some(0),
+            extra_native_bytes: None,
+        },
+        nodes,
+        edges,
+        strings,
+        locations: vec![],
+        trace_function_infos: vec![],
+        trace_tree_parents: vec![],
+        trace_tree_func_idxs: vec![],
+        samples: vec![],
+    };
+    HeapSnapshot::new(raw)
+}
+
+#[test]
+fn test_retained_by_detached_dom() {
+    let snap = make_detached_dom_snapshot();
+    let names = agg_names(&snap.retained_by_detached_dom());
+    assert!(names.contains(&"DetachedDiv".to_string()), "got: {names:?}");
+    assert!(names.contains(&"Leaked".to_string()), "got: {names:?}");
+    assert!(!names.contains(&"Normal".to_string()), "got: {names:?}");
+}
+
+#[test]
+fn test_retained_by_detached_dom_excludes_unreachable() {
+    let snap = make_detached_dom_snapshot();
+    let names = agg_names(&snap.retained_by_detached_dom());
+    // "Orphan" has no edges pointing to it — it's unreachable, not retained by detached DOM
+    assert!(
+        !names.contains(&"Orphan".to_string()),
+        "truly unreachable objects should not appear, got: {names:?}"
+    );
+}
+
+#[test]
+fn test_retained_by_detached_dom_empty_without_detachedness() {
+    let snap = make_test_snapshot();
+    assert!(snap.retained_by_detached_dom().is_empty());
+}
+
+// ── retained by DevTools console ────────────────────────────────────────
+
+/// Graph:
+///   0: synthetic root → 1, and console edge → 3
+///   1: (GC roots) → 2
+///   2: "Normal" — reachable normally
+///   3: "ConsoleObj" → 4
+///   4: "Leaked" — only reachable through the console edge
+///   5: "Orphan" — nothing points here
+fn make_console_snapshot() -> HeapSnapshot {
+    let nfc = 5u32;
+    let n = |ord: u32| ord * nfc;
+
+    let nodes: Vec<u32> = vec![
+        9, 0, 1, 0, 2, // 0: synthetic root (2 edges: GC roots + console)
+        9, 1, 2, 0, 1, // 1: (GC roots)
+        3, 2, 3, 50, 0, // 2: "Normal"
+        3, 3, 5, 10, 1, // 3: "ConsoleObj"
+        3, 4, 7, 60, 0, // 4: "Leaked"
+        3, 5, 9, 100, 0, // 5: "Orphan"
+    ];
+    // string 6 = "temp1 / DevTools console"
+    let strings = s(&[
+        "",
+        "(GC roots)",
+        "Normal",
+        "ConsoleObj",
+        "Leaked",
+        "Orphan",
+        "temp1 / DevTools console",
+        "a",
+        "b",
+    ]);
+    let edges: Vec<u32> = vec![
+        1,
+        0,
+        n(1), // root → GC roots (element)
+        2,
+        6,
+        n(3), // root → ConsoleObj (property "temp1 / DevTools console")
+        2,
+        7,
+        n(2), // GC roots → Normal
+        2,
+        8,
+        n(4), // ConsoleObj → Leaked
+    ];
+
+    build_snapshot(standard_node_fields(), nodes, edges, strings)
+}
+
+#[test]
+fn test_retained_by_console() {
+    let snap = make_console_snapshot();
+    let names = agg_names(&snap.retained_by_console());
+    assert!(names.contains(&"ConsoleObj".to_string()), "got: {names:?}");
+    assert!(names.contains(&"Leaked".to_string()), "got: {names:?}");
+    assert!(!names.contains(&"Normal".to_string()), "got: {names:?}");
+}
+
+#[test]
+fn test_retained_by_console_excludes_unreachable() {
+    let snap = make_console_snapshot();
+    let names = agg_names(&snap.retained_by_console());
+    assert!(
+        !names.contains(&"Orphan".to_string()),
+        "truly unreachable objects should not appear, got: {names:?}"
+    );
+}
+
+// ── retained by event handlers ──────────────────────────────────────────
+
+/// Graph:
+///   0: synthetic root → 1
+///   1: (GC roots) → 2, 3
+///   2: "Normal" — reachable normally
+///   3: "V8EventListener" → callback_object_ → 4
+///   4: "Handler" — has "code" edge → 5, and property → 6
+///   5: "HandlerCode" (code type)
+///   6: "Leaked" — only reachable through the handler
+///   7: "Orphan" — nothing points here
+fn make_event_handler_snapshot() -> HeapSnapshot {
+    let nfc = 5u32;
+    let n = |ord: u32| ord * nfc;
+
+    let nodes: Vec<u32> = vec![
+        9, 0, 1, 0, 1, // 0: synthetic root
+        9, 1, 2, 0, 2, // 1: (GC roots)
+        3, 2, 3, 50, 0, // 2: "Normal"
+        3, 3, 5, 10, 1, // 3: "V8EventListener"
+        3, 4, 7, 10, 2, // 4: "Handler" (2 edges: code + leaked)
+        4, 5, 9, 20, 0, // 5: "HandlerCode" (type=code=4)
+        3, 6, 11, 40, 0, // 6: "Leaked"
+        3, 7, 13, 100, 0, // 7: "Orphan"
+    ];
+    // 8="callback_object_", 9="code", 10="a", 11="b", 12="c"
+    let strings = s(&[
+        "",
+        "(GC roots)",
+        "Normal",
+        "V8EventListener",
+        "Handler",
+        "HandlerCode",
+        "Leaked",
+        "Orphan",
+        "callback_object_",
+        "code",
+        "a",
+        "b",
+        "c",
+    ]);
+    let edges: Vec<u32> = vec![
+        1,
+        0,
+        n(1), // root → GC roots
+        2,
+        10,
+        n(2), // GC roots → Normal
+        2,
+        11,
+        n(3), // GC roots → V8EventListener
+        2,
+        8,
+        n(4), // V8EventListener → Handler (callback_object_)
+        2,
+        9,
+        n(5), // Handler → HandlerCode (code)
+        2,
+        12,
+        n(6), // Handler → Leaked
+    ];
+
+    build_snapshot(standard_node_fields(), nodes, edges, strings)
+}
+
+#[test]
+fn test_retained_by_event_handlers() {
+    let snap = make_event_handler_snapshot();
+    let names = agg_names(&snap.retained_by_event_handlers());
+    assert!(names.contains(&"Handler".to_string()), "got: {names:?}");
+    assert!(names.contains(&"Leaked".to_string()), "got: {names:?}");
+    assert!(!names.contains(&"Normal".to_string()), "got: {names:?}");
+}
+
+#[test]
+fn test_retained_by_event_handlers_excludes_unreachable() {
+    let snap = make_event_handler_snapshot();
+    let names = agg_names(&snap.retained_by_event_handlers());
+    assert!(
+        !names.contains(&"Orphan".to_string()),
+        "truly unreachable objects should not appear, got: {names:?}"
+    );
+}

@@ -138,7 +138,7 @@ export interface Dominator {
 export type WorkerRequest =
   | { id: number; type: 'load'; data: ArrayBuffer }
   | { id: number; type: 'getStatistics' }
-  | { id: number; type: 'setUnreachableMode'; mode: number }
+  | { id: number; type: 'setSummaryFilter'; mode: number }
   | { id: number; type: 'getSummary' }
   | {
       id: number;

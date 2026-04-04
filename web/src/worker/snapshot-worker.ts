@@ -59,8 +59,8 @@ self.onmessage = async (e: MessageEvent<WorkerMsg>) => {
       case 'getStatistics':
         respond(id, JSON.parse(snapshot.get_statistics()));
         break;
-      case 'setUnreachableMode':
-        snapshot.set_unreachable_mode((msg.mode as number) || 0);
+      case 'setSummaryFilter':
+        snapshot.set_summary_filter((msg.mode as number) || 0);
         respond(id, null);
         break;
       case 'getSummary':

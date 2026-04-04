@@ -5,9 +5,36 @@ use crate::print::{format_distance, format_size, pct_str};
 use crate::snapshot::HeapSnapshot;
 
 use super::types::*;
+
+/// Fit tab labels into the given width. Each tab renders as " label " (label.len() + 2).
+/// First shortens "?:Help" to "?", then progressively trims the longest labels.
+pub(super) fn fit_tabs(tabs: &mut [(String, ViewType)], width: usize) {
+    let tabs_width =
+        |t: &[(String, ViewType)]| -> usize { t.iter().map(|(l, _)| l.len() + 2).sum() };
+
+    // Step 1: shorten Help to just "?"
+    if tabs_width(tabs) > width {
+        if let Some(help) = tabs.iter_mut().find(|(_, v)| *v == ViewType::Help) {
+            help.0 = "?".into();
+        }
+    }
+
+    // Step 2: progressively trim the longest label
+    while tabs_width(tabs) > width {
+        let max_len = tabs.iter().map(|(l, _)| l.len()).max().unwrap_or(0);
+        if max_len <= 1 {
+            break;
+        }
+        for (label, _) in tabs.iter_mut() {
+            if label.len() == max_len {
+                label.pop();
+            }
+        }
+    }
+}
 use super::{
     App, COL_DETACHED, COL_DIST, COL_REACHABLE, COL_REACHABLE_PCT, COL_RETAINED, COL_RETAINED_PCT,
-    COL_SHALLOW, COL_SHALLOW_PCT, UnreachableFilter, fit_cell, fit_name_cell,
+    COL_SHALLOW, COL_SHALLOW_PCT, SummaryFilterMode, fit_cell, fit_name_cell,
     regular_name_col_width,
 };
 
@@ -41,46 +68,42 @@ impl App {
         self.render_footer(frame, chunks[2]);
     }
 
-    fn render_header(&self, frame: &mut Frame, area: Rect, snap: &HeapSnapshot) {
-        let mut tabs: Vec<(&str, ViewType)> = vec![
-            ("1:Summary", ViewType::Summary),
-            ("2:Containment", ViewType::Containment),
-            ("3:Dominators", ViewType::Dominators),
-            ("4:Retainers", ViewType::Retainers),
-        ];
-        if self.diff.has_diff {
-            tabs.push(("5:Diff", ViewType::Diff));
+    fn render_header(&mut self, frame: &mut Frame, area: Rect, snap: &HeapSnapshot) {
+        let width = area.width as usize;
+
+        // Rebuild cached tab labels if width changed or cache is empty
+        if self.tab_cache_width != width || self.tab_cache.is_empty() {
+            let mut tabs: Vec<(String, ViewType)> = vec![
+                ("1:Summary".into(), ViewType::Summary),
+                ("2:Containment".into(), ViewType::Containment),
+                ("3:Dominators".into(), ViewType::Dominators),
+                ("4:Retainers".into(), ViewType::Retainers),
+            ];
+            if self.diff.has_diff {
+                tabs.push(("5:Diff".into(), ViewType::Diff));
+            }
+            tabs.push(("6:Contexts".into(), ViewType::Contexts));
+            tabs.push(("7:History".into(), ViewType::History));
+            tabs.push(("8:Statistics".into(), ViewType::Statistics));
+            if snap.has_allocation_data() {
+                tabs.push(("9:Timeline".into(), ViewType::Timeline));
+            }
+            tabs.push(("?:Help".into(), ViewType::Help));
+
+            fit_tabs(&mut tabs, width);
+
+            self.tab_cache = tabs;
+            self.tab_cache_width = width;
         }
-        tabs.push(("6:Contexts", ViewType::Contexts));
-        tabs.push(("7:History", ViewType::History));
-        tabs.push(("8:Statistics", ViewType::Statistics));
-        if snap.has_allocation_data() {
-            tabs.push(("9:Timeline", ViewType::Timeline));
-        }
-        tabs.push(("?:Help", ViewType::Help));
 
         let mut spans = Vec::new();
-        for (label, view) in &tabs {
+        for (label, view) in &self.tab_cache {
             let style = if *view == self.current_view {
                 Style::default().bold().add_modifier(Modifier::REVERSED)
             } else {
                 Style::default().dim()
             };
             spans.push(Span::styled(format!(" {label} "), style));
-        }
-
-        if self.current_view == ViewType::Retainers {
-            if let Some(target) = self.retainers.target {
-                spans.push(Span::styled("  ", Style::default()));
-                spans.push(Span::styled(
-                    format!(
-                        "target: {} @{}",
-                        snap.node_display_name(target),
-                        snap.node_id(target)
-                    ),
-                    Style::default().dim(),
-                ));
-            }
         }
 
         if self.current_view == ViewType::Diff && self.diff.all_diffs.len() > 1 {
@@ -120,16 +143,69 @@ impl App {
             return;
         }
 
-        if self.current_view == ViewType::Diff {
-            self.render_diff_column_header(frame, area);
+        let header_offset = if self.current_view == ViewType::Summary {
+            // Render summary info line above column header
+            let mode = self.summary_filter_mode;
+            let count: u32 = self.sorted_aggregates.iter().map(|a| a.count).sum();
+            let spans: Vec<Span<'static>> = vec![
+                Span::styled(
+                    format!(" {} ", mode.label()),
+                    Style::default().fg(Color::Yellow),
+                ),
+                Span::styled(
+                    format!(
+                        "\u{2502} {} objects, {} shallow",
+                        crate::print::format_count(count),
+                        crate::print::format_size(self.summary_total_shallow),
+                    ),
+                    Style::default().dim(),
+                ),
+            ];
+            frame.render_widget(
+                Paragraph::new(Line::from(spans)),
+                Rect { height: 1, ..area },
+            );
+            1
+        } else if self.current_view == ViewType::Retainers {
+            if let Some(target) = self.retainers.target {
+                let prefix = " Retainers for ";
+                let label = snap.format_node_label(target);
+                let max_label = (area.width as usize).saturating_sub(prefix.len());
+                let truncated = if label.len() > max_label && max_label > 1 {
+                    format!("{}\u{2026}", &label[..max_label - 1])
+                } else {
+                    label
+                };
+                let spans: Vec<Span<'static>> = vec![
+                    Span::styled(prefix.to_string(), Style::default().dim()),
+                    Span::styled(truncated, Style::default().fg(Color::Yellow)),
+                ];
+                frame.render_widget(
+                    Paragraph::new(Line::from(spans)),
+                    Rect { height: 1, ..area },
+                );
+            }
+            1
         } else {
-            self.render_column_header(frame, area);
+            0
+        };
+
+        let content_area = Rect {
+            y: area.y + header_offset as u16,
+            height: area.height.saturating_sub(header_offset as u16),
+            ..area
+        };
+
+        if self.current_view == ViewType::Diff {
+            self.render_diff_column_header(frame, content_area);
+        } else {
+            self.render_column_header(frame, content_area);
         }
 
         let tree_area = Rect {
-            y: area.y + 2,
-            height: area.height.saturating_sub(2),
-            ..area
+            y: content_area.y + 2,
+            height: content_area.height.saturating_sub(2),
+            ..content_area
         };
         if tree_area.height == 0 {
             return;
@@ -411,25 +487,14 @@ impl App {
                     ))
                 } else if let Some(ref err) = self.search_error {
                     Line::from(Span::styled(err.clone(), Style::default().fg(Color::Red)))
-                } else if self.current_view == ViewType::Summary
-                    && (self.summary_unreachable_filter != UnreachableFilter::Off
-                        || !self.summary_filter.is_empty())
-                {
+                } else if self.current_view == ViewType::Summary {
                     let mut spans = Vec::new();
-                    match self.summary_unreachable_filter {
-                        UnreachableFilter::All => {
-                            spans.push(Span::styled(
-                                "unreachable (all)",
-                                Style::default().fg(Color::Yellow),
-                            ));
-                        }
-                        UnreachableFilter::RootsOnly => {
-                            spans.push(Span::styled(
-                                "unreachable (roots only)",
-                                Style::default().fg(Color::Yellow),
-                            ));
-                        }
-                        UnreachableFilter::Off => {}
+                    let mode = self.summary_filter_mode;
+                    if mode != SummaryFilterMode::All {
+                        spans.push(Span::styled(
+                            mode.label(),
+                            Style::default().fg(Color::Yellow),
+                        ));
                     }
                     if !self.summary_filter.is_empty() {
                         if !spans.is_empty() {
@@ -441,7 +506,7 @@ impl App {
                         ));
                     }
                     spans.push(Span::styled(
-                        "  (u/U: toggle unreachable, /: text filter)",
+                        "  (u/U: cycle filter, /: text filter)",
                         Style::default().dim(),
                     ));
                     Line::from(spans)

@@ -361,9 +361,9 @@ export function SummaryView(props: {
   onContextMenu: (e: MouseEvent, nodeId: number) => void;
   highlightNodeId: number | null;
 }): JSX.Element {
-  const [unreachableMode, setUnreachableMode] = createSignal(0);
-  const [entries] = createResource(unreachableMode, async (mode) => {
-    await props.call({ type: 'setUnreachableMode', mode });
+  const [summaryFilter, setSummaryFilter] = createSignal(0);
+  const [entries] = createResource(summaryFilter, async (mode) => {
+    await props.call({ type: 'setSummaryFilter', mode });
     return props.call<AggregateEntry[]>({ type: 'getSummary' });
   });
   const [filter, setFilter] = createSignal('');
@@ -398,9 +398,9 @@ export function SummaryView(props: {
               }}
             />
             <select
-              value={unreachableMode()}
+              value={summaryFilter()}
               onChange={(e) => {
-                setUnreachableMode(parseInt(e.currentTarget.value, 10));
+                setSummaryFilter(parseInt(e.currentTarget.value, 10));
               }}
               style={{
                 padding: '4px 8px',
@@ -410,6 +410,9 @@ export function SummaryView(props: {
               <option value={0}>All objects</option>
               <option value={1}>Unreachable (all)</option>
               <option value={2}>Unreachable (roots only)</option>
+              <option value={3}>Retained by detached DOM</option>
+              <option value={4}>Retained by DevTools console</option>
+              <option value={5}>Retained by event handlers</option>
             </select>
             <Show when={entries.loading}>
               <span style={{ 'font-size': '12px', color: '#888' }}>Loading...</span>
@@ -432,9 +435,7 @@ export function SummaryView(props: {
                       .toLocaleString()}{' '}
                     objects,{' '}
                     {formatBytes(list().reduce((s, e) => s + e.self_size, 0))}{' '}
-                    shallow,{' '}
-                    {formatBytes(list().reduce((s, e) => s + e.retained_size, 0))}{' '}
-                    retained
+                    shallow
                   </span>
                 </div>
                 <SummaryTable

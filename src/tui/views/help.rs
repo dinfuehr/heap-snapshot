@@ -47,9 +47,10 @@ impl App {
             Line::from("  /text filters Summary or Diff by constructor name"),
             Line::from("  /@id opens Retainers for a snapshot object id"),
             Line::from("  f filters the current edge list; empty input clears it"),
-            Line::from("  u toggles unreachable filter (all: U, U+1, U+2, …) in Summary view"),
-            Line::from("  U toggles unreachable filter (roots only: U) in Summary view"),
-            Line::from("    pressing u while in roots-only switches to all, and vice versa"),
+            Line::from("  u / U cycles summary filter forward / backward"),
+            Line::from(
+                "    (All, Unreachable, Unreachable roots, Detached DOM, Console, Event handlers)",
+            ),
             Line::from("  Enter applies a prompt, Esc cancels, Backspace deletes"),
             Line::from(""),
             Line::from(Span::styled("Inspection", Style::default().bold())),

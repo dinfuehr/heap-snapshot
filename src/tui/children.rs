@@ -5,7 +5,7 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use crate::snapshot::HeapSnapshot;
 use crate::types::{AggregateInfo, Distance, NodeOrdinal};
 
-use super::UnreachableFilter;
+use super::SummaryFilterMode;
 use super::contains_ignore_case;
 use super::types::*;
 
@@ -68,7 +68,7 @@ pub(super) fn compute_children(
     edge_filters: &FxHashMap<NodeOrdinal, String>,
     summary_filter: &str,
     retainer_path_edges: Option<&FxHashSet<usize>>,
-    unreachable_filter: UnreachableFilter,
+    unreachable_filter: SummaryFilterMode,
     next_id: &Cell<u64>,
 ) -> Vec<ChildNode> {
     match key {
@@ -104,13 +104,11 @@ pub(super) fn compute_children(
 fn passes_unreachable_filter(
     snap: &HeapSnapshot,
     ord: NodeOrdinal,
-    filter: UnreachableFilter,
+    filter: SummaryFilterMode,
 ) -> bool {
-    match filter {
-        UnreachableFilter::Off => true,
-        UnreachableFilter::All => snap.node_distance(ord).is_unreachable(),
-        UnreachableFilter::RootsOnly => snap.node_distance(ord).is_unreachable_root(),
-    }
+    // Aggregates are pre-filtered by set_summary_filter, so all members pass.
+    let _ = (snap, ord, filter);
+    true
 }
 
 pub(super) fn compute_class_members(
@@ -118,10 +116,11 @@ pub(super) fn compute_class_members(
     agg: &AggregateInfo,
     w: EdgeWindow,
     filter: &str,
-    unreachable_filter: UnreachableFilter,
+    unreachable_filter: SummaryFilterMode,
     next_id: &Cell<u64>,
 ) -> Vec<ChildNode> {
-    let unreachable_active = unreachable_filter != UnreachableFilter::Off;
+    let _ = unreachable_filter; // Aggregates are pre-filtered by set_summary_filter
+    let unreachable_active = false;
     let is_filtered = !filter.is_empty() || unreachable_active;
     if is_filtered {
         // Filter first, then page the matching subset.

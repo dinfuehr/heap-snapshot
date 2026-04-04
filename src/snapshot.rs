@@ -3513,6 +3513,146 @@ impl HeapSnapshot {
         aggregates
     }
 
+    /// BFS from the root, skipping edges where `skip_edge` returns true.
+    /// Returns a bitmap where `true` means the node is NOT reachable under
+    /// these constraints (i.e. only retained via skipped edges).
+    fn compute_retained_bitmap(
+        &self,
+        skip_edge: impl Fn(usize, usize, usize) -> bool, // (edge_idx, source_ord, target_ord)
+    ) -> Vec<bool> {
+        let nfc = self.node_field_count;
+        let efc = self.edge_fields_count;
+        let eto = self.edge_to_node_offset;
+        let root = self.root_node_index / nfc;
+
+        let mut reachable = vec![false; self.node_count];
+        reachable[root] = true;
+
+        let mut queue = std::collections::VecDeque::new();
+        queue.push_back(root);
+
+        while let Some(ord) = queue.pop_front() {
+            let first = self.first_edge_indexes[ord] as usize;
+            let last = self.first_edge_indexes[ord + 1] as usize;
+            let mut ei = first;
+            while ei < last {
+                let child_ord = self.edges[ei + eto] as usize / nfc;
+                if !reachable[child_ord] && !skip_edge(ei, ord, child_ord) {
+                    reachable[child_ord] = true;
+                    queue.push_back(child_ord);
+                }
+                ei += efc;
+            }
+        }
+
+        // "Retained by X" means: reachable in normal graph, but NOT reachable
+        // when skipping X. Truly unreachable nodes (not reachable even normally)
+        // should not appear.
+        let normal_reachable = {
+            let mut nr = vec![false; self.node_count];
+            nr[root] = true;
+            let mut q = std::collections::VecDeque::new();
+            q.push_back(root);
+            while let Some(ord) = q.pop_front() {
+                let first = self.first_edge_indexes[ord] as usize;
+                let last = self.first_edge_indexes[ord + 1] as usize;
+                let mut ei = first;
+                while ei < last {
+                    let child_ord = self.edges[ei + eto] as usize / nfc;
+                    if !nr[child_ord] {
+                        nr[child_ord] = true;
+                        q.push_back(child_ord);
+                    }
+                    ei += efc;
+                }
+            }
+            nr
+        };
+
+        // Retained = normally reachable AND not reachable with filter
+        reachable
+            .iter()
+            .zip(normal_reachable.iter())
+            .map(|(&filtered_reachable, &normally_reachable)| {
+                normally_reachable && !filtered_reachable
+            })
+            .collect()
+    }
+
+    /// Objects only retained by detached DOM nodes.
+    pub fn retained_by_detached_dom(&self) -> FxHashMap<String, AggregateInfo> {
+        if self.node_detachedness_offset < 0 {
+            return FxHashMap::default();
+        }
+        let det_off = self.node_detachedness_offset as usize;
+        let nfc = self.node_field_count;
+        let retained = self.compute_retained_bitmap(|_ei, _src, target| {
+            self.nodes[target * nfc + det_off] & BITMASK_FOR_DOM_LINK_STATE == 2
+        });
+        self.build_aggregates(|ordinal| retained[ordinal])
+    }
+
+    /// Objects only retained by DevTools console references.
+    pub fn retained_by_console(&self) -> FxHashMap<String, AggregateInfo> {
+        let nfc = self.node_field_count;
+        let retained = self.compute_retained_bitmap(|ei, src, _target| {
+            let src_type = self.nodes[src * nfc + self.node_type_offset];
+            if src_type != self.node_synthetic_type {
+                return false;
+            }
+            self.edge_name(ei).ends_with(" / DevTools console")
+        });
+        self.build_aggregates(|ordinal| retained[ordinal])
+    }
+
+    /// Objects only retained by event handler functions.
+    pub fn retained_by_event_handlers(&self) -> FxHashMap<String, AggregateInfo> {
+        let nfc = self.node_field_count;
+        let nmo = self.node_name_offset;
+
+        // Step 1: identify event handler nodes via V8EventListener -> callback_object_
+        let mut is_handler = vec![false; self.node_count];
+
+        for ordinal in 0..self.node_count {
+            let name = &self.strings[self.nodes[ordinal * nfc + nmo] as usize];
+            if name != "V8EventListener" {
+                continue;
+            }
+            for (edge_idx, callback_ord) in self.iter_edges(NodeOrdinal(ordinal)) {
+                if self.edge_name(edge_idx) != "callback_object_" {
+                    continue;
+                }
+                // Direct handler: callback has a "code" edge
+                if self
+                    .iter_edges(callback_ord)
+                    .any(|(ei, _)| self.edge_name(ei) == "code")
+                {
+                    is_handler[callback_ord.0] = true;
+                    continue;
+                }
+                // Framework wrapper: a child of callback has a "code" edge
+                let mut found = false;
+                for (_, child_ord) in self.iter_edges(callback_ord) {
+                    if self
+                        .iter_edges(child_ord)
+                        .any(|(ei, _)| self.edge_name(ei) == "code")
+                    {
+                        is_handler[child_ord.0] = true;
+                        found = true;
+                        break;
+                    }
+                }
+                if !found {
+                    is_handler[callback_ord.0] = true;
+                }
+            }
+        }
+
+        // Step 2: BFS skipping handler nodes
+        let retained = self.compute_retained_bitmap(|_ei, _src, target| is_handler[target]);
+        self.build_aggregates(|ordinal| retained[ordinal])
+    }
+
     /// Build aggregates for unreachable nodes only (distance >= UNREACHABLE_BASE).
     pub fn unreachable_aggregates(&self) -> FxHashMap<String, AggregateInfo> {
         self.build_aggregates(|ordinal| self.node_distances[ordinal].is_unreachable())

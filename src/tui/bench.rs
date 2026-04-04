@@ -11,7 +11,16 @@ impl BenchApp {
         let (work_tx, _work_rx) = std::sync::mpsc::channel();
         let (_result_tx, result_rx) = std::sync::mpsc::channel();
         Self {
-            inner: App::new(snap, Vec::new(), work_tx, result_rx),
+            inner: {
+                let mut sorted: Vec<_> = snap.aggregates_with_filter().into_values().collect();
+                sorted.sort_by(|a, b| {
+                    b.max_ret
+                        .partial_cmp(&a.max_ret)
+                        .unwrap()
+                        .then(a.first_seen.cmp(&b.first_seen))
+                });
+                App::new_with_aggregates(snap, sorted, Vec::new(), work_tx, result_rx)
+            },
         }
     }
 

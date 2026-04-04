@@ -1,8 +1,6 @@
 use crate::print::format_count;
 use crate::snapshot::HeapSnapshot;
-use crate::types::Distance;
 
-use super::super::UnreachableFilter;
 use super::super::types::*;
 use super::super::{App, contains_ignore_case};
 
@@ -14,11 +12,9 @@ impl App {
         snap: &HeapSnapshot,
     ) {
         let filter = &self.summary_filter;
-        let unreachable_filter = self.summary_unreachable_filter;
-        let unreachable_active = unreachable_filter != UnreachableFilter::Off;
         for (i, agg) in self.sorted_aggregates.iter().enumerate() {
             let group_matches = filter.is_empty() || contains_ignore_case(&agg.name, filter);
-            if !group_matches && !unreachable_active {
+            if !group_matches {
                 // Group name didn't match — check if any member matches
                 let any_member_match = agg
                     .node_ordinals
@@ -32,43 +28,24 @@ impl App {
             let id = self.summary_ids[i];
             let is_expanded = state.expanded.contains(&id);
             let has_children = !agg.node_ordinals.is_empty();
-            let (display_count, shallow_size, retained_size, display_distance) =
-                if unreachable_active || !group_matches {
-                    let mut count = 0u32;
-                    let mut shallow = 0.0f64;
-                    let mut retained = 0.0f64;
-                    let mut min_dist = Distance::NONE;
-                    for ord in &agg.node_ordinals {
-                        if unreachable_active {
-                            let d = snap.node_distance(*ord);
-                            match unreachable_filter {
-                                UnreachableFilter::All => {
-                                    if !d.is_unreachable() {
-                                        continue;
-                                    }
-                                }
-                                UnreachableFilter::RootsOnly => {
-                                    if !d.is_unreachable_root() {
-                                        continue;
-                                    }
-                                }
-                                UnreachableFilter::Off => {}
-                            }
-                        }
-                        if !group_matches && !contains_ignore_case(snap.node_raw_name(*ord), filter)
-                        {
-                            continue;
-                        }
-                        count += 1;
-                        shallow += snap.node_self_size(*ord) as f64;
-                        retained += snap.node_retained_size(*ord);
-                        min_dist = min_dist.min(snap.node_distance(*ord));
+            let (display_count, shallow_size, retained_size, display_distance) = if !group_matches {
+                let mut count = 0u32;
+                let mut shallow = 0.0f64;
+                let mut retained = 0.0f64;
+                let mut min_dist = crate::types::Distance::NONE;
+                for ord in &agg.node_ordinals {
+                    if !contains_ignore_case(snap.node_raw_name(*ord), filter) {
+                        continue;
                     }
-                    (count, shallow, retained, min_dist)
-                } else {
-                    (agg.count, agg.self_size, agg.max_ret, agg.distance)
-                };
-            // Skip groups with no matching members after filtering
+                    count += 1;
+                    shallow += snap.node_self_size(*ord) as f64;
+                    retained += snap.node_retained_size(*ord);
+                    min_dist = min_dist.min(snap.node_distance(*ord));
+                }
+                (count, shallow, retained, min_dist)
+            } else {
+                (agg.count, agg.self_size, agg.max_ret, agg.distance)
+            };
             if display_count == 0 {
                 continue;
             }
