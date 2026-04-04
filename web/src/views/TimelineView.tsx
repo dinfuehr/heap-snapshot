@@ -67,15 +67,18 @@ export function TimelineView(props: {
                 }}
               >
                 {items.map((interval, index) => {
-                  const pct =
-                    maxSize > 0 ? (interval.size / maxSize) * 100 : 0;
+                  const pct = maxSize > 0 ? (interval.size / maxSize) * 100 : 0;
                   const tsSec = interval.timestamp_us / 1_000_000;
                   const isSelected = () => selectedInterval() === index;
                   return (
                     <div
                       onContextMenu={(e) => {
                         e.preventDefault();
-                        setMenu({ x: e.clientX, y: e.clientY, intervalIndex: index });
+                        setMenu({
+                          x: e.clientX,
+                          y: e.clientY,
+                          intervalIndex: index,
+                        });
                       }}
                       onClick={() => loadInterval(index)}
                       style={{

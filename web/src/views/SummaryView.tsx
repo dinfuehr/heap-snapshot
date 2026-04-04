@@ -234,11 +234,7 @@ function SummaryGroup(props: {
             'max-width': '0',
           }}
         >
-          {expanded()
-            ? loading()
-              ? '\u22EF'
-              : '\u25bc'
-            : '\u25b6'}{' '}
+          {expanded() ? (loading() ? '\u22EF' : '\u25bc') : '\u25b6'}{' '}
           {props.entry.name}{' '}
           <span style={{ color: '#888' }}>
             {'\u00d7'}
@@ -320,19 +316,49 @@ export function SummaryTable(props: {
           }}
         >
           <th style={{ padding: '4px 8px' }}>Constructor</th>
-          <th style={{ padding: '4px 8px', 'text-align': 'right', 'white-space': 'nowrap' }}>
+          <th
+            style={{
+              padding: '4px 8px',
+              'text-align': 'right',
+              'white-space': 'nowrap',
+            }}
+          >
             Distance
           </th>
-          <th style={{ padding: '4px 8px', 'text-align': 'right', 'white-space': 'nowrap' }}>
+          <th
+            style={{
+              padding: '4px 8px',
+              'text-align': 'right',
+              'white-space': 'nowrap',
+            }}
+          >
             Shallow Size
           </th>
-          <th style={{ padding: '4px 8px', 'text-align': 'right', 'white-space': 'nowrap' }}>
+          <th
+            style={{
+              padding: '4px 8px',
+              'text-align': 'right',
+              'white-space': 'nowrap',
+            }}
+          >
             Retained Size
           </th>
-          <th style={{ padding: '4px 8px', 'text-align': 'right', 'white-space': 'nowrap' }}>
+          <th
+            style={{
+              padding: '4px 8px',
+              'text-align': 'right',
+              'white-space': 'nowrap',
+            }}
+          >
             Reachable Size
           </th>
-          <th style={{ padding: '4px 8px', 'text-align': 'right', 'white-space': 'nowrap' }}>
+          <th
+            style={{
+              padding: '4px 8px',
+              'text-align': 'right',
+              'white-space': 'nowrap',
+            }}
+          >
             Status
           </th>
         </tr>
@@ -387,66 +413,79 @@ export function SummaryView(props: {
         }}
       >
         <input
-              type="text"
-              value={filter()}
-              onInput={(e) => setFilter(e.currentTarget.value)}
-              placeholder="Filter constructors..."
+          type="text"
+          value={filter()}
+          onInput={(e) => setFilter(e.currentTarget.value)}
+          placeholder="Filter constructors..."
+          style={{
+            padding: '4px 8px',
+            'font-size': '13px',
+            width: '250px',
+          }}
+        />
+        <select
+          value={summaryFilter()}
+          onChange={(e) => {
+            setSummaryFilter(parseInt(e.currentTarget.value, 10));
+          }}
+          style={{
+            padding: '4px 8px',
+            'font-size': '13px',
+          }}
+        >
+          <option value={0}>All objects</option>
+          <option value={1}>Unreachable (all)</option>
+          <option value={2}>Unreachable (roots only)</option>
+          <option value={3}>Retained by detached DOM</option>
+          <option value={4}>Retained by DevTools console</option>
+          <option value={5}>Retained by event handlers</option>
+        </select>
+        <Show when={entries.loading}>
+          <span style={{ 'font-size': '12px', color: '#888' }}>Loading...</span>
+        </Show>
+      </div>
+      <Show
+        when={filtered()}
+        fallback={
+          <Show when={!entries.loading}>
+            <p>Loading...</p>
+          </Show>
+        }
+      >
+        {(list) => (
+          <>
+            <div
               style={{
-                padding: '4px 8px',
-                'font-size': '13px',
-                width: '250px',
-              }}
-            />
-            <select
-              value={summaryFilter()}
-              onChange={(e) => {
-                setSummaryFilter(parseInt(e.currentTarget.value, 10));
-              }}
-              style={{
-                padding: '4px 8px',
-                'font-size': '13px',
+                'margin-bottom': '4px',
+                'font-size': '12px',
+                color: '#888',
+                display: 'flex',
+                gap: '8px',
               }}
             >
-              <option value={0}>All objects</option>
-              <option value={1}>Unreachable (all)</option>
-              <option value={2}>Unreachable (roots only)</option>
-              <option value={3}>Retained by detached DOM</option>
-              <option value={4}>Retained by DevTools console</option>
-              <option value={5}>Retained by event handlers</option>
-            </select>
-            <Show when={entries.loading}>
-              <span style={{ 'font-size': '12px', color: '#888' }}>Loading...</span>
-            </Show>
-          </div>
-          <Show when={filtered()} fallback={
-            <Show when={!entries.loading}>
-              <p>Loading...</p>
-            </Show>
-          }>
-            {(list) => (
-              <>
-                <div style={{ 'margin-bottom': '4px', 'font-size': '12px', color: '#888', display: 'flex', gap: '8px' }}>
-                  <Show when={filter()}>
-                    <span>{list().length} of {entries()!.length} groups</span>
-                  </Show>
-                  <span>
-                    {list()
-                      .reduce((s, e) => s + e.count, 0)
-                      .toLocaleString()}{' '}
-                    objects,{' '}
-                    {formatBytes(list().reduce((s, e) => s + e.self_size, 0))}{' '}
-                    shallow
-                  </span>
-                </div>
-                <SummaryTable
-                  entries={list()}
-                  call={props.call}
-                  onNavigate={props.onNavigate}
-                  onContextMenu={props.onContextMenu}
-                />
-              </>
-            )}
-          </Show>
-        </div>
+              <Show when={filter()}>
+                <span>
+                  {list().length} of {entries()!.length} groups
+                </span>
+              </Show>
+              <span>
+                {list()
+                  .reduce((s, e) => s + e.count, 0)
+                  .toLocaleString()}{' '}
+                objects,{' '}
+                {formatBytes(list().reduce((s, e) => s + e.self_size, 0))}{' '}
+                shallow
+              </span>
+            </div>
+            <SummaryTable
+              entries={list()}
+              call={props.call}
+              onNavigate={props.onNavigate}
+              onContextMenu={props.onContextMenu}
+            />
+          </>
+        )}
+      </Show>
+    </div>
   );
 }

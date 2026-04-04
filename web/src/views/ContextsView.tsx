@@ -39,9 +39,10 @@ function ContextNode(props: {
     });
     setChildren(
       result.edges.map((e) => ({
-        edgeLabel: e.edge_type === 'element' || e.edge_type === 'hidden'
-          ? `[${e.edge_name}] :: `
-          : `${e.edge_name} :: `,
+        edgeLabel:
+          e.edge_type === 'element' || e.edge_type === 'hidden'
+            ? `[${e.edge_name}] :: `
+            : `${e.edge_name} :: `,
         node: e.target,
       })),
     );
@@ -106,9 +107,7 @@ function ContextNode(props: {
           {(child) => (
             <TreeTableRow
               depth={1}
-              prefix={
-                <span style={{ color: '#888' }}>{child.edgeLabel}</span>
-              }
+              prefix={<span style={{ color: '#888' }}>{child.edgeLabel}</span>}
               label={<>{child.node.name}</>}
               linkId={child.node.id}
               onNavigate={props.onNavigate}

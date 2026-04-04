@@ -45,9 +45,10 @@ function TreeNode(props: {
     });
     setChildren(
       result.edges.map((e) => ({
-        edgeLabel: e.edge_type === 'element' || e.edge_type === 'hidden'
-          ? `[${e.edge_name}] :: `
-          : `${e.edge_name} :: `,
+        edgeLabel:
+          e.edge_type === 'element' || e.edge_type === 'hidden'
+            ? `[${e.edge_name}] :: `
+            : `${e.edge_name} :: `,
         node: e.target,
       })),
     );
@@ -147,9 +148,11 @@ export function ContainmentView(props: {
         <For each={containment()!.system_roots}>
           {(edge) => (
             <TreeNode
-              edgeLabel={edge.edge_type === 'element' || edge.edge_type === 'hidden'
-                ? `[${edge.edge_name}] :: `
-                : `${edge.edge_name} :: `}
+              edgeLabel={
+                edge.edge_type === 'element' || edge.edge_type === 'hidden'
+                  ? `[${edge.edge_name}] :: `
+                  : `${edge.edge_name} :: `
+              }
               node={edge.target}
               call={props.call}
               onNavigate={props.onNavigate}

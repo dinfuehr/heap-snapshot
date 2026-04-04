@@ -32,7 +32,9 @@ export function FileLoader(props: {
         <p>Loading snapshot...</p>
       ) : (
         <>
-          <p>Drop a .heapsnapshot or .heaptimeline file here, or click to select</p>
+          <p>
+            Drop a .heapsnapshot or .heaptimeline file here, or click to select
+          </p>
           <input
             type="file"
             accept=".heapsnapshot,.heaptimeline"

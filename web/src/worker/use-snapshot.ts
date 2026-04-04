@@ -107,5 +107,13 @@ export function createSnapshot() {
     }
   }
 
-  return { loading, loaded, error, filename, hasAllocationData, loadFile, call };
+  return {
+    loading,
+    loaded,
+    error,
+    filename,
+    hasAllocationData,
+    loadFile,
+    call,
+  };
 }

@@ -38,7 +38,11 @@ function HistoryEntry(props: {
       filter: f,
     });
     setChildren(
-      result.edges.map((e) => ({ edgeType: e.edge_type, edgeName: e.edge_name, node: e.target })),
+      result.edges.map((e) => ({
+        edgeType: e.edge_type,
+        edgeName: e.edge_name,
+        node: e.target,
+      })),
     );
     setTotal(result.total);
     setOffset(o);

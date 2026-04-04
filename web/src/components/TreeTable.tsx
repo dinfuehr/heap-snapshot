@@ -118,7 +118,11 @@ export function TreeTableRow(props: {
         >
           {props.onToggle !== undefined ? (
             <span
-              style={{ display: 'inline-block', width: '16px', cursor: 'pointer' }}
+              style={{
+                display: 'inline-block',
+                width: '16px',
+                cursor: 'pointer',
+              }}
               onClick={(e) => {
                 e.stopPropagation();
                 props.onToggle?.();

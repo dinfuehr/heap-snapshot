@@ -1,4 +1,11 @@
-import { createSignal, Show, For, onCleanup, onMount, type JSX } from 'solid-js';
+import {
+  createSignal,
+  Show,
+  For,
+  onCleanup,
+  onMount,
+  type JSX,
+} from 'solid-js';
 import { createSnapshot } from './worker/use-snapshot.ts';
 import { FileLoader } from './components/FileLoader.tsx';
 import { TabNav } from './components/TabNav.tsx';
@@ -242,7 +249,11 @@ export function App(): JSX.Element {
           tabs={TABS}
           active={active().tab[0]()}
           onChange={(t) => active().tab[1](t)}
-          disabled={active().hasAllocationData() ? undefined : new Set(['Timeline'] as Tab[])}
+          disabled={
+            active().hasAllocationData()
+              ? undefined
+              : new Set(['Timeline'] as Tab[])
+          }
         />
 
         <For each={snapshots()}>
@@ -252,108 +263,115 @@ export function App(): JSX.Element {
                 display: i() === activeIndex() ? undefined : 'none',
               }}
             >
-              <Show when={inst.loaded()} fallback={
-                <Show when={inst.loading()}>
-                  <p style={{ 'margin-top': '16px', color: '#888' }}>Loading snapshot...</p>
-                </Show>
-              }>
-              <div
-                style={{
-                  'margin-top': '16px',
-                  display: inst.tab[0]() === 'Summary' ? undefined : 'none',
-                }}
+              <Show
+                when={inst.loaded()}
+                fallback={
+                  <Show when={inst.loading()}>
+                    <p style={{ 'margin-top': '16px', color: '#888' }}>
+                      Loading snapshot...
+                    </p>
+                  </Show>
+                }
               >
-                <SummaryView
-                  call={inst.call}
-                  onNavigate={navigate}
-                  onContextMenu={handleContextMenu}
-                  highlightNodeId={inst.summaryHighlight[0]()}
-                />
-              </div>
-              <div
-                style={{
-                  'margin-top': '16px',
-                  display:
-                    inst.tab[0]() === 'Containment' ? undefined : 'none',
-                }}
-              >
-                <ContainmentView
-                  call={inst.call}
-                  onNavigate={navigate}
-                  onContextMenu={handleContextMenu}
-                />
-              </div>
-              <div
-                style={{
-                  'margin-top': '16px',
-                  display: inst.tab[0]() === 'Dominators' ? undefined : 'none',
-                }}
-              >
-                <DominatorsView
-                  call={inst.call}
-                  onNavigate={navigate}
-                  onContextMenu={handleContextMenu}
-                  focusNodeId={inst.dominatorsNodeId[0]()}
-                />
-              </div>
-              <div
-                style={{
-                  'margin-top': '16px',
-                  display: inst.tab[0]() === 'Retainers' ? undefined : 'none',
-                }}
-              >
-                <RetainersView
-                  call={inst.call}
-                  nodeId={inst.retainersNodeId[0]()}
-                  onNavigate={navigate}
-                  onContextMenu={handleContextMenu}
-                />
-              </div>
-              <div
-                style={{
-                  'margin-top': '16px',
-                  display: inst.tab[0]() === 'Contexts' ? undefined : 'none',
-                }}
-              >
-                <ContextsView
-                  call={inst.call}
-                  onNavigate={navigate}
-                  onContextMenu={handleContextMenu}
-                />
-              </div>
-              <div
-                style={{
-                  'margin-top': '16px',
-                  display: inst.tab[0]() === 'History' ? undefined : 'none',
-                }}
-              >
-                <HistoryView
-                  call={inst.call}
-                  history={inst.history[0]()}
-                  onNavigate={navigate}
-                  onContextMenu={handleContextMenu}
-                />
-              </div>
-              <div
-                style={{
-                  'margin-top': '16px',
-                  display: inst.tab[0]() === 'Statistics' ? undefined : 'none',
-                }}
-              >
-                <StatisticsView call={inst.call} />
-              </div>
-              <div
-                style={{
-                  'margin-top': '16px',
-                  display: inst.tab[0]() === 'Timeline' ? undefined : 'none',
-                }}
-              >
-                <TimelineView
-                  call={inst.call}
-                  onNavigate={navigate}
-                  onContextMenu={handleContextMenu}
-                />
-              </div>
+                <div
+                  style={{
+                    'margin-top': '16px',
+                    display: inst.tab[0]() === 'Summary' ? undefined : 'none',
+                  }}
+                >
+                  <SummaryView
+                    call={inst.call}
+                    onNavigate={navigate}
+                    onContextMenu={handleContextMenu}
+                    highlightNodeId={inst.summaryHighlight[0]()}
+                  />
+                </div>
+                <div
+                  style={{
+                    'margin-top': '16px',
+                    display:
+                      inst.tab[0]() === 'Containment' ? undefined : 'none',
+                  }}
+                >
+                  <ContainmentView
+                    call={inst.call}
+                    onNavigate={navigate}
+                    onContextMenu={handleContextMenu}
+                  />
+                </div>
+                <div
+                  style={{
+                    'margin-top': '16px',
+                    display:
+                      inst.tab[0]() === 'Dominators' ? undefined : 'none',
+                  }}
+                >
+                  <DominatorsView
+                    call={inst.call}
+                    onNavigate={navigate}
+                    onContextMenu={handleContextMenu}
+                    focusNodeId={inst.dominatorsNodeId[0]()}
+                  />
+                </div>
+                <div
+                  style={{
+                    'margin-top': '16px',
+                    display: inst.tab[0]() === 'Retainers' ? undefined : 'none',
+                  }}
+                >
+                  <RetainersView
+                    call={inst.call}
+                    nodeId={inst.retainersNodeId[0]()}
+                    onNavigate={navigate}
+                    onContextMenu={handleContextMenu}
+                  />
+                </div>
+                <div
+                  style={{
+                    'margin-top': '16px',
+                    display: inst.tab[0]() === 'Contexts' ? undefined : 'none',
+                  }}
+                >
+                  <ContextsView
+                    call={inst.call}
+                    onNavigate={navigate}
+                    onContextMenu={handleContextMenu}
+                  />
+                </div>
+                <div
+                  style={{
+                    'margin-top': '16px',
+                    display: inst.tab[0]() === 'History' ? undefined : 'none',
+                  }}
+                >
+                  <HistoryView
+                    call={inst.call}
+                    history={inst.history[0]()}
+                    onNavigate={navigate}
+                    onContextMenu={handleContextMenu}
+                  />
+                </div>
+                <div
+                  style={{
+                    'margin-top': '16px',
+                    display:
+                      inst.tab[0]() === 'Statistics' ? undefined : 'none',
+                  }}
+                >
+                  <StatisticsView call={inst.call} />
+                </div>
+                <div
+                  style={{
+                    'margin-top': '16px',
+                    display: inst.tab[0]() === 'Timeline' ? undefined : 'none',
+                  }}
+                >
+                  <TimelineView
+                    call={inst.call}
+                    onNavigate={navigate}
+                    onContextMenu={handleContextMenu}
+                  />
+                </div>
               </Show>
             </div>
           )}
