@@ -297,6 +297,17 @@ impl App {
                     }
                 }
             }
+            KeyCode::Char('v') => {
+                // Switch from "selected" retainer paths to paginated view.
+                if let Some(parent) = self.find_paged_children_parent(snap) {
+                    if let PagedChildrenParent::Retainers { id, .. } = parent {
+                        self.retainers.unfiltered_nodes.insert(id);
+                        let state = self.current_tree_state_mut();
+                        state.edge_windows.insert(id, EdgeWindow::default());
+                        self.recompute_paged_children(parent, snap);
+                    }
+                }
+            }
             KeyCode::Char('r') => {
                 if let Some(row) = self.current_row() {
                     if let Some(ordinal) = row.node_ordinal() {

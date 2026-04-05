@@ -822,6 +822,47 @@ test.describe('Heap Snapshot Viewer', () => {
 
   // ── Retainers auto-expand via context menu ────────────────────────────
 
+  test('retainers view shows "N selected of M retainers" summary with View all button', async ({
+    page,
+  }) => {
+    // Expand a group and navigate to retainers for an object
+    const firstGroup = page
+      .locator('table')
+      .first()
+      .locator('tbody tr')
+      .first();
+    await firstGroup.dblclick();
+
+    const objectLink = page
+      .locator('a[href="#"]')
+      .filter({ hasText: '@' })
+      .first();
+    await expect(objectLink).toBeVisible({ timeout: 5000 });
+
+    await objectLink.click({ button: 'right' });
+    await page.locator('text=Show retainers').click();
+
+    await expect(page.getByTestId('retaining-paths-header')).toBeVisible({
+      timeout: 5000,
+    });
+
+    // Look for a "N selected of M retainers" summary row with a "View all" button.
+    const summaryCell = page.locator('td', { hasText: /\d+ selected of \d+ retainers/ });
+    await expect(summaryCell.first()).toBeVisible({ timeout: 5000 });
+
+    const viewAllBtn = summaryCell.first().locator('button', { hasText: 'View all' });
+    await expect(viewAllBtn).toBeVisible();
+
+    // Click "View all" — the summary row for that node should be replaced
+    // by the full retainer list.
+    await viewAllBtn.click();
+
+    // Verify more retainer rows appeared: expand arrows should be visible
+    // in the retainer tree (the loaded retainers are full RetainerNodes).
+    const arrowSpans = page.locator('tr:visible td span', { hasText: /[▶▼]/ });
+    await expect(arrowSpans.first()).toBeVisible({ timeout: 3000 });
+  });
+
   test('right-click "Show retainers" on a retainer node re-roots the view', async ({
     page,
   }) => {

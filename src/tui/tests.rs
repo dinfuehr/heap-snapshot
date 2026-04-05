@@ -744,6 +744,113 @@ fn test_pressing_a_on_selected_of_status_line_shows_all_retainers() {
 }
 
 #[test]
+fn test_pressing_v_on_selected_of_status_line_switches_to_pagination() {
+    // After auto-expansion, an intermediate node shows "1 selected of N retainers".
+    // Pressing 'v' should switch to paginated view (removing the path filter)
+    // and show "1–20 of N retainers" instead.
+    let snap = make_nested_retainers_snapshot(24);
+    let (work_tx, _work_rx) = mpsc::channel();
+    let (_result_tx, result_rx) = mpsc::channel();
+    let mut app = App::new(&snap, Vec::new(), work_tx, result_rx);
+
+    app.set_retainers_target(NodeOrdinal(2), &snap);
+    let plan = plan_gc_root_retainer_paths(
+        &snap,
+        NodeOrdinal(2),
+        RetainerAutoExpandLimits {
+            max_depth: 8,
+            max_nodes: 64,
+        },
+    );
+    app.apply_retainers_plan(NodeOrdinal(2), plan, &snap);
+    app.rebuild_rows(&snap);
+
+    // Find the "selected of" status line and move cursor there.
+    let status_idx = app
+        .cached_rows
+        .iter()
+        .position(|r| r.render.label.contains("selected of"))
+        .expect("'selected of' status line should exist");
+    app.retainers.tree_state.cursor = status_idx;
+
+    // Press 'v' to switch to paginated view.
+    app.handle_normal_key(KeyEvent::new(KeyCode::Char('v'), KeyModifiers::NONE), &snap);
+    app.rebuild_rows(&snap);
+
+    // The "selected of" status line should be gone.
+    let has_selected = app
+        .cached_rows
+        .iter()
+        .any(|r| r.render.label.contains("selected of"));
+    assert!(
+        !has_selected,
+        "'selected of' status line should be gone after pressing 'v'"
+    );
+
+    // Should now have a pagination status line with "of 26 retainers".
+    let has_pagination = app
+        .cached_rows
+        .iter()
+        .any(|r| r.render.label.contains("of 26 retainers"));
+    assert!(
+        has_pagination,
+        "should show paginated retainers status line after pressing 'v'"
+    );
+}
+
+#[test]
+fn test_pressing_v_on_small_retainer_set_shows_all() {
+    // With only 2 retainers (< page size of 20), pressing 'v' should
+    // show all retainers without a pagination status line.
+    let snap = make_nested_retainers_snapshot(0);
+    let (work_tx, _work_rx) = mpsc::channel();
+    let (_result_tx, result_rx) = mpsc::channel();
+    let mut app = App::new(&snap, Vec::new(), work_tx, result_rx);
+
+    app.set_retainers_target(NodeOrdinal(2), &snap);
+    let plan = plan_gc_root_retainer_paths(
+        &snap,
+        NodeOrdinal(2),
+        RetainerAutoExpandLimits {
+            max_depth: 8,
+            max_nodes: 64,
+        },
+    );
+    app.apply_retainers_plan(NodeOrdinal(2), plan, &snap);
+    app.rebuild_rows(&snap);
+
+    let status_idx = app
+        .cached_rows
+        .iter()
+        .position(|r| r.render.label.contains("selected of"))
+        .expect("'selected of' status line should exist");
+    app.retainers.tree_state.cursor = status_idx;
+
+    // Press 'v' to switch to paginated view.
+    app.handle_normal_key(KeyEvent::new(KeyCode::Char('v'), KeyModifiers::NONE), &snap);
+    app.rebuild_rows(&snap);
+
+    // "selected of" should be gone.
+    let has_selected = app
+        .cached_rows
+        .iter()
+        .any(|r| r.render.label.contains("selected of"));
+    assert!(!has_selected, "'selected of' should be gone after 'v'");
+
+    // Both retainers should be visible (DetachedHolder and RootHolder).
+    let has_detached = app
+        .cached_rows
+        .iter()
+        .any(|r| r.render.label.contains("DetachedHolder"));
+    let has_root_holder = app
+        .cached_rows
+        .iter()
+        .any(|r| r.render.label.contains("RootHolder"));
+    assert!(has_detached, "DetachedHolder should be visible after 'v'");
+    assert!(has_root_holder, "RootHolder should be visible after 'v'");
+}
+
+#[test]
 fn test_plan_tree_uses_retainer_path_keys() {
     // With the tree-based retainer plan, auto-expanded nodes use
     // RetainerPath(NodeId) keys so each occurrence gets unique children.

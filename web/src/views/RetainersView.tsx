@@ -67,7 +67,7 @@ function RetainerSummary(props: {
               gap: '6px',
             }}
           >
-            {props.shown} of {props.total} retainers
+            {props.shown} selected of {props.total} retainers
             <button
               style={btnStyle}
               onClick={(e) => {

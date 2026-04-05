@@ -73,7 +73,7 @@ impl App {
             if selected > 0 && selected < total {
                 children.push(ChildNode {
                     id: mint_id(next_id),
-                    label: format!("{selected} selected of {total} retainers").into(),
+                    label: format!("{selected} selected of {total} retainers  (v: view all)").into(),
                     distance: None,
                     shallow_size: 0.0,
                     retained_size: 0.0,
@@ -262,7 +262,7 @@ impl App {
             if selected > 0 && selected < total {
                 children.push(ChildNode {
                     id: mint_id(next_id),
-                    label: format!("{selected} selected of {total} retainers").into(),
+                    label: format!("{selected} selected of {total} retainers  (v: view all)").into(),
                     distance: None,
                     shallow_size: 0.0,
                     retained_size: 0.0,
