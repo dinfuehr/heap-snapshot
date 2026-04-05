@@ -228,10 +228,9 @@ function SummaryGroup(props: {
         <td
           style={{
             padding: '2px 8px',
+            'white-space': 'nowrap',
             overflow: 'hidden',
             'text-overflow': 'ellipsis',
-            'white-space': 'nowrap',
-            'max-width': '0',
           }}
         >
           {expanded() ? (loading() ? '\u22EF' : '\u25bc') : '\u25b6'}{' '}
@@ -292,92 +291,104 @@ export function SummaryTable(props: {
   const [selection, setSelection] = createSignal<RowSelection | null>(null);
 
   return (
-    <table
+    <div
       style={{
-        'border-collapse': 'collapse',
-        width: '100%',
-        'font-size': '13px',
-        'table-layout': 'fixed',
+        flex: '1',
+        'min-height': '0',
+        overflow: 'auto',
       }}
     >
-      <colgroup>
-        <col />
-        <col style={{ width: '70px' }} />
-        <col style={{ width: '90px' }} />
-        <col style={{ width: '100px' }} />
-        <col style={{ width: '110px' }} />
-        <col style={{ width: '75px' }} />
-      </colgroup>
-      <thead>
-        <tr
-          style={{
-            'text-align': 'left',
-            'border-bottom': '1px solid #ccc',
-          }}
-        >
-          <th style={{ padding: '4px 8px' }}>Constructor</th>
-          <th
+      <table
+        style={{
+          'border-collapse': 'collapse',
+          width: '100%',
+          'table-layout': 'fixed',
+          'font-size': '13px',
+        }}
+      >
+        <colgroup>
+          <col />
+          <col style={{ width: '80px' }} />
+          <col style={{ width: '90px' }} />
+          <col style={{ width: '110px' }} />
+          <col style={{ width: '120px' }} />
+          <col style={{ width: '80px' }} />
+        </colgroup>
+        <thead>
+          <tr
             style={{
-              padding: '4px 8px',
-              'text-align': 'right',
-              'white-space': 'nowrap',
+              'text-align': 'left',
+              'border-bottom': '1px solid #ccc',
+              background: 'white',
+              position: 'sticky',
+              top: '0',
+              'z-index': 1,
             }}
           >
-            Distance
-          </th>
-          <th
-            style={{
-              padding: '4px 8px',
-              'text-align': 'right',
-              'white-space': 'nowrap',
-            }}
-          >
-            Shallow Size
-          </th>
-          <th
-            style={{
-              padding: '4px 8px',
-              'text-align': 'right',
-              'white-space': 'nowrap',
-            }}
-          >
-            Retained Size
-          </th>
-          <th
-            style={{
-              padding: '4px 8px',
-              'text-align': 'right',
-              'white-space': 'nowrap',
-            }}
-          >
-            Reachable Size
-          </th>
-          <th
-            style={{
-              padding: '4px 8px',
-              'text-align': 'right',
-              'white-space': 'nowrap',
-            }}
-          >
-            Status
-          </th>
-        </tr>
-      </thead>
-      <tbody>
-        <For each={props.entries}>
-          {(entry) => (
-            <SummaryGroup
-              entry={entry}
-              call={props.call}
-              onNavigate={props.onNavigate}
-              onContextMenu={props.onContextMenu}
-              selection={selection}
-              onSelect={setSelection}
-            />
-          )}
-        </For>
-      </tbody>
-    </table>
+            <th style={{ padding: '4px 8px' }}>Constructor</th>
+            <th
+              style={{
+                padding: '4px 8px',
+                'text-align': 'right',
+                'white-space': 'nowrap',
+              }}
+            >
+              Distance
+            </th>
+            <th
+              style={{
+                padding: '4px 8px',
+                'text-align': 'right',
+                'white-space': 'nowrap',
+              }}
+            >
+              Shallow Size
+            </th>
+            <th
+              style={{
+                padding: '4px 8px',
+                'text-align': 'right',
+                'white-space': 'nowrap',
+              }}
+            >
+              Retained Size
+            </th>
+            <th
+              style={{
+                padding: '4px 8px',
+                'text-align': 'right',
+                'white-space': 'nowrap',
+              }}
+            >
+              Reachable Size
+            </th>
+            <th
+              style={{
+                padding: '4px 8px',
+                'text-align': 'right',
+                'white-space': 'nowrap',
+              }}
+            >
+              Status
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          <For each={props.entries}>
+            {(entry) => (
+              <SummaryGroup
+                entry={entry}
+                call={props.call}
+                onNavigate={props.onNavigate}
+                onContextMenu={props.onContextMenu}
+                selection={selection}
+                onSelect={setSelection}
+              />
+            )}
+          </For>
+        </tbody>
+      </table>
+    </div>
   );
 }
 
@@ -403,7 +414,7 @@ export function SummaryView(props: {
   });
 
   return (
-    <div>
+    <div class="tab-panel">
       <div
         style={{
           'margin-bottom': '8px',

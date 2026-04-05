@@ -61,6 +61,7 @@ export function App(): JSX.Element {
   const [activeIndex, setActiveIndex] = createSignal(0);
 
   const active = () => snapshots()[activeIndex()];
+  const [expandGcTarget, setExpandGcTarget] = createSignal<number | null>(null);
 
   const [menu, setMenu] = createSignal<{
     x: number;
@@ -154,11 +155,9 @@ export function App(): JSX.Element {
   const handleLoadFile = (file: File) => {
     const inst = active();
     if (inst.loaded()) {
-      // Already loaded — create a new snapshot instance
+      // Already loaded — create a new snapshot instance, stay on current
       const newInst = createSnapshotInstance();
-      const newIndex = snapshots().length;
       setSnapshots((prev) => [...prev, newInst]);
-      setActiveIndex(newIndex);
       newInst.loadFile(file);
     } else {
       inst.loadFile(file);
@@ -197,7 +196,7 @@ export function App(): JSX.Element {
         </div>
       }
     >
-      <div style={{ 'font-family': 'system-ui, sans-serif', padding: '16px' }}>
+      <div class="app-shell">
         <div
           style={{
             display: 'flex',
@@ -206,37 +205,60 @@ export function App(): JSX.Element {
             'margin-bottom': '8px',
           }}
         >
-          <Show when={snapshots().length > 1}>
-            <For each={snapshots()}>
-              {(inst, i) => (
-                <Show when={inst.loaded()}>
-                  <span
+          <For each={snapshots()}>
+            {(inst, i) => (
+              <Show when={inst.loaded() || inst.loading()}>
+                <span
+                  style={{
+                    display: 'inline-flex',
+                    'align-items': 'center',
+                    border:
+                      i() === activeIndex() && inst.loaded()
+                        ? '2px solid #333'
+                        : '1px solid #ccc',
+                    'border-radius': '4px',
+                    background:
+                      i() === activeIndex() && inst.loaded()
+                        ? '#f0f0f0'
+                        : 'white',
+                    'font-size': '13px',
+                  }}
+                >
+                  <button
+                    onClick={() => {
+                      if (inst.loaded()) setActiveIndex(i());
+                    }}
+                    disabled={!inst.loaded()}
                     style={{
-                      display: 'inline-flex',
-                      'align-items': 'center',
-                      border:
-                        i() === activeIndex()
-                          ? '2px solid #333'
-                          : '1px solid #ccc',
-                      'border-radius': '4px',
-                      background: i() === activeIndex() ? '#f0f0f0' : 'white',
+                      padding: '4px 8px 4px 12px',
+                      border: 'none',
+                      background: 'none',
+                      cursor: inst.loaded() ? 'pointer' : 'wait',
+                      'font-weight':
+                        i() === activeIndex() && inst.loaded()
+                          ? 'bold'
+                          : 'normal',
                       'font-size': '13px',
                     }}
                   >
-                    <button
-                      onClick={() => setActiveIndex(i())}
-                      style={{
-                        padding: '4px 8px 4px 12px',
-                        border: 'none',
-                        background: 'none',
-                        cursor: 'pointer',
-                        'font-weight':
-                          i() === activeIndex() ? 'bold' : 'normal',
-                        'font-size': '13px',
-                      }}
-                    >
-                      {inst.filename() ?? `Snapshot ${i() + 1}`}
-                    </button>
+                    {inst.filename() ?? `Snapshot ${i() + 1}`}
+                    {inst.loading() && (
+                      <span
+                        style={{
+                          display: 'inline-block',
+                          width: '12px',
+                          height: '12px',
+                          'margin-left': '6px',
+                          border: '2px solid #ccc',
+                          'border-top-color': '#333',
+                          'border-radius': '50%',
+                          animation: 'spin 0.8s linear infinite',
+                          'vertical-align': 'middle',
+                        }}
+                      />
+                    )}
+                  </button>
+                  <Show when={inst.loaded()}>
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
@@ -254,38 +276,11 @@ export function App(): JSX.Element {
                     >
                       {'\u2715'}
                     </button>
-                  </span>
-                </Show>
-              )}
-            </For>
-          </Show>
-          <Show when={snapshots().length <= 1}>
-            <span
-              style={{
-                display: 'inline-flex',
-                'align-items': 'center',
-                gap: '4px',
-              }}
-            >
-              <span style={{ 'font-weight': 'bold', 'font-size': '14px' }}>
-                {active().filename()}
-              </span>
-              <button
-                onClick={() => closeSnapshot(0)}
-                title="Close snapshot"
-                style={{
-                  padding: '2px 6px',
-                  border: 'none',
-                  background: 'none',
-                  cursor: 'pointer',
-                  'font-size': '11px',
-                  color: '#888',
-                }}
-              >
-                {'\u2715'}
-              </button>
-            </span>
-          </Show>
+                  </Show>
+                </span>
+              </Show>
+            )}
+          </For>
           <button
             onClick={() => {
               const input = document.createElement('input');
@@ -329,7 +324,10 @@ export function App(): JSX.Element {
             <div
               data-testid={`snapshot-${i()}`}
               style={{
-                display: i() === activeIndex() ? undefined : 'none',
+                display: i() === activeIndex() ? 'flex' : 'none',
+                'flex-direction': 'column',
+                'min-height': '0',
+                flex: '1',
               }}
             >
               <Show
@@ -342,12 +340,7 @@ export function App(): JSX.Element {
                   </Show>
                 }
               >
-                <div
-                  style={{
-                    'margin-top': '16px',
-                    display: inst.tab[0]() === 'Summary' ? undefined : 'none',
-                  }}
-                >
+                <div class="tab-panel" hidden={inst.tab[0]() !== 'Summary'}>
                   <SummaryView
                     call={inst.call}
                     onNavigate={navigate}
@@ -355,26 +348,14 @@ export function App(): JSX.Element {
                     highlightNodeId={inst.summaryHighlight[0]()}
                   />
                 </div>
-                <div
-                  style={{
-                    'margin-top': '16px',
-                    display:
-                      inst.tab[0]() === 'Containment' ? undefined : 'none',
-                  }}
-                >
+                <div class="tab-panel" hidden={inst.tab[0]() !== 'Containment'}>
                   <ContainmentView
                     call={inst.call}
                     onNavigate={navigate}
                     onContextMenu={handleContextMenu}
                   />
                 </div>
-                <div
-                  style={{
-                    'margin-top': '16px',
-                    display:
-                      inst.tab[0]() === 'Dominators' ? undefined : 'none',
-                  }}
-                >
+                <div class="tab-panel" hidden={inst.tab[0]() !== 'Dominators'}>
                   <DominatorsView
                     call={inst.call}
                     onNavigate={navigate}
@@ -382,25 +363,16 @@ export function App(): JSX.Element {
                     focusNodeId={inst.dominatorsNodeId[0]()}
                   />
                 </div>
-                <div
-                  style={{
-                    'margin-top': '16px',
-                    display: inst.tab[0]() === 'Retainers' ? undefined : 'none',
-                  }}
-                >
+                <div class="tab-panel" hidden={inst.tab[0]() !== 'Retainers'}>
                   <RetainersView
                     call={inst.call}
                     nodeId={inst.retainersNodeId[0]()}
                     onNavigate={navigate}
                     onContextMenu={handleContextMenu}
+                    expandGcTarget={expandGcTarget}
                   />
                 </div>
-                <div
-                  style={{
-                    'margin-top': '16px',
-                    display: inst.tab[0]() === 'Diff' ? undefined : 'none',
-                  }}
-                >
+                <div class="tab-panel" hidden={inst.tab[0]() !== 'Diff'}>
                   <DiffView
                     call={inst.call}
                     snapshotId={inst.snapshotId}
@@ -408,24 +380,14 @@ export function App(): JSX.Element {
                     currentIndex={i}
                   />
                 </div>
-                <div
-                  style={{
-                    'margin-top': '16px',
-                    display: inst.tab[0]() === 'Contexts' ? undefined : 'none',
-                  }}
-                >
+                <div class="tab-panel" hidden={inst.tab[0]() !== 'Contexts'}>
                   <ContextsView
                     call={inst.call}
                     onNavigate={navigate}
                     onContextMenu={handleContextMenu}
                   />
                 </div>
-                <div
-                  style={{
-                    'margin-top': '16px',
-                    display: inst.tab[0]() === 'History' ? undefined : 'none',
-                  }}
-                >
+                <div class="tab-panel" hidden={inst.tab[0]() !== 'History'}>
                   <HistoryView
                     call={inst.call}
                     history={inst.history[0]()}
@@ -433,21 +395,10 @@ export function App(): JSX.Element {
                     onContextMenu={handleContextMenu}
                   />
                 </div>
-                <div
-                  style={{
-                    'margin-top': '16px',
-                    display:
-                      inst.tab[0]() === 'Statistics' ? undefined : 'none',
-                  }}
-                >
+                <div class="tab-panel" hidden={inst.tab[0]() !== 'Statistics'}>
                   <StatisticsView call={inst.call} />
                 </div>
-                <div
-                  style={{
-                    'margin-top': '16px',
-                    display: inst.tab[0]() === 'Timeline' ? undefined : 'none',
-                  }}
-                >
+                <div class="tab-panel" hidden={inst.tab[0]() !== 'Timeline'}>
                   <TimelineView
                     call={inst.call}
                     onNavigate={navigate}
@@ -480,6 +431,23 @@ export function App(): JSX.Element {
                   label: 'Show in summary',
                   action: () =>
                     navigate({ nodeId: m().nodeId, target: 'Summary' }),
+                },
+                {
+                  label: 'Expand path to GC roots',
+                  action: () => {
+                    const inst = active();
+                    const [, setTab] = inst.tab;
+                    const [, setRetainersNodeId] = inst.retainersNodeId;
+                    // Navigate to retainers if not already there
+                    if (inst.tab[0]() !== 'Retainers') {
+                      setRetainersNodeId(m().nodeId);
+                      setTab('Retainers');
+                      pushHistory(inst, m().nodeId);
+                    }
+                    // Trigger GC path expansion
+                    setExpandGcTarget(null); // reset first to re-trigger effect
+                    queueMicrotask(() => setExpandGcTarget(m().nodeId));
+                  },
                 },
                 {
                   label: 'Remember object',

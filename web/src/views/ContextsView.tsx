@@ -153,7 +153,7 @@ export function ContextsView(props: {
           when={ctxs().length > 0}
           fallback={<p>No native contexts found.</p>}
         >
-          <div>
+          <div class="tab-panel">
             <p
               style={{ 'font-size': '13px', color: '#888', margin: '0 0 8px' }}
             >

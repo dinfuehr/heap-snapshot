@@ -91,6 +91,7 @@ export function createSnapshot() {
   async function loadFile(file: File) {
     setLoading(true);
     setError(null);
+    setFilename(file.name);
     try {
       const buffer = await file.arrayBuffer();
       const result = await workerCall<{
@@ -99,7 +100,6 @@ export function createSnapshot() {
         hasAllocationData: boolean;
       }>({ type: 'load', data: buffer });
       setSnapshotId(result.snapshotId);
-      setFilename(file.name);
       setHasAllocationData(result.hasAllocationData);
       setLoaded(true);
     } catch (err) {

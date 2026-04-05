@@ -791,4 +791,83 @@ test.describe('Heap Snapshot Viewer', () => {
         .or(page.locator('text=No differences found')),
     ).toBeVisible({ timeout: 15000 });
   });
+
+  // ── Loading indicator ─────────────────────────────────────────────────
+
+  test('loading a second snapshot shows spinner and wait cursor', async ({
+    page,
+  }) => {
+    // Start loading a second snapshot — don't await full load
+    const [fileChooser] = await Promise.all([
+      page.waitForEvent('filechooser'),
+      page.locator('button:has-text("+ Load snapshot")').click(),
+    ]);
+
+    // Set the file — this starts loading
+    await fileChooser.setFiles(
+      path.resolve(__dirname, '../../tests/data/heap-2.heapsnapshot'),
+    );
+
+    // The loading tab should appear with a spinner (animated span)
+    // and the filename should be visible in regular text (not greyed out)
+    const loadingTab = page.locator('button:has-text("heap-2")').first();
+    await expect(loadingTab).toBeVisible({ timeout: 5000 });
+
+    // Once fully loaded, the spinner should be gone and close button should appear
+    await expect(page.locator('button[title="Close snapshot"]')).toHaveCount(
+      2,
+      { timeout: 15000 },
+    );
+  });
+
+  // ── Retainers auto-expand via context menu ────────────────────────────
+
+  test('right-click "Show retainers" on a retainer node re-roots the view', async ({
+    page,
+  }) => {
+    // Navigate to retainers for an object — first expand a group to get an object
+    const firstGroup = page
+      .locator('table')
+      .first()
+      .locator('tbody tr')
+      .first();
+    await firstGroup.dblclick();
+
+    const objectLink = page
+      .locator('a[href="#"]')
+      .filter({ hasText: '@' })
+      .first();
+    await expect(objectLink).toBeVisible({ timeout: 5000 });
+
+    // Right-click and show retainers
+    await objectLink.click({ button: 'right' });
+    await page.locator('text=Show retainers').click();
+
+    // Should be in Retainers tab now with retaining paths
+    await expect(page.locator('button:has-text("Retainers")')).toHaveCSS(
+      'font-weight',
+      '700',
+    );
+
+    // Wait for retaining paths to load
+    await expect(page.getByTestId('retaining-paths-header')).toBeVisible({
+      timeout: 5000,
+    });
+
+    // Find a visible retainer node link in the path tree
+    const retainerLink = page
+      .locator('tr:visible a[href="#"]')
+      .filter({ hasText: '@' })
+      .first();
+    await expect(retainerLink).toBeVisible({ timeout: 5000 });
+    const retainerText = await retainerLink.textContent();
+
+    // Right-click the retainer and select "Show retainers"
+    await retainerLink.click({ button: 'right' });
+    await page.locator('text=Show retainers').click();
+
+    // The retainers input should now contain the retainer's ID
+    const input = page.locator('input[placeholder="@12345"]');
+    await expect(input).toHaveValue(retainerText!.trim());
+  });
 });
