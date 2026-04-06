@@ -1,5 +1,9 @@
 import { createSignal, createResource, Show, type JSX } from 'solid-js';
-import type { TimelineInterval, AggregateEntry, ReachableSizeInfo } from '../types.ts';
+import type {
+  TimelineInterval,
+  AggregateEntry,
+  ReachableSizeInfo,
+} from '../types.ts';
 import type { SnapshotCall } from '../worker/use-snapshot.ts';
 import type { NavigateOptions } from '../components/ObjectLink.tsx';
 import { formatBytes } from '../components/format.ts';
@@ -11,6 +15,7 @@ export function TimelineView(props: {
   onNavigate: (opts: NavigateOptions) => void;
   onContextMenu: (e: MouseEvent, nodeId: number) => void;
   reachableSizes: Map<number, ReachableSizeInfo>;
+  reachablePending: Set<number>;
 }): JSX.Element {
   const [intervals] = createResource(() =>
     props.call<TimelineInterval[]>({ type: 'getTimeline' }),
@@ -163,6 +168,7 @@ export function TimelineView(props: {
                       onNavigate={props.onNavigate}
                       onContextMenu={props.onContextMenu}
                       reachableSizes={props.reachableSizes}
+                      reachablePending={props.reachablePending}
                     />
                   </div>
                 );

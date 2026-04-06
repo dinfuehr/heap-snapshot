@@ -1,5 +1,10 @@
 import { createSignal, createResource, Show, For, type JSX } from 'solid-js';
-import type { Containment, Children, NodeInfo, ReachableSizeInfo } from '../types.ts';
+import type {
+  Containment,
+  Children,
+  NodeInfo,
+  ReachableSizeInfo,
+} from '../types.ts';
 import type { SnapshotCall } from '../worker/use-snapshot.ts';
 import type { NavigateOptions } from '../components/ObjectLink.tsx';
 import {
@@ -23,6 +28,7 @@ function TreeNode(props: {
   selection: () => RowSelection | null;
   onSelect: (sel: RowSelection) => void;
   reachableSizes: Map<number, ReachableSizeInfo>;
+  reachablePending: Set<number>;
   depth: number;
   initialExpanded?: boolean;
 }): JSX.Element {
@@ -100,6 +106,7 @@ function TreeNode(props: {
       selfSize={props.node.self_size}
       retainedSize={props.node.retained_size}
       reachableInfo={props.reachableSizes.get(props.node.id)}
+      reachableLoading={props.reachablePending.has(props.node.id)}
     >
       <Show when={expanded() && !children()}>
         <TreeTableLoading depth={props.depth + 1} />
@@ -116,6 +123,7 @@ function TreeNode(props: {
               selection={props.selection}
               onSelect={props.onSelect}
               reachableSizes={props.reachableSizes}
+              reachablePending={props.reachablePending}
               depth={props.depth + 1}
             />
           )}
@@ -140,6 +148,7 @@ export function ContainmentView(props: {
   onNavigate: (opts: NavigateOptions) => void;
   onContextMenu: (e: MouseEvent, nodeId: number) => void;
   reachableSizes: Map<number, ReachableSizeInfo>;
+  reachablePending: Set<number>;
 }): JSX.Element {
   const [containment] = createResource(() =>
     props.call<Containment>({ type: 'getContainment' }),
@@ -164,6 +173,7 @@ export function ContainmentView(props: {
               selection={selection}
               onSelect={setSelection}
               reachableSizes={props.reachableSizes}
+              reachablePending={props.reachablePending}
               depth={0}
               initialExpanded={edge.target.name === '(GC roots)'}
             />

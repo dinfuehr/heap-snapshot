@@ -847,10 +847,14 @@ test.describe('Heap Snapshot Viewer', () => {
     });
 
     // Look for a "N selected of M retainers" summary row with a "View all" button.
-    const summaryCell = page.locator('td', { hasText: /\d+ selected of \d+ retainers/ });
+    const summaryCell = page.locator('td', {
+      hasText: /\d+ selected of \d+ retainers/,
+    });
     await expect(summaryCell.first()).toBeVisible({ timeout: 5000 });
 
-    const viewAllBtn = summaryCell.first().locator('button', { hasText: 'View all' });
+    const viewAllBtn = summaryCell
+      .first()
+      .locator('button', { hasText: 'View all' });
     await expect(viewAllBtn).toBeVisible();
 
     // Click "View all" — the summary row for that node should be replaced
@@ -891,10 +895,11 @@ test.describe('Heap Snapshot Viewer', () => {
     await objectLink.click({ button: 'right' });
     await page.locator('text=Compute reachable size').first().click();
 
-    // The "—" should be replaced with an actual size value
-    await expect(cells.nth(4)).not.toHaveText('—', { timeout: 5000 });
+    // The "—" should be replaced with an actual size value (may show ⋯ while loading)
+    await expect(cells.nth(4)).toHaveText(/\d+(\.\d+)?\s*(B|KB|MB|GB)/, {
+      timeout: 5000,
+    });
     const sizeText = await cells.nth(4).textContent();
-    expect(sizeText).toMatch(/\d+(\.\d+)?\s*(B|KB|MB|GB)/);
 
     // Navigate to Retainers for the same object — the retainer paths
     // contain links to other objects. If any of those also had their
@@ -909,7 +914,9 @@ test.describe('Heap Snapshot Viewer', () => {
 
     // Switch back to Summary — the computed size should still be there
     await page.locator('button:has-text("Summary")').click();
-    const summaryLink = page.locator(`a[href="#"]`, { hasText: objectId }).first();
+    const summaryLink = page
+      .locator(`a[href="#"]`, { hasText: objectId })
+      .first();
     await expect(summaryLink).toBeVisible({ timeout: 5000 });
     const summaryRow = summaryLink.locator('xpath=ancestor::tr');
     await expect(summaryRow.locator('td').nth(4)).toHaveText(sizeText!);
@@ -936,12 +943,12 @@ test.describe('Heap Snapshot Viewer', () => {
     await objectLink.click({ button: 'right' });
     await page.locator('text=Compute reachable size w/ children').click();
 
-    // The object's own reachable size should be populated
+    // The object's own reachable size should be populated (may show ⋯ while loading)
     const row = objectLink.locator('xpath=ancestor::tr');
     const cells = row.locator('td');
-    await expect(cells.nth(4)).not.toHaveText('—', { timeout: 5000 });
-    const text = await cells.nth(4).textContent();
-    expect(text).toMatch(/\d+(\.\d+)?\s*(B|KB|MB|GB)/);
+    await expect(cells.nth(4)).toHaveText(/\d+(\.\d+)?\s*(B|KB|MB|GB)/, {
+      timeout: 5000,
+    });
 
     // Expand the object to see its children — they should all have
     // reachable size populated from the "w/ children" computation.
@@ -1017,6 +1024,52 @@ test.describe('Heap Snapshot Viewer', () => {
     }[];
     expect(values.length).toBeGreaterThan(0);
     for (const { reachable } of values) {
+      expect(reachable).toMatch(/\d+(\.\d+)?\s*(B|KB|MB|GB)/);
+    }
+  });
+
+  test('contexts view auto-computes reachable sizes for all native contexts', async ({
+    page,
+  }) => {
+    await page.locator('button:has-text("Contexts")').click();
+
+    // Wait for contexts to load — scope to visible rows only
+    const contextRows = page
+      .locator('tr:visible')
+      .filter({ has: page.locator('a[href="#"]') });
+    await expect(contextRows.first()).toBeVisible({ timeout: 5000 });
+
+    // Wait until all visible context rows have their reachable size
+    // column populated (no "—" remaining). The auto-computation runs
+    // in the background so we poll.
+    await page.waitForFunction(
+      () => {
+        const rows = document.querySelectorAll('table tbody tr');
+        let count = 0;
+        for (const row of rows) {
+          if (!(row as HTMLElement).offsetParent) continue; // hidden
+          const link = row.querySelector('a[href="#"]');
+          if (!link) continue; // skip pager/status rows
+          count++;
+          const cells = row.querySelectorAll('td');
+          const val = cells[4]?.textContent?.trim();
+          if (!val || val === '\u2014') return false;
+        }
+        return count > 0;
+      },
+      undefined,
+      { timeout: 30000 },
+    );
+
+    // Verify all context rows have valid byte values
+    const count = await contextRows.count();
+    expect(count).toBeGreaterThan(0);
+    for (let i = 0; i < count; i++) {
+      const reachable = await contextRows
+        .nth(i)
+        .locator('td')
+        .nth(4)
+        .textContent();
       expect(reachable).toMatch(/\d+(\.\d+)?\s*(B|KB|MB|GB)/);
     }
   });

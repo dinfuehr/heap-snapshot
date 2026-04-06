@@ -41,7 +41,10 @@ type SnapshotInstance = ReturnType<typeof createSnapshot> & {
   dominatorsNodeId: ReturnType<typeof createSignal<number | null>>;
   summaryHighlight: ReturnType<typeof createSignal<number | null>>;
   history: ReturnType<typeof createSignal<NodeInfo[]>>;
-  reachableSizes: ReturnType<typeof createSignal<Map<number, ReachableSizeInfo>>>;
+  reachableSizes: ReturnType<
+    typeof createSignal<Map<number, ReachableSizeInfo>>
+  >;
+  reachablePending: ReturnType<typeof createSignal<Set<number>>>;
 };
 
 function createSnapshotInstance(): SnapshotInstance {
@@ -53,6 +56,7 @@ function createSnapshotInstance(): SnapshotInstance {
     summaryHighlight: createSignal<number | null>(null),
     history: createSignal<NodeInfo[]>([]),
     reachableSizes: createSignal<Map<number, ReachableSizeInfo>>(new Map()),
+    reachablePending: createSignal<Set<number>>(new Set()),
   };
 }
 
@@ -71,6 +75,41 @@ export function App(): JSX.Element {
     nodeId: number;
   } | null>(null);
 
+  const historyStorageKey = (inst: SnapshotInstance): string | null => {
+    const name = inst.filename();
+    const hash = inst.contentHash();
+    if (!name || !hash) return null;
+    return `heap-history:${name}:${hash.slice(0, 16)}`;
+  };
+
+  const saveHistory = (inst: SnapshotInstance) => {
+    const key = historyStorageKey(inst);
+    if (!key) return;
+    const ids = inst.history[0]().map((n) => n.id);
+    try {
+      localStorage.setItem(key, JSON.stringify(ids));
+    } catch {
+      // localStorage full or unavailable — ignore
+    }
+  };
+
+  const restoreHistory = async (inst: SnapshotInstance) => {
+    const key = historyStorageKey(inst);
+    if (!key) return;
+    try {
+      const raw = localStorage.getItem(key);
+      if (!raw) return;
+      const ids: number[] = JSON.parse(raw);
+      const infos = await Promise.all(
+        ids.map((id) => inst.call<NodeInfo>({ type: 'getNodeInfo', nodeId: id })),
+      );
+      const [, setHist] = inst.history;
+      setHist(infos);
+    } catch {
+      // corrupt data or node IDs no longer valid — ignore
+    }
+  };
+
   const pushHistory = async (inst: SnapshotInstance, nodeId: number) => {
     const info = await inst.call<NodeInfo>({
       type: 'getNodeInfo',
@@ -81,6 +120,7 @@ export function App(): JSX.Element {
       if (prev.length > 0 && prev[prev.length - 1].id === nodeId) return prev;
       return [...prev, info];
     });
+    saveHistory(inst);
   };
 
   const navigate = (opts: NavigateOptions) => {
@@ -123,17 +163,37 @@ export function App(): JSX.Element {
     onCleanup(() => document.removeEventListener('keydown', handler));
   });
 
-  const storeReachable = (inst: SnapshotInstance, nodeId: number, info: ReachableSizeInfo) => {
+  const markPending = (inst: SnapshotInstance, nodeId: number) => {
+    const [, setPending] = inst.reachablePending;
+    setPending((prev) => {
+      const next = new Set(prev);
+      next.add(nodeId);
+      return next;
+    });
+  };
+
+  const storeReachable = (
+    inst: SnapshotInstance,
+    nodeId: number,
+    info: ReachableSizeInfo,
+  ) => {
     const [, setSizes] = inst.reachableSizes;
+    const [, setPending] = inst.reachablePending;
     setSizes((prev) => {
       const next = new Map(prev);
       next.set(nodeId, info);
+      return next;
+    });
+    setPending((prev) => {
+      const next = new Set(prev);
+      next.delete(nodeId);
       return next;
     });
   };
 
   const computeReachableSize = async (nodeId: number) => {
     const inst = active();
+    markPending(inst, nodeId);
     const info = await inst.call<ReachableSizeInfo>({
       type: 'getReachableSize',
       nodeId,
@@ -143,6 +203,7 @@ export function App(): JSX.Element {
 
   const computeReachableSizeWithChildren = async (nodeId: number) => {
     const inst = active();
+    markPending(inst, nodeId);
     const info = await inst.call<ReachableSizeInfo>({
       type: 'getReachableSize',
       nodeId,
@@ -152,23 +213,29 @@ export function App(): JSX.Element {
       type: 'getChildrenIds',
       nodeId,
     });
+    for (const id of childIds) markPending(inst, id);
     await Promise.all(
       childIds.map(async (id) => {
-        const s = await inst.call<ReachableSizeInfo>({ type: 'getReachableSize', nodeId: id });
+        const s = await inst.call<ReachableSizeInfo>({
+          type: 'getReachableSize',
+          nodeId: id,
+        });
         storeReachable(inst, id, s);
       }),
     );
   };
 
-  const handleLoadFile = (file: File) => {
+  const handleLoadFile = async (file: File) => {
     const inst = active();
     if (inst.loaded()) {
       // Already loaded — create a new snapshot instance, stay on current
       const newInst = createSnapshotInstance();
       setSnapshots((prev) => [...prev, newInst]);
-      newInst.loadFile(file);
+      await newInst.loadFile(file);
+      restoreHistory(newInst);
     } else {
-      inst.loadFile(file);
+      await inst.loadFile(file);
+      restoreHistory(inst);
     }
   };
 
@@ -355,6 +422,7 @@ export function App(): JSX.Element {
                     onContextMenu={handleContextMenu}
                     highlightNodeId={inst.summaryHighlight[0]()}
                     reachableSizes={inst.reachableSizes[0]()}
+                    reachablePending={inst.reachablePending[0]()}
                   />
                 </div>
                 <div class="tab-panel" hidden={inst.tab[0]() !== 'Containment'}>
@@ -363,6 +431,7 @@ export function App(): JSX.Element {
                     onNavigate={navigate}
                     onContextMenu={handleContextMenu}
                     reachableSizes={inst.reachableSizes[0]()}
+                    reachablePending={inst.reachablePending[0]()}
                   />
                 </div>
                 <div class="tab-panel" hidden={inst.tab[0]() !== 'Dominators'}>
@@ -372,6 +441,7 @@ export function App(): JSX.Element {
                     onContextMenu={handleContextMenu}
                     focusNodeId={inst.dominatorsNodeId[0]()}
                     reachableSizes={inst.reachableSizes[0]()}
+                    reachablePending={inst.reachablePending[0]()}
                   />
                 </div>
                 <div class="tab-panel" hidden={inst.tab[0]() !== 'Retainers'}>
@@ -382,6 +452,7 @@ export function App(): JSX.Element {
                     onContextMenu={handleContextMenu}
                     expandGcTarget={expandGcTarget}
                     reachableSizes={inst.reachableSizes[0]()}
+                    reachablePending={inst.reachablePending[0]()}
                   />
                 </div>
                 <div class="tab-panel" hidden={inst.tab[0]() !== 'Diff'}>
@@ -398,6 +469,11 @@ export function App(): JSX.Element {
                     onNavigate={navigate}
                     onContextMenu={handleContextMenu}
                     reachableSizes={inst.reachableSizes[0]()}
+                    reachablePending={inst.reachablePending[0]()}
+                    onReachableSize={(nodeId, info) =>
+                      storeReachable(inst, nodeId, info)
+                    }
+                    onMarkPending={(nodeId) => markPending(inst, nodeId)}
                   />
                 </div>
                 <div class="tab-panel" hidden={inst.tab[0]() !== 'History'}>
@@ -407,6 +483,7 @@ export function App(): JSX.Element {
                     onNavigate={navigate}
                     onContextMenu={handleContextMenu}
                     reachableSizes={inst.reachableSizes[0]()}
+                    reachablePending={inst.reachablePending[0]()}
                   />
                 </div>
                 <div class="tab-panel" hidden={inst.tab[0]() !== 'Statistics'}>
@@ -418,6 +495,7 @@ export function App(): JSX.Element {
                     onNavigate={navigate}
                     onContextMenu={handleContextMenu}
                     reachableSizes={inst.reachableSizes[0]()}
+                    reachablePending={inst.reachablePending[0]()}
                   />
                 </div>
               </Show>

@@ -31,8 +31,41 @@ function getSnapshot(snapshotId: number): WasmHeapSnapshot {
   return snap;
 }
 
-self.onmessage = async (e: MessageEvent<WorkerMsg>) => {
+// ---------------------------------------------------------------------------
+// Priority queue: regular messages are processed immediately.
+// Background messages (e.g. auto-computed reachable sizes) are deferred
+// and only processed when no regular messages are pending.
+// ---------------------------------------------------------------------------
+
+const regularQueue: WorkerMsg[] = [];
+const backgroundQueue: WorkerMsg[] = [];
+let processing = false;
+
+async function drainQueues() {
+  if (processing) return;
+  processing = true;
+  while (regularQueue.length > 0 || backgroundQueue.length > 0) {
+    // Always prefer regular requests over background ones.
+    const msg =
+      regularQueue.length > 0
+        ? regularQueue.shift()!
+        : backgroundQueue.shift()!;
+    await processMessage(msg);
+  }
+  processing = false;
+}
+
+self.onmessage = (e: MessageEvent<WorkerMsg>) => {
   const msg = e.data;
+  if (msg.background) {
+    backgroundQueue.push(msg);
+  } else {
+    regularQueue.push(msg);
+  }
+  drainQueues();
+};
+
+async function processMessage(msg: WorkerMsg) {
   const { id } = msg;
 
   try {
@@ -198,4 +231,4 @@ self.onmessage = async (e: MessageEvent<WorkerMsg>) => {
   } catch (err) {
     respondError(id, String(err));
   }
-};
+}

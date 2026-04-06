@@ -4665,7 +4665,10 @@ fn collapse_preserves_caches_and_reexpand_restores_subtree() {
         .cached_rows
         .iter()
         .any(|r| r.node_ordinal() == Some(NodeOrdinal(4)));
-    assert!(has_grandchild, "Grandchild should be visible before collapse");
+    assert!(
+        has_grandchild,
+        "Grandchild should be visible before collapse"
+    );
 
     let parent_ck = parent_ck.unwrap();
     let child_ck = child_ck.unwrap();
@@ -4722,7 +4725,10 @@ fn collapse_preserves_caches_and_reexpand_restores_subtree() {
 
     // Edge window should still be preserved.
     assert_eq!(
-        app.containment_state.edge_windows.get(&child_id).map(|w| w.count),
+        app.containment_state
+            .edge_windows
+            .get(&child_id)
+            .map(|w| w.count),
         Some(5),
         "child edge_window should retain custom count after re-expand"
     );

@@ -9,6 +9,7 @@ type PendingRequest = {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type SnapshotCall = <T = unknown>(
   request: Record<string, any>,
+  options?: { background?: boolean },
 ) => Promise<T>;
 
 // ---------------------------------------------------------------------------
@@ -73,6 +74,7 @@ export function createSnapshot() {
   const [loaded, setLoaded] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
   const [filename, setFilename] = createSignal<string | null>(null);
+  const [contentHash, setContentHash] = createSignal<string | null>(null);
   const [hasAllocationData, setHasAllocationData] = createSignal(false);
   const [snapshotId, setSnapshotId] = createSignal<number | null>(null);
 
@@ -80,12 +82,17 @@ export function createSnapshot() {
   const call: SnapshotCall = <T = unknown>(
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     request: Record<string, any>,
+    options?: { background?: boolean },
   ): Promise<T> => {
     const id = snapshotId();
     if (id === null) {
       return Promise.reject(new Error('No snapshot loaded'));
     }
-    return workerCall<T>({ ...request, snapshotId: id });
+    return workerCall<T>({
+      ...request,
+      snapshotId: id,
+      ...(options?.background ? { background: true } : {}),
+    });
   };
 
   async function loadFile(file: File) {
@@ -94,6 +101,10 @@ export function createSnapshot() {
     setFilename(file.name);
     try {
       const buffer = await file.arrayBuffer();
+      // Compute content hash for persistence keying
+      const hashBuf = await crypto.subtle.digest('SHA-256', buffer);
+      const hashArr = Array.from(new Uint8Array(hashBuf));
+      setContentHash(hashArr.map((b) => b.toString(16).padStart(2, '0')).join(''));
       const result = await workerCall<{
         snapshotId: number;
         nodeCount: number;
@@ -116,6 +127,7 @@ export function createSnapshot() {
       setSnapshotId(null);
       setLoaded(false);
       setFilename(null);
+      setContentHash(null);
       setHasAllocationData(false);
     }
   }
@@ -125,6 +137,7 @@ export function createSnapshot() {
     loaded,
     error,
     filename,
+    contentHash,
     hasAllocationData,
     snapshotId,
     loadFile,

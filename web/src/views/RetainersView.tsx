@@ -96,6 +96,7 @@ function RetainerNode(props: {
   selection: () => RowSelection | null;
   onSelect: (sel: RowSelection) => void;
   reachableSizes: Map<number, ReachableSizeInfo>;
+  reachablePending: Set<number>;
   initialExpanded?: boolean;
   precomputedChildren?: RetainingPath[];
 }): JSX.Element {
@@ -206,6 +207,7 @@ function RetainerNode(props: {
       selfSize={props.node.self_size}
       retainedSize={props.node.retained_size}
       reachableInfo={props.reachableSizes.get(props.node.id)}
+      reachableLoading={props.reachablePending.has(props.node.id)}
     >
       <Show when={expanded()}>
         {/* Pre-computed children from initial getRetainingPaths */}
@@ -223,6 +225,7 @@ function RetainerNode(props: {
                 selection={props.selection}
                 onSelect={props.onSelect}
                 reachableSizes={props.reachableSizes}
+                reachablePending={props.reachablePending}
                 initialExpanded={child.children.length > 0}
                 precomputedChildren={child.children}
               />
@@ -252,6 +255,7 @@ function RetainerNode(props: {
                     selection={props.selection}
                     onSelect={props.onSelect}
                     reachableSizes={props.reachableSizes}
+                    reachablePending={props.reachablePending}
                   />
                 )}
               </For>
@@ -284,6 +288,7 @@ function RetainerNode(props: {
                   selection={props.selection}
                   onSelect={props.onSelect}
                   reachableSizes={props.reachableSizes}
+                  reachablePending={props.reachablePending}
                   initialExpanded={child.children.length > 0}
                   precomputedChildren={child.children}
                 />
@@ -306,6 +311,7 @@ export function RetainersView(props: {
   onContextMenu: (e: MouseEvent, nodeId: number) => void;
   expandGcTarget: Accessor<number | null>;
   reachableSizes: Map<number, ReachableSizeInfo>;
+  reachablePending: Set<number>;
 }): JSX.Element {
   const [nodeInfo, setNodeInfo] = createSignal<NodeInfo | null>(null);
   const [paths, setPaths] = createSignal<RetainingPaths | null>(null);
@@ -404,6 +410,7 @@ export function RetainersView(props: {
                     selection={selection}
                     onSelect={setSelection}
                     reachableSizes={props.reachableSizes}
+                    reachablePending={props.reachablePending}
                     initialExpanded={path.children.length > 0}
                     precomputedChildren={path.children}
                   />

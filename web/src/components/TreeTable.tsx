@@ -34,6 +34,7 @@ export function TreeTableRow(props: {
   selfSize: number;
   retainedSize: number;
   reachableInfo?: ReachableSizeInfo;
+  reachableLoading?: boolean;
   children?: JSX.Element;
 }): JSX.Element {
   const rowId = nextRowId++;
@@ -137,7 +138,11 @@ export function TreeTableRow(props: {
               : undefined
           }
         >
-          {ri() !== undefined ? formatBytes(ri()!.size) : '\u2014'}
+          {ri() !== undefined
+            ? formatBytes(ri()!.size)
+            : props.reachableLoading
+              ? '\u22EF'
+              : '\u2014'}
         </td>
         <td
           style={{

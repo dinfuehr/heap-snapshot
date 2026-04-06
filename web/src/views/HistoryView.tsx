@@ -20,6 +20,7 @@ function HistoryEntry(props: {
   selection: () => RowSelection | null;
   onSelect: (sel: RowSelection) => void;
   reachableSizes: Map<number, ReachableSizeInfo>;
+  reachablePending: Set<number>;
 }): JSX.Element {
   const [expanded, setExpanded] = createSignal(false);
   const [children, setChildren] = createSignal<
@@ -85,6 +86,7 @@ function HistoryEntry(props: {
       selfSize={props.node.self_size}
       retainedSize={props.node.retained_size}
       reachableInfo={props.reachableSizes.get(props.node.id)}
+      reachableLoading={props.reachablePending.has(props.node.id)}
     >
       <Show when={expanded() && !children()}>
         <TreeTableLoading depth={1} />
@@ -112,6 +114,7 @@ function HistoryEntry(props: {
               selfSize={child.node.self_size}
               retainedSize={child.node.retained_size}
               reachableInfo={props.reachableSizes.get(child.node.id)}
+              reachableLoading={props.reachablePending.has(child.node.id)}
             />
           )}
         </For>
@@ -136,6 +139,7 @@ export function HistoryView(props: {
   onNavigate: (opts: NavigateOptions) => void;
   onContextMenu: (e: MouseEvent, nodeId: number) => void;
   reachableSizes: Map<number, ReachableSizeInfo>;
+  reachablePending: Set<number>;
 }): JSX.Element {
   const [selection, setSelection] = createSignal<RowSelection | null>(null);
 
@@ -160,6 +164,7 @@ export function HistoryView(props: {
               selection={selection}
               onSelect={setSelection}
               reachableSizes={props.reachableSizes}
+              reachablePending={props.reachablePending}
             />
           )}
         </For>

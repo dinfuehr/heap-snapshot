@@ -6,7 +6,12 @@ import {
   For,
   type JSX,
 } from 'solid-js';
-import type { AggregateEntry, SummaryExpanded, Children, ReachableSizeInfo } from '../types.ts';
+import type {
+  AggregateEntry,
+  SummaryExpanded,
+  Children,
+  ReachableSizeInfo,
+} from '../types.ts';
 import type { SnapshotCall } from '../worker/use-snapshot.ts';
 import type { NavigateOptions } from '../components/ObjectLink.tsx';
 import { formatBytes } from '../components/format.ts';
@@ -40,6 +45,7 @@ function ExpandableObject(props: {
   selection: () => RowSelection | null;
   onSelect: (sel: RowSelection) => void;
   reachableSizes: Map<number, ReachableSizeInfo>;
+  reachablePending: Set<number>;
 }): JSX.Element {
   const [expanded, setExpanded] = createSignal(false);
   const [loading, setLoading] = createSignal(false);
@@ -74,6 +80,7 @@ function ExpandableObject(props: {
       selfSize={props.obj.self_size}
       retainedSize={props.obj.retained_size}
       reachableInfo={props.reachableSizes.get(props.obj.id)}
+      reachableLoading={props.reachablePending.has(props.obj.id)}
     >
       <Show when={expanded()}>
         <ObjectChildren
@@ -84,6 +91,7 @@ function ExpandableObject(props: {
           selection={props.selection}
           onSelect={props.onSelect}
           reachableSizes={props.reachableSizes}
+          reachablePending={props.reachablePending}
           depth={2}
           onLoaded={() => {
             setChildrenLoaded(true);
@@ -103,6 +111,7 @@ function ObjectChildren(props: {
   selection: () => RowSelection | null;
   onSelect: (sel: RowSelection) => void;
   reachableSizes: Map<number, ReachableSizeInfo>;
+  reachablePending: Set<number>;
   depth: number;
   onLoaded?: () => void;
 }): JSX.Element {
@@ -165,6 +174,7 @@ function ObjectChildren(props: {
             selection={props.selection}
             onSelect={props.onSelect}
             reachableSizes={props.reachableSizes}
+            reachablePending={props.reachablePending}
             depth={props.depth}
           />
         )}
@@ -191,6 +201,7 @@ function SummaryGroup(props: {
   selection: () => RowSelection | null;
   onSelect: (sel: RowSelection) => void;
   reachableSizes: Map<number, ReachableSizeInfo>;
+  reachablePending: Set<number>;
 }): JSX.Element {
   const [expanded, setExpanded] = createSignal(false);
   const [loading, setLoading] = createSignal(false);
@@ -265,6 +276,7 @@ function SummaryGroup(props: {
                   selection={props.selection}
                   onSelect={props.onSelect}
                   reachableSizes={props.reachableSizes}
+                  reachablePending={props.reachablePending}
                 />
               )}
             </For>
@@ -295,6 +307,7 @@ export function SummaryTable(props: {
   onNavigate: (opts: NavigateOptions) => void;
   onContextMenu: (e: MouseEvent, nodeId: number) => void;
   reachableSizes: Map<number, ReachableSizeInfo>;
+  reachablePending: Set<number>;
 }): JSX.Element {
   const [selection, setSelection] = createSignal<RowSelection | null>(null);
 
@@ -392,6 +405,7 @@ export function SummaryTable(props: {
                 selection={selection}
                 onSelect={setSelection}
                 reachableSizes={props.reachableSizes}
+                reachablePending={props.reachablePending}
               />
             )}
           </For>
@@ -406,6 +420,7 @@ export function SummaryView(props: {
   onNavigate: (opts: NavigateOptions) => void;
   onContextMenu: (e: MouseEvent, nodeId: number) => void;
   reachableSizes: Map<number, ReachableSizeInfo>;
+  reachablePending: Set<number>;
   highlightNodeId: number | null;
 }): JSX.Element {
   const [summaryFilter, setSummaryFilter] = createSignal(0);
@@ -504,6 +519,7 @@ export function SummaryView(props: {
               onNavigate={props.onNavigate}
               onContextMenu={props.onContextMenu}
               reachableSizes={props.reachableSizes}
+              reachablePending={props.reachablePending}
             />
           </>
         )}

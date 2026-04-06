@@ -1,5 +1,17 @@
-import { createSignal, createResource, Show, For, type JSX } from 'solid-js';
-import type { NativeContext, Children, NodeInfo, ReachableSizeInfo } from '../types.ts';
+import {
+  createSignal,
+  createResource,
+  createEffect,
+  Show,
+  For,
+  type JSX,
+} from 'solid-js';
+import type {
+  NativeContext,
+  Children,
+  NodeInfo,
+  ReachableSizeInfo,
+} from '../types.ts';
 import type { SnapshotCall } from '../worker/use-snapshot.ts';
 import type { NavigateOptions } from '../components/ObjectLink.tsx';
 import {
@@ -20,6 +32,7 @@ function ContextNode(props: {
   selection: () => RowSelection | null;
   onSelect: (sel: RowSelection) => void;
   reachableSizes: Map<number, ReachableSizeInfo>;
+  reachablePending: Set<number>;
 }): JSX.Element {
   const [expanded, setExpanded] = createSignal(false);
   const [children, setChildren] = createSignal<
@@ -100,6 +113,7 @@ function ContextNode(props: {
       selfSize={props.ctx.self_size}
       retainedSize={props.ctx.retained_size}
       reachableInfo={props.reachableSizes.get(props.ctx.id)}
+      reachableLoading={props.reachablePending.has(props.ctx.id)}
     >
       <Show when={expanded() && !children()}>
         <TreeTableLoading depth={1} />
@@ -121,6 +135,7 @@ function ContextNode(props: {
               selfSize={child.node.self_size}
               retainedSize={child.node.retained_size}
               reachableInfo={props.reachableSizes.get(child.node.id)}
+              reachableLoading={props.reachablePending.has(child.node.id)}
             />
           )}
         </For>
@@ -144,11 +159,34 @@ export function ContextsView(props: {
   onNavigate: (opts: NavigateOptions) => void;
   onContextMenu: (e: MouseEvent, nodeId: number) => void;
   reachableSizes: Map<number, ReachableSizeInfo>;
+  reachablePending: Set<number>;
+  onReachableSize: (nodeId: number, info: ReachableSizeInfo) => void;
+  onMarkPending: (nodeId: number) => void;
 }): JSX.Element {
   const [contexts] = createResource(() =>
     props.call<NativeContext[]>({ type: 'getNativeContexts' }),
   );
   const [selection, setSelection] = createSignal<RowSelection | null>(null);
+
+  // Auto-compute reachable sizes for all native contexts, one at a time
+  // so other worker requests can interleave between them.
+  const queued = new Set<number>();
+  createEffect(() => {
+    const ctxs = contexts();
+    if (!ctxs) return;
+    (async () => {
+      for (const ctx of ctxs) {
+        if (queued.has(ctx.id)) continue;
+        queued.add(ctx.id);
+        props.onMarkPending(ctx.id);
+        const info = await props.call<ReachableSizeInfo>(
+          { type: 'getReachableSize', nodeId: ctx.id },
+          { background: true },
+        );
+        props.onReachableSize(ctx.id, info);
+      }
+    })();
+  });
 
   return (
     <Show when={contexts()} fallback={<p>Loading...</p>}>
@@ -175,6 +213,7 @@ export function ContextsView(props: {
                     selection={selection}
                     onSelect={setSelection}
                     reachableSizes={props.reachableSizes}
+                    reachablePending={props.reachablePending}
                   />
                 )}
               </For>
