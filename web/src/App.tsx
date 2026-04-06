@@ -101,7 +101,9 @@ export function App(): JSX.Element {
       if (!raw) return;
       const ids: number[] = JSON.parse(raw);
       const infos = await Promise.all(
-        ids.map((id) => inst.call<NodeInfo>({ type: 'getNodeInfo', nodeId: id })),
+        ids.map((id) =>
+          inst.call<NodeInfo>({ type: 'getNodeInfo', nodeId: id }),
+        ),
       );
       const [, setHist] = inst.history;
       setHist(infos);

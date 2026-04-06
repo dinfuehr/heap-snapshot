@@ -104,7 +104,9 @@ export function createSnapshot() {
       // Compute content hash for persistence keying
       const hashBuf = await crypto.subtle.digest('SHA-256', buffer);
       const hashArr = Array.from(new Uint8Array(hashBuf));
-      setContentHash(hashArr.map((b) => b.toString(16).padStart(2, '0')).join(''));
+      setContentHash(
+        hashArr.map((b) => b.toString(16).padStart(2, '0')).join(''),
+      );
       const result = await workerCall<{
         snapshotId: number;
         nodeCount: number;
