@@ -1,5 +1,5 @@
 import { createSignal, createResource, Show, For, type JSX } from 'solid-js';
-import type { NodeInfo, DominatedChildren } from '../types.ts';
+import type { NodeInfo, DominatedChildren, ReachableSizeInfo } from '../types.ts';
 import type { SnapshotCall } from '../worker/use-snapshot.ts';
 import type { NavigateOptions } from '../components/ObjectLink.tsx';
 import {
@@ -19,6 +19,7 @@ function DomTreeNode(props: {
   onContextMenu: (e: MouseEvent, nodeId: number) => void;
   selection: () => RowSelection | null;
   onSelect: (sel: RowSelection) => void;
+  reachableSizes: Map<number, ReachableSizeInfo>;
   depth: number;
 }): JSX.Element {
   const [expanded, setExpanded] = createSignal(false);
@@ -69,6 +70,7 @@ function DomTreeNode(props: {
       distance={props.node.distance}
       selfSize={props.node.self_size}
       retainedSize={props.node.retained_size}
+      reachableInfo={props.reachableSizes.get(props.node.id)}
     >
       <Show when={expanded() && !children()}>
         <TreeTableLoading depth={props.depth + 1} />
@@ -83,6 +85,7 @@ function DomTreeNode(props: {
               onContextMenu={props.onContextMenu}
               selection={props.selection}
               onSelect={props.onSelect}
+              reachableSizes={props.reachableSizes}
               depth={props.depth + 1}
             />
           )}
@@ -106,6 +109,7 @@ export function DominatorsView(props: {
   call: SnapshotCall;
   onNavigate: (opts: NavigateOptions) => void;
   onContextMenu: (e: MouseEvent, nodeId: number) => void;
+  reachableSizes: Map<number, ReachableSizeInfo>;
   focusNodeId: number | null;
 }): JSX.Element {
   const [root] = createResource(() =>
@@ -123,6 +127,7 @@ export function DominatorsView(props: {
           onContextMenu={props.onContextMenu}
           selection={selection}
           onSelect={setSelection}
+          reachableSizes={props.reachableSizes}
           depth={0}
         />
       </TreeTableShell>

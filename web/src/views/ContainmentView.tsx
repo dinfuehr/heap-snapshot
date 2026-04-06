@@ -1,5 +1,5 @@
 import { createSignal, createResource, Show, For, type JSX } from 'solid-js';
-import type { Containment, Children, NodeInfo } from '../types.ts';
+import type { Containment, Children, NodeInfo, ReachableSizeInfo } from '../types.ts';
 import type { SnapshotCall } from '../worker/use-snapshot.ts';
 import type { NavigateOptions } from '../components/ObjectLink.tsx';
 import {
@@ -22,6 +22,7 @@ function TreeNode(props: {
   onContextMenu: (e: MouseEvent, nodeId: number) => void;
   selection: () => RowSelection | null;
   onSelect: (sel: RowSelection) => void;
+  reachableSizes: Map<number, ReachableSizeInfo>;
   depth: number;
   initialExpanded?: boolean;
 }): JSX.Element {
@@ -98,6 +99,7 @@ function TreeNode(props: {
       distance={props.node.distance}
       selfSize={props.node.self_size}
       retainedSize={props.node.retained_size}
+      reachableInfo={props.reachableSizes.get(props.node.id)}
     >
       <Show when={expanded() && !children()}>
         <TreeTableLoading depth={props.depth + 1} />
@@ -113,6 +115,7 @@ function TreeNode(props: {
               onContextMenu={props.onContextMenu}
               selection={props.selection}
               onSelect={props.onSelect}
+              reachableSizes={props.reachableSizes}
               depth={props.depth + 1}
             />
           )}
@@ -136,6 +139,7 @@ export function ContainmentView(props: {
   call: SnapshotCall;
   onNavigate: (opts: NavigateOptions) => void;
   onContextMenu: (e: MouseEvent, nodeId: number) => void;
+  reachableSizes: Map<number, ReachableSizeInfo>;
 }): JSX.Element {
   const [containment] = createResource(() =>
     props.call<Containment>({ type: 'getContainment' }),
@@ -159,6 +163,7 @@ export function ContainmentView(props: {
               onContextMenu={props.onContextMenu}
               selection={selection}
               onSelect={setSelection}
+              reachableSizes={props.reachableSizes}
               depth={0}
               initialExpanded={edge.target.name === '(GC roots)'}
             />

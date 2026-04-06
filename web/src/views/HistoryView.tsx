@@ -1,5 +1,5 @@
 import { createSignal, Show, For, type JSX } from 'solid-js';
-import type { NodeInfo, Children } from '../types.ts';
+import type { NodeInfo, Children, ReachableSizeInfo } from '../types.ts';
 import type { SnapshotCall } from '../worker/use-snapshot.ts';
 import type { NavigateOptions } from '../components/ObjectLink.tsx';
 import {
@@ -19,6 +19,7 @@ function HistoryEntry(props: {
   onContextMenu: (e: MouseEvent, nodeId: number) => void;
   selection: () => RowSelection | null;
   onSelect: (sel: RowSelection) => void;
+  reachableSizes: Map<number, ReachableSizeInfo>;
 }): JSX.Element {
   const [expanded, setExpanded] = createSignal(false);
   const [children, setChildren] = createSignal<
@@ -83,6 +84,7 @@ function HistoryEntry(props: {
       distance={props.node.distance}
       selfSize={props.node.self_size}
       retainedSize={props.node.retained_size}
+      reachableInfo={props.reachableSizes.get(props.node.id)}
     >
       <Show when={expanded() && !children()}>
         <TreeTableLoading depth={1} />
@@ -109,6 +111,7 @@ function HistoryEntry(props: {
               distance={child.node.distance}
               selfSize={child.node.self_size}
               retainedSize={child.node.retained_size}
+              reachableInfo={props.reachableSizes.get(child.node.id)}
             />
           )}
         </For>
@@ -132,6 +135,7 @@ export function HistoryView(props: {
   history: NodeInfo[];
   onNavigate: (opts: NavigateOptions) => void;
   onContextMenu: (e: MouseEvent, nodeId: number) => void;
+  reachableSizes: Map<number, ReachableSizeInfo>;
 }): JSX.Element {
   const [selection, setSelection] = createSignal<RowSelection | null>(null);
 
@@ -155,6 +159,7 @@ export function HistoryView(props: {
               onContextMenu={props.onContextMenu}
               selection={selection}
               onSelect={setSelection}
+              reachableSizes={props.reachableSizes}
             />
           )}
         </For>

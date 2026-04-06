@@ -863,6 +863,164 @@ test.describe('Heap Snapshot Viewer', () => {
     await expect(arrowSpans.first()).toBeVisible({ timeout: 3000 });
   });
 
+  test('compute reachable size populates the Reachable Size column across views', async ({
+    page,
+  }) => {
+    // Expand a constructor group to get an object
+    const firstGroup = page
+      .locator('table')
+      .first()
+      .locator('tbody tr')
+      .first();
+    await firstGroup.dblclick();
+
+    const objectLink = page
+      .locator('a[href="#"]')
+      .filter({ hasText: '@' })
+      .first();
+    await expect(objectLink).toBeVisible({ timeout: 5000 });
+    const objectId = (await objectLink.textContent())!.trim();
+
+    // The object's row should show "—" in the Reachable Size column initially
+    const row = objectLink.locator('xpath=ancestor::tr');
+    const cells = row.locator('td');
+    // Reachable Size is the 5th column (index 4)
+    await expect(cells.nth(4)).toHaveText('—');
+
+    // Right-click and compute reachable size
+    await objectLink.click({ button: 'right' });
+    await page.locator('text=Compute reachable size').first().click();
+
+    // The "—" should be replaced with an actual size value
+    await expect(cells.nth(4)).not.toHaveText('—', { timeout: 5000 });
+    const sizeText = await cells.nth(4).textContent();
+    expect(sizeText).toMatch(/\d+(\.\d+)?\s*(B|KB|MB|GB)/);
+
+    // Navigate to Retainers for the same object — the retainer paths
+    // contain links to other objects. If any of those also had their
+    // reachable size computed, the column would show there too.
+    // Here we verify the shared reachableSizes map works across tabs
+    // by navigating to retainers and back.
+    await objectLink.click({ button: 'right' });
+    await page.locator('text=Show retainers').click();
+    await expect(page.getByTestId('retaining-paths-header')).toBeVisible({
+      timeout: 5000,
+    });
+
+    // Switch back to Summary — the computed size should still be there
+    await page.locator('button:has-text("Summary")').click();
+    const summaryLink = page.locator(`a[href="#"]`, { hasText: objectId }).first();
+    await expect(summaryLink).toBeVisible({ timeout: 5000 });
+    const summaryRow = summaryLink.locator('xpath=ancestor::tr');
+    await expect(summaryRow.locator('td').nth(4)).toHaveText(sizeText!);
+  });
+
+  test('compute reachable size w/ children populates column for parent and children', async ({
+    page,
+  }) => {
+    // Expand a constructor group to get objects
+    const firstGroup = page
+      .locator('table')
+      .first()
+      .locator('tbody tr')
+      .first();
+    await firstGroup.dblclick();
+
+    const objectLink = page
+      .locator('a[href="#"]')
+      .filter({ hasText: '@' })
+      .first();
+    await expect(objectLink).toBeVisible({ timeout: 5000 });
+
+    // Right-click and compute reachable size w/ children
+    await objectLink.click({ button: 'right' });
+    await page.locator('text=Compute reachable size w/ children').click();
+
+    // The object's own reachable size should be populated
+    const row = objectLink.locator('xpath=ancestor::tr');
+    const cells = row.locator('td');
+    await expect(cells.nth(4)).not.toHaveText('—', { timeout: 5000 });
+    const text = await cells.nth(4).textContent();
+    expect(text).toMatch(/\d+(\.\d+)?\s*(B|KB|MB|GB)/);
+
+    // Expand the object to see its children — they should all have
+    // reachable size populated from the "w/ children" computation.
+    await row.dblclick();
+
+    // Children appear as rows with @id links after the parent row.
+    // Wait for at least one child to load, then use page.evaluate to
+    // reliably find child rows by checking the DOM structure.
+    await page.waitForFunction(
+      (parentText) => {
+        const rows = document.querySelectorAll('table tbody tr');
+        let foundParent = false;
+        for (const row of rows) {
+          const link = row.querySelector('a[href="#"]');
+          if (link?.textContent?.trim() === parentText) {
+            foundParent = true;
+            continue;
+          }
+          if (foundParent && link?.textContent?.trim()?.startsWith('@')) {
+            return true; // found a child row
+          }
+        }
+        return false;
+      },
+      (await objectLink.textContent())!.trim(),
+      { timeout: 5000 },
+    );
+
+    // Wait for async reachable size computations to settle, then
+    // verify all child rows have their reachable size column filled.
+    const objectId = (await objectLink.textContent())!.trim();
+
+    // Collect child row data — wait until at least one child is visible
+    // and all visible children have reachable sizes populated.
+    const childData = await page.waitForFunction(
+      (parentId) => {
+        const rows = Array.from(document.querySelectorAll('table tbody tr'));
+        let foundParent = false;
+        let parentPadding = 0;
+        const results: { id: string; reachable: string }[] = [];
+        for (const row of rows) {
+          const link = row.querySelector('a[href="#"]');
+          const id = link?.textContent?.trim();
+          const firstCell = row.querySelector('td');
+          const padding = firstCell
+            ? parseInt(getComputedStyle(firstCell).paddingLeft)
+            : 0;
+          if (id === parentId) {
+            foundParent = true;
+            parentPadding = padding;
+            continue;
+          }
+          if (foundParent) {
+            // Stop when we reach a row at the same or lesser depth
+            // as the parent — that's a sibling, not a child.
+            if (padding <= parentPadding) break;
+            if (!id?.startsWith('@')) continue; // skip pager rows
+            const cells = row.querySelectorAll('td');
+            const val = cells[4]?.textContent?.trim() ?? '';
+            if (val === '\u2014' || val === '') return null; // still computing
+            results.push({ id: id!, reachable: val });
+          }
+        }
+        return results.length > 0 ? results : null;
+      },
+      objectId,
+      { timeout: 10000 },
+    );
+
+    const values = (await childData.jsonValue()) as {
+      id: string;
+      reachable: string;
+    }[];
+    expect(values.length).toBeGreaterThan(0);
+    for (const { reachable } of values) {
+      expect(reachable).toMatch(/\d+(\.\d+)?\s*(B|KB|MB|GB)/);
+    }
+  });
+
   test('right-click "Show retainers" on a retainer node re-roots the view', async ({
     page,
   }) => {

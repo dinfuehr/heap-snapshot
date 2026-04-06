@@ -1,5 +1,5 @@
 import { createSignal, createResource, Show, For, type JSX } from 'solid-js';
-import type { NativeContext, Children, NodeInfo } from '../types.ts';
+import type { NativeContext, Children, NodeInfo, ReachableSizeInfo } from '../types.ts';
 import type { SnapshotCall } from '../worker/use-snapshot.ts';
 import type { NavigateOptions } from '../components/ObjectLink.tsx';
 import {
@@ -19,6 +19,7 @@ function ContextNode(props: {
   onContextMenu: (e: MouseEvent, nodeId: number) => void;
   selection: () => RowSelection | null;
   onSelect: (sel: RowSelection) => void;
+  reachableSizes: Map<number, ReachableSizeInfo>;
 }): JSX.Element {
   const [expanded, setExpanded] = createSignal(false);
   const [children, setChildren] = createSignal<
@@ -98,6 +99,7 @@ function ContextNode(props: {
       }
       selfSize={props.ctx.self_size}
       retainedSize={props.ctx.retained_size}
+      reachableInfo={props.reachableSizes.get(props.ctx.id)}
     >
       <Show when={expanded() && !children()}>
         <TreeTableLoading depth={1} />
@@ -118,6 +120,7 @@ function ContextNode(props: {
               distance={child.node.distance}
               selfSize={child.node.self_size}
               retainedSize={child.node.retained_size}
+              reachableInfo={props.reachableSizes.get(child.node.id)}
             />
           )}
         </For>
@@ -140,6 +143,7 @@ export function ContextsView(props: {
   call: SnapshotCall;
   onNavigate: (opts: NavigateOptions) => void;
   onContextMenu: (e: MouseEvent, nodeId: number) => void;
+  reachableSizes: Map<number, ReachableSizeInfo>;
 }): JSX.Element {
   const [contexts] = createResource(() =>
     props.call<NativeContext[]>({ type: 'getNativeContexts' }),
@@ -170,6 +174,7 @@ export function ContextsView(props: {
                     onContextMenu={props.onContextMenu}
                     selection={selection}
                     onSelect={setSelection}
+                    reachableSizes={props.reachableSizes}
                   />
                 )}
               </For>

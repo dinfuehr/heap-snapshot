@@ -41,6 +41,7 @@ type SnapshotInstance = ReturnType<typeof createSnapshot> & {
   dominatorsNodeId: ReturnType<typeof createSignal<number | null>>;
   summaryHighlight: ReturnType<typeof createSignal<number | null>>;
   history: ReturnType<typeof createSignal<NodeInfo[]>>;
+  reachableSizes: ReturnType<typeof createSignal<Map<number, ReachableSizeInfo>>>;
 };
 
 function createSnapshotInstance(): SnapshotInstance {
@@ -51,6 +52,7 @@ function createSnapshotInstance(): SnapshotInstance {
     dominatorsNodeId: createSignal<number | null>(null),
     summaryHighlight: createSignal<number | null>(null),
     history: createSignal<NodeInfo[]>([]),
+    reachableSizes: createSignal<Map<number, ReachableSizeInfo>>(new Map()),
   };
 }
 
@@ -121,12 +123,22 @@ export function App(): JSX.Element {
     onCleanup(() => document.removeEventListener('keydown', handler));
   });
 
+  const storeReachable = (inst: SnapshotInstance, nodeId: number, info: ReachableSizeInfo) => {
+    const [, setSizes] = inst.reachableSizes;
+    setSizes((prev) => {
+      const next = new Map(prev);
+      next.set(nodeId, info);
+      return next;
+    });
+  };
+
   const computeReachableSize = async (nodeId: number) => {
-    const info = await active().call<ReachableSizeInfo>({
+    const inst = active();
+    const info = await inst.call<ReachableSizeInfo>({
       type: 'getReachableSize',
       nodeId,
     });
-    console.log('Reachable size for', nodeId, info);
+    storeReachable(inst, nodeId, info);
   };
 
   const computeReachableSizeWithChildren = async (nodeId: number) => {
@@ -135,21 +147,17 @@ export function App(): JSX.Element {
       type: 'getReachableSize',
       nodeId,
     });
-    console.log('Reachable size for', nodeId, info);
+    storeReachable(inst, nodeId, info);
     const childIds = await inst.call<number[]>({
       type: 'getChildrenIds',
       nodeId,
     });
-    const childInfos = await Promise.all(
-      childIds.map((id) =>
-        inst
-          .call<ReachableSizeInfo>({ type: 'getReachableSize', nodeId: id })
-          .then((s) => [id, s] as const),
-      ),
+    await Promise.all(
+      childIds.map(async (id) => {
+        const s = await inst.call<ReachableSizeInfo>({ type: 'getReachableSize', nodeId: id });
+        storeReachable(inst, id, s);
+      }),
     );
-    for (const [id, s] of childInfos) {
-      console.log('  child', id, s);
-    }
   };
 
   const handleLoadFile = (file: File) => {
@@ -346,6 +354,7 @@ export function App(): JSX.Element {
                     onNavigate={navigate}
                     onContextMenu={handleContextMenu}
                     highlightNodeId={inst.summaryHighlight[0]()}
+                    reachableSizes={inst.reachableSizes[0]()}
                   />
                 </div>
                 <div class="tab-panel" hidden={inst.tab[0]() !== 'Containment'}>
@@ -353,6 +362,7 @@ export function App(): JSX.Element {
                     call={inst.call}
                     onNavigate={navigate}
                     onContextMenu={handleContextMenu}
+                    reachableSizes={inst.reachableSizes[0]()}
                   />
                 </div>
                 <div class="tab-panel" hidden={inst.tab[0]() !== 'Dominators'}>
@@ -361,6 +371,7 @@ export function App(): JSX.Element {
                     onNavigate={navigate}
                     onContextMenu={handleContextMenu}
                     focusNodeId={inst.dominatorsNodeId[0]()}
+                    reachableSizes={inst.reachableSizes[0]()}
                   />
                 </div>
                 <div class="tab-panel" hidden={inst.tab[0]() !== 'Retainers'}>
@@ -370,6 +381,7 @@ export function App(): JSX.Element {
                     onNavigate={navigate}
                     onContextMenu={handleContextMenu}
                     expandGcTarget={expandGcTarget}
+                    reachableSizes={inst.reachableSizes[0]()}
                   />
                 </div>
                 <div class="tab-panel" hidden={inst.tab[0]() !== 'Diff'}>
@@ -385,6 +397,7 @@ export function App(): JSX.Element {
                     call={inst.call}
                     onNavigate={navigate}
                     onContextMenu={handleContextMenu}
+                    reachableSizes={inst.reachableSizes[0]()}
                   />
                 </div>
                 <div class="tab-panel" hidden={inst.tab[0]() !== 'History'}>
@@ -393,6 +406,7 @@ export function App(): JSX.Element {
                     history={inst.history[0]()}
                     onNavigate={navigate}
                     onContextMenu={handleContextMenu}
+                    reachableSizes={inst.reachableSizes[0]()}
                   />
                 </div>
                 <div class="tab-panel" hidden={inst.tab[0]() !== 'Statistics'}>
@@ -403,6 +417,7 @@ export function App(): JSX.Element {
                     call={inst.call}
                     onNavigate={navigate}
                     onContextMenu={handleContextMenu}
+                    reachableSizes={inst.reachableSizes[0]()}
                   />
                 </div>
               </Show>

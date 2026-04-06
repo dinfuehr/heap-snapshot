@@ -4626,7 +4626,7 @@ fn make_chain_for_collapse_snapshot() -> HeapSnapshot {
 /// Collapsing a node must evict children_map and edge_windows entries for
 /// the collapsed node and all its descendants.
 #[test]
-fn collapse_evicts_children_map_and_edge_windows() {
+fn collapse_preserves_caches_and_reexpand_restores_subtree() {
     let snap = make_chain_for_collapse_snapshot();
     let (work_tx, _work_rx) = mpsc::channel();
     let (_result_tx, result_rx) = mpsc::channel();
@@ -4655,51 +4655,76 @@ fn collapse_evicts_children_map_and_edge_windows() {
     app.expand(child_id, child_ck.clone(), &snap);
     app.rebuild_rows(&snap);
 
-    // Insert a custom edge_window for Child to verify it gets cleaned up.
+    // Insert a custom edge_window for Child.
     app.containment_state
         .edge_windows
         .insert(child_id, EdgeWindow { start: 0, count: 5 });
 
-    // Verify caches are populated.
+    // Verify all three levels are visible before collapse.
+    let has_grandchild = app
+        .cached_rows
+        .iter()
+        .any(|r| r.node_ordinal() == Some(NodeOrdinal(4)));
+    assert!(has_grandchild, "Grandchild should be visible before collapse");
+
     let parent_ck = parent_ck.unwrap();
     let child_ck = child_ck.unwrap();
-    assert!(
-        app.containment_state.children_map.contains_key(&parent_ck),
-        "parent children should be cached before collapse"
-    );
-    assert!(
-        app.containment_state.children_map.contains_key(&child_ck),
-        "child children should be cached before collapse"
-    );
-    assert!(
-        app.containment_state.edge_windows.contains_key(&child_id),
-        "child edge_window should exist before collapse"
-    );
+    let gcr_ck = gcr_ck.unwrap();
 
-    // Collapse (GC roots) — should evict everything under it.
+    // Collapse (GC roots) — subtree should disappear from rows
+    // but caches stay intact.
     app.collapse(gcr_id);
     app.rebuild_rows(&snap);
 
-    // children_map entries for Parent and Child should be gone.
+    let has_parent = app
+        .cached_rows
+        .iter()
+        .any(|r| r.node_ordinal() == Some(NodeOrdinal(2)));
+    assert!(!has_parent, "Parent should be hidden after collapse");
+
+    // Caches should be preserved.
     assert!(
-        !app.containment_state.children_map.contains_key(&parent_ck),
-        "parent children_map entry should be evicted after collapse"
+        app.containment_state.children_map.contains_key(&gcr_ck),
+        "collapsed node's children_map entry should be preserved"
     );
     assert!(
-        !app.containment_state.children_map.contains_key(&child_ck),
-        "child children_map entry should be evicted after collapse"
+        app.containment_state.children_map.contains_key(&parent_ck),
+        "parent children_map entry should be preserved"
     );
-    // The (GC roots) own children entry should also be evicted.
-    let gcr_ck = gcr_ck.unwrap();
     assert!(
-        !app.containment_state.children_map.contains_key(&gcr_ck),
-        "collapsed node's own children_map entry should be evicted"
+        app.containment_state.children_map.contains_key(&child_ck),
+        "child children_map entry should be preserved"
+    );
+    assert!(
+        app.containment_state.edge_windows.contains_key(&child_id),
+        "child edge_window should be preserved"
     );
 
-    // edge_windows for descendant rows should be evicted too.
-    assert!(
-        !app.containment_state.edge_windows.contains_key(&child_id),
-        "descendant edge_window should be evicted after collapse"
+    // Re-expand (GC roots) — entire subtree should reappear instantly.
+    app.expand(gcr_id, Some(gcr_ck), &snap);
+    app.rebuild_rows(&snap);
+
+    let has_parent = app
+        .cached_rows
+        .iter()
+        .any(|r| r.node_ordinal() == Some(NodeOrdinal(2)));
+    let has_child = app
+        .cached_rows
+        .iter()
+        .any(|r| r.node_ordinal() == Some(NodeOrdinal(3)));
+    let has_grandchild = app
+        .cached_rows
+        .iter()
+        .any(|r| r.node_ordinal() == Some(NodeOrdinal(4)));
+    assert!(has_parent, "Parent should reappear after re-expand");
+    assert!(has_child, "Child should reappear after re-expand");
+    assert!(has_grandchild, "Grandchild should reappear after re-expand");
+
+    // Edge window should still be preserved.
+    assert_eq!(
+        app.containment_state.edge_windows.get(&child_id).map(|w| w.count),
+        Some(5),
+        "child edge_window should retain custom count after re-expand"
     );
 }
 
