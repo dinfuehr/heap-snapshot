@@ -297,6 +297,13 @@ impl McpServer {
                 }
             }
 
+            if let Some(source) = snapshot.shared_function_info_source(ordinal) {
+                lines.push("  Source:".to_string());
+                for line in source.lines() {
+                    lines.push(format!("    {line}"));
+                }
+            }
+
             fn show_edges(
                 snap: &HeapSnapshot,
                 ordinal: NodeOrdinal,

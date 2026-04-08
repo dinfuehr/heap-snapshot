@@ -24,6 +24,13 @@ pub fn print_show(snap: &HeapSnapshot, node_id: NodeId, depth: usize, offset: us
         }
     }
 
+    if let Some(source) = snap.shared_function_info_source(ordinal) {
+        println!("  Source:");
+        for line in source.lines() {
+            println!("    {line}");
+        }
+    }
+
     show_edges(snap, ordinal, 1, depth, offset, limit);
 }
 

@@ -3052,6 +3052,41 @@ impl HeapSnapshot {
         None
     }
 
+    /// For a SharedFunctionInfo node, extract its source code from the linked Script.
+    /// Returns `None` if start_position or end_position are negative, or if the
+    /// script/source chain cannot be resolved.
+    pub fn shared_function_info_source(&self, ordinal: NodeOrdinal) -> Option<&str> {
+        let raw_name = self.node_raw_name(ordinal);
+        if !raw_name.starts_with("system / SharedFunctionInfo") {
+            return None;
+        }
+
+        let start_pos = self.int_edge_value(ordinal, "start_position")?;
+        let end_pos = self.int_edge_value(ordinal, "end_position")?;
+        if start_pos < 0 || end_pos < 0 || end_pos < start_pos {
+            return None;
+        }
+
+        let script_ord = self.find_edge_target(ordinal, "script")?;
+        let source_ord = self.find_edge_target(script_ord, "source")?;
+        let source = self.node_raw_name(source_ord);
+
+        let start = start_pos as usize;
+        let end = end_pos as usize;
+        if start <= source.len() && end <= source.len() {
+            Some(&source[start..end])
+        } else {
+            None
+        }
+    }
+
+    /// Read the numeric value of an int-typed edge (e.g. start_position -> value).
+    fn int_edge_value(&self, ordinal: NodeOrdinal, edge_name: &str) -> Option<i64> {
+        let int_ord = self.find_edge_target(ordinal, edge_name)?;
+        let value_ord = self.find_edge_target(int_ord, "value")?;
+        self.node_raw_name(value_ord).parse::<i64>().ok()
+    }
+
     /// Returns the detachedness state of a node: 0=unknown, 1=attached, 2=detached.
     pub fn node_detachedness(&self, ordinal: NodeOrdinal) -> u8 {
         if self.node_detachedness_offset == -1 {
