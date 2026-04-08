@@ -3,9 +3,12 @@ use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use crate::types::{Distance, NodeId};
 
+pub mod closures;
 pub mod containment;
+pub mod context_tree;
 pub mod diff;
 pub mod retainers;
+pub mod scopes;
 pub mod show;
 pub mod show_retainers;
 pub mod statistics;

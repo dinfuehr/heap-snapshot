@@ -3080,8 +3080,84 @@ impl HeapSnapshot {
         }
     }
 
+    /// Follow the "previous" chain from a Context to find its NativeContext.
+    /// Returns `None` if the node is not a Context or the chain doesn't reach
+    /// a NativeContext. If the node is already a NativeContext, returns it directly.
+    pub fn find_native_context_for_context(&self, ordinal: NodeOrdinal) -> Option<NodeOrdinal> {
+        if !self.is_context(ordinal) {
+            return None;
+        }
+        if self.is_native_context(ordinal) {
+            return Some(ordinal);
+        }
+        let mut current = ordinal;
+        // Limit iterations to prevent infinite loops on malformed data.
+        for _ in 0..self.node_count() {
+            match self.find_edge_target(current, "previous") {
+                Some(prev) if self.is_native_context(prev) => return Some(prev),
+                Some(prev) if self.is_context(prev) => current = prev,
+                _ => return None,
+            }
+        }
+        None
+    }
+
+    /// Returns true if this node is a Context (including NativeContext).
+    pub fn is_context(&self, ordinal: NodeOrdinal) -> bool {
+        let name = self.node_raw_name(ordinal);
+        name.starts_with("system / Context") || name.starts_with("system / NativeContext")
+    }
+
+    /// Get the variable names stored in a Context node (context-typed edges, excluding "this").
+    pub fn context_variable_names(&self, ordinal: NodeOrdinal) -> Vec<String> {
+        let mut vars = Vec::new();
+        let efc = self.edge_fields_count;
+        let first = self.first_edge_indexes[ordinal.0] as usize;
+        let last = self.first_edge_indexes[ordinal.0 + 1] as usize;
+        let mut ei = first;
+        while ei < last {
+            let edge_type = self.edges[ei + self.edge_type_offset];
+            if edge_type == self.edge_context_type {
+                let name_idx = self.edges[ei + self.edge_name_offset] as usize;
+                let name = &self.strings[name_idx];
+                if name != "this" {
+                    vars.push(name.clone());
+                }
+            }
+            ei += efc;
+        }
+        vars.sort();
+        vars
+    }
+
+    /// Returns true if this node is a Script.
+    pub fn is_script(&self, ordinal: NodeOrdinal) -> bool {
+        self.node_raw_name(ordinal).starts_with("system / Script")
+    }
+
+    /// Get the full script source for a Script or SharedFunctionInfo node.
+    /// For a Script, follows the "source" edge directly.
+    /// For a SharedFunctionInfo, follows "script" -> "source".
+    pub fn script_source(&self, ordinal: NodeOrdinal) -> Option<&str> {
+        let raw_name = self.node_raw_name(ordinal);
+        let script_ord = if raw_name.starts_with("system / Script") {
+            ordinal
+        } else if raw_name.starts_with("system / SharedFunctionInfo") {
+            self.find_edge_target(ordinal, "script")?
+        } else {
+            return None;
+        };
+        let source_ord = self.find_edge_target(script_ord, "source")?;
+        let source = self.node_raw_name(source_ord);
+        if source.is_empty() {
+            None
+        } else {
+            Some(source)
+        }
+    }
+
     /// Read the numeric value of an int-typed edge (e.g. start_position -> value).
-    fn int_edge_value(&self, ordinal: NodeOrdinal, edge_name: &str) -> Option<i64> {
+    pub fn int_edge_value(&self, ordinal: NodeOrdinal, edge_name: &str) -> Option<i64> {
         let int_ord = self.find_edge_target(ordinal, edge_name)?;
         let value_ord = self.find_edge_target(int_ord, "value")?;
         self.node_raw_name(value_ord).parse::<i64>().ok()

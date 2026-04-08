@@ -18,6 +18,11 @@ fn var_depths(scope: &ScopeInfo) -> Vec<(&str, u32)> {
         .collect()
 }
 
+/// Helper: extract context slot names.
+fn slot_names(scope: &ScopeInfo) -> Vec<&str> {
+    scope.context_slots.iter().map(|s| s.as_str()).collect()
+}
+
 // --- basic function tests ---
 
 #[test]
@@ -104,6 +109,7 @@ fn test_nested_functions_depth() {
         .filter(|s| s.kind == ScopeKind::Function && s.creates_context)
         .collect();
     assert_eq!(outer.len(), 1);
+    assert_eq!(slot_names(outer[0]), vec!["a"]);
 
     let inner: Vec<_> = result
         .iter()
@@ -127,6 +133,19 @@ fn test_three_levels_depth() {
         }
     "#;
     let result = extract_scopes(source).unwrap();
+
+    // a creates context with x, b creates context with y.
+    let a_scope = result
+        .iter()
+        .find(|s| s.creates_context && s.context_slots.iter().any(|n| n == "x"))
+        .expect("a should create context for x");
+    assert_eq!(slot_names(a_scope), vec!["x"]);
+
+    let b_scope = result
+        .iter()
+        .find(|s| s.creates_context && s.context_slots.iter().any(|n| n == "y"))
+        .expect("b should create context for y");
+    assert_eq!(slot_names(b_scope), vec!["y"]);
 
     // c captures x (depth 1, through b's context) and y (depth 0, from b).
     let c = result
@@ -286,6 +305,7 @@ fn test_for_of_creates_context() {
         .find(|s| s.kind == ScopeKind::ForOf)
         .expect("for-of scope");
     assert!(for_of.creates_context);
+    assert_eq!(slot_names(for_of), vec!["item"]);
 }
 
 #[test]
@@ -330,6 +350,7 @@ fn test_block_scope_capture() {
         .find(|s| s.kind == ScopeKind::Block)
         .expect("block scope");
     assert!(block.creates_context);
+    assert_eq!(slot_names(block), vec!["x"]);
 
     let arrow = result
         .iter()
@@ -355,6 +376,7 @@ fn test_catch_capture() {
         .find(|s| s.kind == ScopeKind::Catch)
         .expect("catch scope");
     assert!(catch.creates_context);
+    assert_eq!(slot_names(catch), vec!["e"]);
 }
 
 #[test]
@@ -462,6 +484,7 @@ fn test_creates_context_for_captured_function() {
         .find(|s| s.kind == ScopeKind::Function && s.creates_context)
         .expect("outer should create context");
     assert!(outer.creates_context);
+    assert_eq!(slot_names(outer), vec!["x"]);
 }
 
 #[test]

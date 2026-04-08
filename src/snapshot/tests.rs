@@ -7196,3 +7196,93 @@ fn test_retained_by_event_handlers_excludes_unreachable() {
         "truly unreachable objects should not appear, got: {names:?}"
     );
 }
+
+// ====== find_native_context_for_context tests ======
+
+/// Snapshot with a context chain: NativeContext <- Context A <- Context B
+///
+/// ```text
+/// Node 0: synthetic root
+/// Node 1: (GC roots)
+/// Node 2: "system / NativeContext / https://example.com"
+/// Node 3: "system / Context" (context A, previous -> node 2)
+/// Node 4: "system / Context" (context B, previous -> node 3)
+/// Node 5: "object" (non-context node)
+/// ```
+fn make_context_chain_snapshot() -> HeapSnapshot {
+    let nfc = 5u32;
+    let n = |ord: u32| ord * nfc;
+
+    build_snapshot(
+        standard_node_fields(),
+        vec![
+            //  type name id size edges
+            9, 0, 1, 0, 1, // node 0: synthetic root
+            9, 1, 2, 0, 1, // node 1: (GC roots)
+            3, 2, 3, 100, 0, // node 2: NativeContext
+            3, 3, 5, 24, 1, // node 3: Context A (1 edge: previous -> node 2)
+            3, 3, 7, 24, 1, // node 4: Context B (1 edge: previous -> node 3)
+            3, 4, 9, 16, 0, // node 5: plain object
+        ],
+        vec![
+            1,
+            0,
+            n(1), // root -> GC roots
+            2,
+            5,
+            n(2), // GC roots -> NativeContext (property)
+            3,
+            6,
+            n(2), // Context A: previous -> NativeContext (internal)
+            3,
+            6,
+            n(3), // Context B: previous -> Context A (internal)
+        ],
+        s(&[
+            "",                                             // 0
+            "(GC roots)",                                   // 1
+            "system / NativeContext / https://example.com", // 2
+            "system / Context",                             // 3
+            "plain object",                                 // 4
+            "nc",                                           // 5
+            "previous",                                     // 6
+        ]),
+    )
+}
+
+#[test]
+fn test_find_native_context_for_context_from_native_context() {
+    let snap = make_context_chain_snapshot();
+    // NativeContext returns itself.
+    assert_eq!(
+        snap.find_native_context_for_context(NodeOrdinal(2)),
+        Some(NodeOrdinal(2))
+    );
+}
+
+#[test]
+fn test_find_native_context_for_context_one_hop() {
+    let snap = make_context_chain_snapshot();
+    // Context A's previous points directly to NativeContext.
+    assert_eq!(
+        snap.find_native_context_for_context(NodeOrdinal(3)),
+        Some(NodeOrdinal(2))
+    );
+}
+
+#[test]
+fn test_find_native_context_for_context_two_hops() {
+    let snap = make_context_chain_snapshot();
+    // Context B -> Context A -> NativeContext.
+    assert_eq!(
+        snap.find_native_context_for_context(NodeOrdinal(4)),
+        Some(NodeOrdinal(2))
+    );
+}
+
+#[test]
+fn test_find_native_context_for_context_non_context_returns_none() {
+    let snap = make_context_chain_snapshot();
+    // Non-context node returns None.
+    assert_eq!(snap.find_native_context_for_context(NodeOrdinal(5)), None);
+}

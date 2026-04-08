@@ -1,4 +1,4 @@
-use rustc_hash::{FxHashMap, FxHashSet};
+use rustc_hash::FxHashMap;
 
 use oxc_allocator::Allocator;
 use oxc_ast::ast::{
@@ -54,6 +54,9 @@ pub struct ScopeInfo {
     pub context_variables: Vec<ContextVariable>,
     /// Whether this scope creates a context (has variables captured by inner scopes).
     pub creates_context: bool,
+    /// Variables declared in this scope that are stored in the context
+    /// (i.e. captured by inner functions). Only populated when `creates_context` is true.
+    pub context_slots: Vec<String>,
 }
 
 /// Parse JavaScript source and extract scope/context information.
@@ -78,14 +81,14 @@ pub fn extract_scopes(source: &str) -> Result<Vec<ScopeInfo>, String> {
     let semantic_ret = SemanticBuilder::new().build(&parser_ret.program);
     let scoping = semantic_ret.semantic.scoping();
 
-    // Pass 1: determine which scopes create contexts (have captured bindings).
-    let context_scopes = find_context_creating_scopes(scoping);
+    // Pass 1: determine which scopes create contexts and their captured bindings.
+    let context_scope_slots = find_context_creating_scopes(scoping);
 
     // Pass 2: walk AST, collect scope info with depth-aware context variables.
     let mut collector = ScopeCollector {
         utf16_table: &utf16_table,
         scoping,
-        context_scopes: &context_scopes,
+        context_scope_slots: &context_scope_slots,
         scopes: Vec::new(),
     };
     collector.visit_program(&parser_ret.program);
@@ -117,10 +120,10 @@ fn make_dual_span(span: oxc_span::Span, utf16_table: &[u32]) -> DualSpan {
     }
 }
 
-/// Determine which scopes create V8 contexts: a scope creates a context when
-/// at least one of its bindings is referenced from across a function/arrow boundary.
-fn find_context_creating_scopes(scoping: &Scoping) -> FxHashSet<ScopeId> {
-    let mut result = FxHashSet::default();
+/// Determine which scopes create V8 contexts and which of their bindings are
+/// captured across a function boundary.
+fn find_context_creating_scopes(scoping: &Scoping) -> FxHashMap<ScopeId, Vec<String>> {
+    let mut result: FxHashMap<ScopeId, Vec<String>> = FxHashMap::default();
 
     for scope_id in scoping.scope_descendants_from_root() {
         for symbol_id in scoping.iter_bindings_in(scope_id) {
@@ -130,10 +133,16 @@ fn find_context_creating_scopes(scoping: &Scoping) -> FxHashSet<ScopeId> {
                 },
             );
             if captured_across_function {
-                result.insert(scope_id);
-                break;
+                result
+                    .entry(scope_id)
+                    .or_default()
+                    .push(scoping.symbol_name(symbol_id).to_string());
             }
         }
+    }
+
+    for slots in result.values_mut() {
+        slots.sort();
     }
 
     result
@@ -161,7 +170,7 @@ fn has_function_boundary_between(inner: ScopeId, outer: ScopeId, scoping: &Scopi
 fn collect_context_variables(
     scope_id: ScopeId,
     scoping: &Scoping,
-    context_scopes: &FxHashSet<ScopeId>,
+    context_scope_slots: &FxHashMap<ScopeId, Vec<String>>,
 ) -> Vec<ContextVariable> {
     // Build a map from declaring scope → context depth.
     // Walk from scope_id upward, incrementing depth at each context-creating scope.
@@ -171,7 +180,7 @@ fn collect_context_variables(
         if ancestor == scope_id {
             continue;
         }
-        if context_scopes.contains(&ancestor) {
+        if context_scope_slots.contains_key(&ancestor) {
             scope_depth.insert(ancestor, depth);
             depth += 1;
         }
@@ -213,15 +222,20 @@ fn is_scope_descendant(scope: ScopeId, ancestor: ScopeId, scoping: &Scoping) -> 
 struct ScopeCollector<'a> {
     utf16_table: &'a [u32],
     scoping: &'a Scoping,
-    context_scopes: &'a FxHashSet<ScopeId>,
+    context_scope_slots: &'a FxHashMap<ScopeId, Vec<String>>,
     scopes: Vec<ScopeInfo>,
 }
 
 impl ScopeCollector<'_> {
     fn push_scope(&mut self, kind: ScopeKind, span: oxc_span::Span, scope_id: ScopeId) {
         let context_variables =
-            collect_context_variables(scope_id, self.scoping, self.context_scopes);
-        let creates_context = self.context_scopes.contains(&scope_id);
+            collect_context_variables(scope_id, self.scoping, self.context_scope_slots);
+        let context_slots = self
+            .context_scope_slots
+            .get(&scope_id)
+            .cloned()
+            .unwrap_or_default();
+        let creates_context = !context_slots.is_empty();
 
         // Only emit scopes that are interesting: they capture or are captured.
         if !context_variables.is_empty() || creates_context {
@@ -230,6 +244,7 @@ impl ScopeCollector<'_> {
                 span: make_dual_span(span, self.utf16_table),
                 context_variables,
                 creates_context,
+                context_slots,
             });
         }
     }

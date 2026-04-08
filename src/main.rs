@@ -180,6 +180,49 @@ enum Command {
         #[arg(long, default_value = "100")]
         limit: usize,
     },
+    /// List all JSFunction closures sorted by retained size
+    Closures {
+        #[command(flatten)]
+        snap_args: SnapshotArgs,
+        /// Path to .heapsnapshot file
+        file: String,
+        /// Number of closures to skip
+        #[arg(long, default_value = "0")]
+        offset: usize,
+        /// Maximum number of closures to show
+        #[arg(long, default_value = "100")]
+        limit: usize,
+        /// Include built-in closures (those with a builtin_id on their SFI)
+        #[arg(long)]
+        show_builtins: bool,
+        /// Include embedder-provided closures (those backed by FunctionTemplateInfo)
+        #[arg(long)]
+        show_function_template_info: bool,
+        /// Include closures from extension native contexts (chrome-extension://)
+        #[arg(long)]
+        show_extensions: bool,
+        /// Only show closures belonging to this NativeContext (e.g. @7285 or 7285)
+        #[arg(long, value_name = "ID")]
+        filter_native_context: Option<String>,
+    },
+    /// Show the tree of nested contexts rooted at a given Context object
+    ContextTree {
+        #[command(flatten)]
+        snap_args: SnapshotArgs,
+        /// Path to .heapsnapshot file
+        file: String,
+        /// Object ID of a Context (e.g. @287609 or 287609)
+        object_id: String,
+    },
+    /// Show nested closure contexts and their captured variables for a Script or SharedFunctionInfo
+    Scopes {
+        #[command(flatten)]
+        snap_args: SnapshotArgs,
+        /// Path to .heapsnapshot file
+        file: String,
+        /// Object ID of a Script or SharedFunctionInfo (e.g. @3005313 or 3005313)
+        object_id: String,
+    },
     /// Compare two heap snapshots
     Diff {
         #[command(flatten)]
@@ -590,6 +633,57 @@ fn main() {
                 std::process::exit(1);
             });
             print::show_retainers::print_show_retainers(&snap, id, depth, offset, limit);
+        }
+        Command::Closures {
+            snap_args,
+            file,
+            offset,
+            limit,
+            show_builtins,
+            show_function_template_info,
+            show_extensions,
+            filter_native_context,
+        } => {
+            let snap = load_snapshot(&snap_args.to_options(), &file);
+            let nc_id = filter_native_context.map(|s| {
+                parse_object_id(&s).unwrap_or_else(|e| {
+                    eprintln!("Error: {e}");
+                    std::process::exit(1);
+                })
+            });
+            print::closures::print_closures(
+                &snap,
+                offset,
+                limit,
+                show_builtins,
+                show_function_template_info,
+                show_extensions,
+                nc_id,
+            );
+        }
+        Command::ContextTree {
+            snap_args,
+            file,
+            object_id,
+        } => {
+            let snap = load_snapshot(&snap_args.to_options(), &file);
+            let id = parse_object_id(&object_id).unwrap_or_else(|e| {
+                eprintln!("Error: {e}");
+                std::process::exit(1);
+            });
+            print::context_tree::print_context_tree(&snap, id);
+        }
+        Command::Scopes {
+            snap_args,
+            file,
+            object_id,
+        } => {
+            let snap = load_snapshot(&snap_args.to_options(), &file);
+            let id = parse_object_id(&object_id).unwrap_or_else(|e| {
+                eprintln!("Error: {e}");
+                std::process::exit(1);
+            });
+            print::scopes::print_scopes(&snap, id);
         }
         Command::Diff {
             snap_args,
