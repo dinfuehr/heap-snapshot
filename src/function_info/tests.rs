@@ -29,8 +29,11 @@ fn slot_names(scope: &ScopeInfo) -> Vec<&str> {
 fn test_simple_function_declaration() {
     let source = "function foo() { return 1; }";
     let result = extract_scopes(source).unwrap();
-    // No captures, no inner functions → not interesting.
-    assert!(result.is_empty());
+    // Function scopes are always emitted, even without captures.
+    assert_eq!(result.len(), 1);
+    assert_eq!(result[0].kind, ScopeKind::Function);
+    assert!(var_names(&result[0]).is_empty());
+    assert!(!result[0].creates_context);
 }
 
 #[test]
@@ -49,8 +52,9 @@ fn test_function_with_capture() {
 fn test_arrow_function() {
     let source = "const f = () => 42;";
     let result = extract_scopes(source).unwrap();
-    // No captures → not interesting.
-    assert!(result.is_empty());
+    assert_eq!(result.len(), 1);
+    assert_eq!(result[0].kind, ScopeKind::ArrowFunction);
+    assert!(var_names(&result[0]).is_empty());
 }
 
 #[test]
@@ -85,7 +89,8 @@ fn test_no_functions() {
 fn test_no_capture_of_local_vars() {
     let source = "function foo() { const x = 1; return x; }";
     let result = extract_scopes(source).unwrap();
-    assert!(result.is_empty());
+    assert_eq!(result.len(), 1);
+    assert!(var_names(&result[0]).is_empty());
 }
 
 #[test]
@@ -93,7 +98,8 @@ fn test_parameter_not_captured() {
     let source = "const x = 1; function foo(x) { return x; }";
     let result = extract_scopes(source).unwrap();
     // x is shadowed by the parameter, so no capture.
-    assert!(result.is_empty());
+    assert_eq!(result.len(), 1);
+    assert!(var_names(&result[0]).is_empty());
 }
 
 // --- nested functions and depth ---
@@ -245,7 +251,8 @@ fn test_arrow_block_body() {
 fn test_arrow_parameter_shadowing() {
     let source = "const x = 1; const f = (x) => x + 1;";
     let result = extract_scopes(source).unwrap();
-    assert!(result.is_empty());
+    assert_eq!(result.len(), 1);
+    assert!(var_names(&result[0]).is_empty());
 }
 
 #[test]
@@ -491,8 +498,9 @@ fn test_creates_context_for_captured_function() {
 fn test_no_context_when_not_captured() {
     let source = "function foo() { const x = 1; return x; }";
     let result = extract_scopes(source).unwrap();
-    // foo doesn't have captured variables, so it's not emitted at all.
-    assert!(result.is_empty());
+    // foo is emitted but doesn't create a context.
+    assert_eq!(result.len(), 1);
+    assert!(!result[0].creates_context);
 }
 
 // --- UTF-16 offset tests ---

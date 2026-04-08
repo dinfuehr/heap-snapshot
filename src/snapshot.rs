@@ -2730,7 +2730,7 @@ impl HeapSnapshot {
             Some(name) => name.as_str(),
             None => {
                 return format!(
-                    "script_id={}:{}:{}",
+                    "script_id={}:L{}:{}",
                     loc.script_id,
                     loc.line + 1,
                     loc.column + 1

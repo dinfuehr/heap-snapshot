@@ -237,8 +237,10 @@ impl ScopeCollector<'_> {
             .unwrap_or_default();
         let creates_context = !context_slots.is_empty();
 
-        // Only emit scopes that are interesting: they capture or are captured.
-        if !context_variables.is_empty() || creates_context {
+        // Always emit function/arrow scopes so they can be matched by position.
+        // Only emit block scopes when they are interesting (capture or are captured).
+        let is_function = matches!(kind, ScopeKind::Function | ScopeKind::ArrowFunction);
+        if is_function || !context_variables.is_empty() || creates_context {
             self.scopes.push(ScopeInfo {
                 kind,
                 span: make_dual_span(span, self.utf16_table),

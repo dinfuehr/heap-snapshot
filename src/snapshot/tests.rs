@@ -6656,7 +6656,7 @@ fn test_format_location_unresolved_script() {
         line: 0,
         column: 0,
     };
-    assert_eq!(snap.format_location(&loc), "script_id=99:1:1");
+    assert_eq!(snap.format_location(&loc), "script_id=99:L1:1");
 }
 
 #[test]

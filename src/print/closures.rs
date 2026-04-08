@@ -46,6 +46,9 @@ pub fn print_closures(
         });
 
         let sfi_id = sfi_ord.map(|o| snap.node_id(o));
+        let script_id = sfi_ord
+            .and_then(|sfi| snap.find_edge_target(sfi, "script"))
+            .map(|o| snap.node_id(o));
 
         let context_ord = snap.find_edge_target(ord, "context");
         let context_id = context_ord.map(|o| snap.node_id(o));
@@ -68,6 +71,7 @@ pub fn print_closures(
             retained,
             location,
             sfi_id: sfi_id.map(|n| n.0),
+            script_id: script_id.map(|n| n.0),
             context_id: context_id.map(|n| n.0),
             context_vars,
             has_builtin_id,
@@ -111,6 +115,9 @@ pub fn print_closures(
         if let Some(sfi) = entry.sfi_id {
             print!("  sfi=@{sfi}");
         }
+        if let Some(script) = entry.script_id {
+            print!("  script=@{script}");
+        }
         if let Some(ctx) = entry.context_id {
             print!("  ctx=@{ctx}");
         }
@@ -131,6 +138,7 @@ struct ClosureEntry {
     retained: f64,
     location: Option<String>,
     sfi_id: Option<u64>,
+    script_id: Option<u64>,
     context_id: Option<u64>,
     context_vars: Vec<String>,
     has_builtin_id: bool,

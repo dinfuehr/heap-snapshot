@@ -12,6 +12,7 @@ use rmcp::{ErrorData as McpError, RoleServer, ServerHandler, tool, tool_handler,
 
 use heap_snapshot::diff;
 use heap_snapshot::parser;
+use heap_snapshot::print::closure_leaks;
 use heap_snapshot::print::diff::{format_signed_count, format_signed_size};
 use heap_snapshot::retaining_path::{
     RetainerAutoExpandLimits, RetainerPathEdge, plan_gc_root_retainer_paths,
@@ -143,6 +144,14 @@ struct GetDuplicateStringsParams {
     offset: Option<usize>,
     /// Maximum number of entries to return (default: 20)
     limit: Option<usize>,
+}
+
+#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+struct GetClosureLeaksParams {
+    /// Snapshot ID returned by load_snapshot
+    snapshot_id: u32,
+    /// Include contexts where analysis is incomplete (default: false)
+    show_incomplete: Option<bool>,
 }
 
 // ---------------------------------------------------------------------------
@@ -357,7 +366,7 @@ impl McpServer {
     }
 
     #[tool(
-        description = "Show an object and its incoming references (retainers), i.e. which objects point to it. Use depth to recursively expand retainers. The object_id should be in the form @12345."
+        description = "Show an object and its raw incoming references (retainers). For understanding why an object is kept alive, prefer get_retaining_paths which automatically finds complete paths to GC roots. Use this tool only when you need to browse individual retainers manually. The object_id should be in the form @12345."
     )]
     async fn show_retainers(
         &self,
@@ -834,7 +843,7 @@ impl McpServer {
     }
 
     #[tool(
-        description = "Find the retaining paths from an object back to GC roots, showing why the object is kept alive. The object_id should be in the form @12345."
+        description = "Find the retaining paths from an object back to GC roots, showing why the object is kept alive. This is the preferred tool for investigating why an object is retained — it automatically traces complete paths to GC roots. The object_id should be in the form @12345."
     )]
     async fn get_retaining_paths(
         &self,
@@ -1110,6 +1119,95 @@ impl McpServer {
                     "Use offset={end} to see more entries ({} remaining).",
                     total - end
                 ));
+            }
+
+            Ok(CallToolResult::success(vec![Content::text(
+                lines.join("\n"),
+            )]))
+        })
+        .await
+        .map_err(|e| McpError::internal_error(format!("Task failed: {e}"), None))?
+    }
+
+    #[tool(
+        description = "Detect closure context leaks: finds contexts where some variables are not accessed by any live closure, indicating unnecessarily retained data. This is a common JavaScript memory leak pattern where V8 shares a single context per scope, so a live closure retains all variables from its scope even if it only uses some of them. Results are sorted by retained size."
+    )]
+    async fn get_closure_leaks(
+        &self,
+        Parameters(params): Parameters<GetClosureLeaksParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let snapshot = {
+            let snapshots = self.snapshots.lock().await;
+            Arc::clone(snapshots.get(&params.snapshot_id).ok_or_else(|| {
+                McpError::invalid_params(
+                    format!("No snapshot found with id {}", params.snapshot_id),
+                    None,
+                )
+            })?)
+        };
+
+        let show_incomplete = params.show_incomplete.unwrap_or(false);
+
+        tokio::task::spawn_blocking(move || {
+            let contexts = closure_leaks::collect_contexts(&snapshot, false, false, false);
+            let mut leaks = closure_leaks::find_closure_leaks(&snapshot, &contexts);
+
+            if !show_incomplete {
+                leaks.retain(|l| matches!(&l.result, closure_leaks::UnusedVarsResult::Complete(_)));
+            }
+
+            leaks.sort_by(|a, b| {
+                snapshot
+                    .node_retained_size(b.context_ord)
+                    .partial_cmp(&snapshot.node_retained_size(a.context_ord))
+                    .unwrap()
+            });
+
+            let mut lines = Vec::new();
+
+            if leaks.is_empty() {
+                lines.push("No closure leaks detected.".to_string());
+            } else {
+                for leak in &leaks {
+                    let id = snapshot.node_id(leak.context_ord);
+                    let retained = snapshot.node_retained_size(leak.context_ord);
+                    let all_vars = snapshot.context_variable_names(leak.context_ord);
+
+                    lines.push(format!(
+                        "@{id} (retained: {})  vars: [{}]",
+                        heap_snapshot::print::format_size(retained),
+                        all_vars.join(", "),
+                    ));
+
+                    match &leak.result {
+                        closure_leaks::UnusedVarsResult::Incomplete(reason) => {
+                            lines.push(format!("  (incomplete: {reason})"));
+                        }
+                        closure_leaks::UnusedVarsResult::Complete(unused) => {
+                            for name in unused {
+                                let target_info = snapshot
+                                    .iter_edges(leak.context_ord)
+                                    .find(|&(ei, _)| {
+                                        snapshot.edge_type_name(ei) == "context"
+                                            && snapshot.edge_name(ei) == *name
+                                    })
+                                    .map(|(_, child_ord)| {
+                                        let child_id = snapshot.node_id(child_ord);
+                                        let child_name = snapshot.node_display_name(child_ord);
+                                        let child_retained = snapshot.node_retained_size(child_ord);
+                                        format!(
+                                            ": @{child_id} {child_name} (retained: {})",
+                                            heap_snapshot::print::format_size(child_retained),
+                                        )
+                                    })
+                                    .unwrap_or_default();
+                                lines.push(format!("  unused: {name}{target_info}"));
+                            }
+                        }
+                    }
+                }
+
+                lines.push(format!("\n{} contexts with unused variables", leaks.len()));
             }
 
             Ok(CallToolResult::success(vec![Content::text(

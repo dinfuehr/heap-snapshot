@@ -180,6 +180,25 @@ enum Command {
         #[arg(long, default_value = "100")]
         limit: usize,
     },
+    /// Detect closure leaks: contexts with variables not accessed by any live closure
+    ClosureLeaks {
+        #[command(flatten)]
+        snap_args: SnapshotArgs,
+        /// Path to .heapsnapshot file
+        file: String,
+        /// Include built-in closures (those with a builtin_id on their SFI)
+        #[arg(long)]
+        show_builtins: bool,
+        /// Include embedder-provided closures (those backed by FunctionTemplateInfo)
+        #[arg(long)]
+        show_function_template_info: bool,
+        /// Include V8 extension scripts and chrome-extension:// contexts
+        #[arg(long)]
+        show_extensions: bool,
+        /// Show contexts where analysis is incomplete (missing/unparseable source)
+        #[arg(long)]
+        show_incomplete: bool,
+    },
     /// List all JSFunction closures sorted by retained size
     Closures {
         #[command(flatten)]
@@ -633,6 +652,23 @@ fn main() {
                 std::process::exit(1);
             });
             print::show_retainers::print_show_retainers(&snap, id, depth, offset, limit);
+        }
+        Command::ClosureLeaks {
+            snap_args,
+            file,
+            show_builtins,
+            show_function_template_info,
+            show_extensions,
+            show_incomplete,
+        } => {
+            let snap = load_snapshot(&snap_args.to_options(), &file);
+            print::closure_leaks::print_closure_leaks(
+                &snap,
+                show_builtins,
+                show_function_template_info,
+                show_extensions,
+                show_incomplete,
+            );
         }
         Command::Closures {
             snap_args,

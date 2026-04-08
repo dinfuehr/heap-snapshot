@@ -36,7 +36,11 @@ pub fn print_duplicate_strings(snap: &HeapSnapshot, min_count: u32) {
 
     for d in &duplicates {
         let preview = if d.value.len() > col_value {
-            format!("{}\u{2026}", &d.value[..col_value - 1])
+            let mut end = col_value - 1;
+            while end > 0 && !d.value.is_char_boundary(end) {
+                end -= 1;
+            }
+            format!("{}\u{2026}", &d.value[..end])
         } else {
             d.value.clone()
         };
