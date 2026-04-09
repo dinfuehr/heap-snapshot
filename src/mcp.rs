@@ -14,11 +14,12 @@ use heap_snapshot::diff;
 use heap_snapshot::parser;
 use heap_snapshot::print::closure_leaks;
 use heap_snapshot::print::diff::{format_signed_count, format_signed_size};
+use heap_snapshot::print::format_size;
 use heap_snapshot::retaining_path::{
     RetainerAutoExpandLimits, RetainerPathEdge, plan_gc_root_retainer_paths,
 };
 use heap_snapshot::snapshot::{HeapSnapshot, RootKind, SnapshotOptions};
-use heap_snapshot::types::{NodeId, NodeOrdinal};
+use heap_snapshot::types::{AggregateMap, NodeId, NodeOrdinal};
 
 // ---------------------------------------------------------------------------
 // Parameter types
@@ -106,6 +107,10 @@ struct GetSummaryParams {
     offset: Option<usize>,
     /// Maximum number of objects to return when expanding a constructor (default: 20)
     limit: Option<usize>,
+    /// Filter objects: unreachable, unreachable-roots, detached-dom, console, event-handlers
+    filter: Option<String>,
+    /// Show only objects allocated in a specific timeline interval (0-based index)
+    filter_interval: Option<usize>,
 }
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
@@ -152,6 +157,12 @@ struct GetClosureLeaksParams {
     snapshot_id: u32,
     /// Include contexts where analysis is incomplete (default: false)
     show_incomplete: Option<bool>,
+}
+
+#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+struct GetTimelineParams {
+    /// Snapshot ID returned by load_snapshot
+    snapshot_id: u32,
 }
 
 // ---------------------------------------------------------------------------
@@ -634,9 +645,11 @@ impl McpServer {
         let class_name = params.class_name;
         let offset = params.offset.unwrap_or(0);
         let limit = params.limit.unwrap_or(20);
+        let filter = params.filter;
+        let filter_interval = params.filter_interval;
 
         tokio::task::spawn_blocking(move || {
-            let aggregates = snapshot.aggregates_with_filter();
+            let aggregates = resolve_summary_filter(&snapshot, filter.as_deref(), filter_interval)?;
 
             if let Some(ref class_name) = class_name {
                 let entry = aggregates.get(class_name.as_str()).ok_or_else(|| {
@@ -1216,6 +1229,98 @@ impl McpServer {
         })
         .await
         .map_err(|e| McpError::internal_error(format!("Task failed: {e}"), None))?
+    }
+
+    #[tool(
+        description = "Show the allocation timeline of the heap snapshot. Each interval shows a timestamp, the size of live objects allocated, and the number of objects. Returns a message if no timeline data is available."
+    )]
+    async fn get_timeline(
+        &self,
+        Parameters(params): Parameters<GetTimelineParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let snapshot = {
+            let snapshots = self.snapshots.lock().await;
+            Arc::clone(snapshots.get(&params.snapshot_id).ok_or_else(|| {
+                McpError::invalid_params(
+                    format!("No snapshot found with id {}", params.snapshot_id),
+                    None,
+                )
+            })?)
+        };
+
+        tokio::task::spawn_blocking(move || {
+            let intervals = snapshot.get_timeline();
+            if intervals.is_empty() {
+                return Ok(CallToolResult::success(vec![Content::text(
+                    "No allocation timeline data in this snapshot.",
+                )]));
+            }
+
+            let total_count: u64 = intervals.iter().map(|i| i.count as u64).sum();
+            let total_size: u64 = intervals.iter().map(|i| i.size).sum();
+
+            let mut lines = Vec::new();
+            lines.push(format!(
+                "Allocation Timeline ({} intervals, {} live objects, {} total):",
+                intervals.len(),
+                total_count,
+                format_size(total_size as f64),
+            ));
+            lines.push(String::new());
+
+            for interval in intervals {
+                let ts_sec = interval.timestamp_us as f64 / 1_000_000.0;
+                lines.push(format!(
+                    "  {:>6.1}s  {:>8}  {:>5} obj  ids {}..{}",
+                    ts_sec,
+                    format_size(interval.size as f64),
+                    interval.count,
+                    interval.id_from,
+                    interval.id_to,
+                ));
+            }
+
+            Ok(CallToolResult::success(vec![Content::text(
+                lines.join("\n"),
+            )]))
+        })
+        .await
+        .map_err(|e| McpError::internal_error(format!("Task failed: {e}"), None))?
+    }
+}
+
+fn resolve_summary_filter(
+    snapshot: &HeapSnapshot,
+    filter: Option<&str>,
+    filter_interval: Option<usize>,
+) -> Result<AggregateMap, McpError> {
+    if let Some(idx) = filter_interval {
+        let intervals = snapshot.get_timeline();
+        if idx >= intervals.len() {
+            return Err(McpError::invalid_params(
+                format!(
+                    "Invalid interval index {idx}, snapshot has {} intervals",
+                    intervals.len()
+                ),
+                None,
+            ));
+        }
+        let interval = &intervals[idx];
+        return Ok(snapshot.aggregates_for_id_range(interval.id_from, interval.id_to));
+    }
+    match filter {
+        None | Some("") => Ok(snapshot.aggregates_with_filter()),
+        Some("unreachable") => Ok(snapshot.unreachable_aggregates()),
+        Some("unreachable-roots") => Ok(snapshot.unreachable_root_aggregates()),
+        Some("detached-dom") => Ok(snapshot.retained_by_detached_dom()),
+        Some("console") => Ok(snapshot.retained_by_console()),
+        Some("event-handlers") => Ok(snapshot.retained_by_event_handlers()),
+        Some(other) => Err(McpError::invalid_params(
+            format!(
+                "Unknown filter '{other}'. Valid filters: unreachable, unreachable-roots, detached-dom, console, event-handlers"
+            ),
+            None,
+        )),
     }
 }
 

@@ -121,3 +121,5 @@ pub struct AggregateInfo {
     pub first_seen: u32,
     pub node_ordinals: Vec<NodeOrdinal>,
 }
+
+pub type AggregateMap = rustc_hash::FxHashMap<String, AggregateInfo>;

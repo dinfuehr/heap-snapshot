@@ -12,7 +12,8 @@ use regex::Regex;
 use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::types::{
-    AggregateInfo, DuplicateStringInfo, NodeId, NodeOrdinal, RawHeapSnapshot, Statistics,
+    AggregateInfo, AggregateMap, DuplicateStringInfo, NodeId, NodeOrdinal, RawHeapSnapshot,
+    Statistics,
 };
 
 pub const V8_STACK_ROOTS: &str = "(Stack roots)";
@@ -3613,7 +3614,7 @@ impl HeapSnapshot {
         &self.statistics
     }
 
-    pub fn aggregates_with_filter(&self) -> FxHashMap<String, AggregateInfo> {
+    pub fn aggregates_with_filter(&self) -> AggregateMap {
         let mut aggregates = self.build_aggregates(|_| true);
         self.calculate_classes_retained_size(&mut aggregates);
         for agg in aggregates.values_mut() {
@@ -3691,7 +3692,7 @@ impl HeapSnapshot {
     }
 
     /// Objects only retained by detached DOM nodes.
-    pub fn retained_by_detached_dom(&self) -> FxHashMap<String, AggregateInfo> {
+    pub fn retained_by_detached_dom(&self) -> AggregateMap {
         if self.node_detachedness_offset < 0 {
             return FxHashMap::default();
         }
@@ -3704,7 +3705,7 @@ impl HeapSnapshot {
     }
 
     /// Objects only retained by DevTools console references.
-    pub fn retained_by_console(&self) -> FxHashMap<String, AggregateInfo> {
+    pub fn retained_by_console(&self) -> AggregateMap {
         let nfc = self.node_field_count;
         let retained = self.compute_retained_bitmap(|ei, src, _target| {
             let src_type = self.nodes[src * nfc + self.node_type_offset];
@@ -3717,7 +3718,7 @@ impl HeapSnapshot {
     }
 
     /// Objects only retained by event handler functions.
-    pub fn retained_by_event_handlers(&self) -> FxHashMap<String, AggregateInfo> {
+    pub fn retained_by_event_handlers(&self) -> AggregateMap {
         let nfc = self.node_field_count;
         let nmo = self.node_name_offset;
 
@@ -3765,21 +3766,17 @@ impl HeapSnapshot {
     }
 
     /// Build aggregates for unreachable nodes only (distance >= UNREACHABLE_BASE).
-    pub fn unreachable_aggregates(&self) -> FxHashMap<String, AggregateInfo> {
+    pub fn unreachable_aggregates(&self) -> AggregateMap {
         self.build_aggregates(|ordinal| self.node_distances[ordinal].is_unreachable())
     }
 
     /// Build aggregates for fully unreachable nodes only (distance == UNREACHABLE_BASE).
-    pub fn unreachable_root_aggregates(&self) -> FxHashMap<String, AggregateInfo> {
+    pub fn unreachable_root_aggregates(&self) -> AggregateMap {
         self.build_aggregates(|ordinal| self.node_distances[ordinal].is_unreachable_root())
     }
 
     /// Build aggregates for objects whose ID falls in (id_from, id_to].
-    pub fn aggregates_for_id_range(
-        &self,
-        id_from: u64,
-        id_to: u64,
-    ) -> FxHashMap<String, AggregateInfo> {
+    pub fn aggregates_for_id_range(&self, id_from: u64, id_to: u64) -> AggregateMap {
         let nfc = self.node_field_count;
         let ido = self.node_id_offset;
         self.build_aggregates(|ordinal| {
@@ -3788,7 +3785,7 @@ impl HeapSnapshot {
         })
     }
 
-    fn build_aggregates(&self, filter: impl Fn(usize) -> bool) -> FxHashMap<String, AggregateInfo> {
+    fn build_aggregates(&self, filter: impl Fn(usize) -> bool) -> AggregateMap {
         let nfc = self.node_field_count;
         let sso = self.node_self_size_offset;
 
@@ -3834,7 +3831,7 @@ impl HeapSnapshot {
         }
 
         // Convert to string-keyed map
-        let mut result: FxHashMap<String, AggregateInfo> = FxHashMap::default();
+        let mut result: AggregateMap = FxHashMap::default();
         for (key, agg) in aggregates {
             let str_key = match key {
                 ClassKey::Index(idx) => self.strings[idx as usize].clone(),
@@ -3847,7 +3844,7 @@ impl HeapSnapshot {
         result
     }
 
-    fn calculate_classes_retained_size(&self, aggregates: &mut FxHashMap<String, AggregateInfo>) {
+    fn calculate_classes_retained_size(&self, aggregates: &mut AggregateMap) {
         let nfc = self.node_field_count;
 
         let mut list: Vec<usize> = vec![self.gc_roots_ordinal * nfc];

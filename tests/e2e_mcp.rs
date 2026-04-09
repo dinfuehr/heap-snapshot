@@ -1275,3 +1275,32 @@ fn get_closure_leaks_invalid_snapshot() {
         "expected not-found error, got: {err}"
     );
 }
+
+// ── get_timeline ──────────────────────────────────────────────────────
+
+#[test]
+fn get_timeline_no_data() {
+    let mut proc = McpProcess::start();
+    let path = format!("{}/heap-1.heapsnapshot", test_dir());
+
+    proc.call_tool(1, "load_snapshot", serde_json::json!({ "path": path }));
+
+    let resp = proc.call_tool(2, "get_timeline", serde_json::json!({ "snapshot_id": 1 }));
+    let text = get_text(&resp);
+    assert!(
+        text.contains("No allocation timeline data") || text.contains("Allocation Timeline"),
+        "expected timeline response, got: {text}"
+    );
+}
+
+#[test]
+fn get_timeline_invalid_snapshot() {
+    let mut proc = McpProcess::start();
+
+    let resp = proc.call_tool(1, "get_timeline", serde_json::json!({ "snapshot_id": 999 }));
+    let err = get_error_message(&resp);
+    assert!(
+        err.contains("No snapshot found"),
+        "expected not-found error, got: {err}"
+    );
+}

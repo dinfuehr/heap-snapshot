@@ -6926,7 +6926,7 @@ fn test_timeline_empty_without_samples() {
 
 // ── retained-by filters ─────────────────────────────────────────────────
 
-fn agg_names(aggs: &FxHashMap<String, AggregateInfo>) -> Vec<String> {
+fn agg_names(aggs: &AggregateMap) -> Vec<String> {
     let mut names: Vec<String> = aggs.values().map(|a| a.name.clone()).collect();
     names.sort();
     names
