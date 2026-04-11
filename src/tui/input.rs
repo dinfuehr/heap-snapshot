@@ -186,10 +186,7 @@ impl App {
                 self.set_view(next_view, snap);
             }
             KeyCode::Char('/')
-                if matches!(
-                    self.current_view,
-                    ViewType::Summary | ViewType::Diff
-                ) =>
+                if matches!(self.current_view, ViewType::Summary | ViewType::Diff) =>
             {
                 self.input_mode = InputMode::Search;
                 self.search_input.clear();

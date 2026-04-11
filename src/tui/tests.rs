@@ -1172,7 +1172,11 @@ fn test_slash_only_opens_search_in_summary_and_diff() {
     app.input_mode = InputMode::Normal;
 
     // / should NOT work in Containment, Retainers, Dominators.
-    for view in [ViewType::Containment, ViewType::Retainers, ViewType::Dominators] {
+    for view in [
+        ViewType::Containment,
+        ViewType::Retainers,
+        ViewType::Dominators,
+    ] {
         app.set_view(view, &snap);
         app.handle_normal_key(KeyEvent::new(KeyCode::Char('/'), KeyModifiers::NONE), &snap);
         assert!(

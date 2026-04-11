@@ -6,7 +6,7 @@
 // (front_end/entrypoints/heap_snapshot_worker/HeapSnapshot.ts).
 
 use std::cmp::Reverse;
-use std::collections::BinaryHeap;
+use std::collections::{BinaryHeap, VecDeque};
 
 use regex::Regex;
 use rustc_hash::{FxHashMap, FxHashSet};
@@ -75,6 +75,20 @@ pub struct TimelineInterval {
 pub struct ReachableInfo {
     pub size: f64,
     pub native_contexts: Vec<NodeOrdinal>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum NativeContextBucket {
+    Context(NodeOrdinal),
+    Shared,
+    Unattributed,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ReachClass {
+    None,
+    One(u32),
+    Many,
 }
 
 pub struct HeapSnapshot {
@@ -164,6 +178,8 @@ pub struct HeapSnapshot {
 
     // Native contexts (ordinals of "system / NativeContext" nodes)
     native_contexts: Vec<usize>,
+    // Best-effort native context owner for each node.
+    node_native_context_buckets: Vec<NativeContextBucket>,
     // Edge names common to all NativeContext global_objects
     native_context_global_fields: FxHashSet<String>,
     // Precomputed "Vars" string per NativeContext (joined unique global + script context vars)
@@ -368,6 +384,7 @@ impl HeapSnapshot {
             detachedness_and_class_index: Vec::new(),
             use_separate_class_index: false,
             native_contexts: Vec::new(),
+            node_native_context_buckets: vec![NativeContextBucket::Unattributed; node_count],
             native_context_global_fields: FxHashSet::default(),
             native_context_vars: FxHashMap::default(),
             js_global_objects: Vec::new(),
@@ -498,6 +515,10 @@ impl HeapSnapshot {
         // Calculate distances
         snap.calculate_distances();
 
+        // Classify each node into a native-context bucket using direct
+        // inference first, then context reachability, then GC reachability.
+        snap.compute_node_native_context_buckets();
+
         // Calculate depths within the unreachable subgraph
         snap.calculate_unreachable_depths();
 
@@ -552,6 +573,155 @@ impl HeapSnapshot {
             if self.is_native_context(NodeOrdinal(ordinal)) {
                 self.native_contexts.push(ordinal);
             }
+        }
+    }
+
+    fn compute_node_native_context_buckets(&mut self) {
+        let mut context_index_by_ordinal = FxHashMap::default();
+        for (idx, &ctx_ord) in self.native_contexts.iter().enumerate() {
+            context_index_by_ordinal.insert(ctx_ord, idx as u32);
+        }
+
+        let mut fixed_owner = vec![None; self.node_count];
+        for ordinal in 0..self.node_count {
+            fixed_owner[ordinal] =
+                self.infer_direct_native_context(NodeOrdinal(ordinal), &context_index_by_ordinal);
+        }
+
+        let mut reach_owner = vec![ReachClass::None; self.node_count];
+        let mut queue = VecDeque::new();
+        for (ordinal, owner) in fixed_owner.iter().enumerate() {
+            if owner.is_some() {
+                queue.push_back(ordinal);
+            }
+        }
+
+        let nfc = self.node_field_count;
+        let efc = self.edge_fields_count;
+        let eto = self.edge_to_node_offset;
+        let etype_off = self.edge_type_offset;
+
+        while let Some(ordinal) = queue.pop_front() {
+            let current = match fixed_owner[ordinal] {
+                Some(ctx_idx) => ReachClass::One(ctx_idx),
+                None => reach_owner[ordinal],
+            };
+            if current == ReachClass::None {
+                continue;
+            }
+
+            let first_edge = self.first_edge_indexes[ordinal] as usize;
+            let last_edge = self.first_edge_indexes[ordinal + 1] as usize;
+            let mut ei = first_edge;
+            while ei < last_edge {
+                let edge_type = self.edges[ei + etype_off];
+                // We intentionally propagate through weak edges here. The
+                // bucket answers "which native contexts can reach this object"
+                // rather than "which contexts strongly retain it", and weak
+                // structures such as WeakMaps still provide useful context
+                // attribution signal. Shortcut edges remain excluded because
+                // V8 emits them as synthetic navigation aids, not structural
+                // graph edges.
+                if edge_type == self.edge_shortcut_type {
+                    ei += efc;
+                    continue;
+                }
+                let child_ordinal = self.edges[ei + eto] as usize / nfc;
+                if child_ordinal == ordinal || fixed_owner[child_ordinal].is_some() {
+                    ei += efc;
+                    continue;
+                }
+                let merged = Self::merge_reach_class(reach_owner[child_ordinal], current);
+                if merged != reach_owner[child_ordinal] {
+                    reach_owner[child_ordinal] = merged;
+                    queue.push_back(child_ordinal);
+                }
+                ei += efc;
+            }
+        }
+
+        for ordinal in 0..self.node_count {
+            self.node_native_context_buckets[ordinal] = match fixed_owner[ordinal] {
+                Some(idx) => {
+                    NativeContextBucket::Context(NodeOrdinal(self.native_contexts[idx as usize]))
+                }
+                None => match reach_owner[ordinal] {
+                    ReachClass::One(idx) => NativeContextBucket::Context(NodeOrdinal(
+                        self.native_contexts[idx as usize],
+                    )),
+                    ReachClass::Many => NativeContextBucket::Shared,
+                    ReachClass::None => NativeContextBucket::Unattributed,
+                },
+            };
+        }
+    }
+
+    fn infer_direct_native_context(
+        &self,
+        ordinal: NodeOrdinal,
+        context_index_by_ordinal: &FxHashMap<usize, u32>,
+    ) -> Option<u32> {
+        if self.is_native_context(ordinal) {
+            return context_index_by_ordinal.get(&ordinal.0).copied();
+        }
+
+        if self.is_context(ordinal) {
+            if let Some(ctx) = self.find_native_context_for_context(ordinal) {
+                return context_index_by_ordinal.get(&ctx.0).copied();
+            }
+        }
+
+        if let Some(ctx_idx) = self
+            .find_edge_target(ordinal, "context")
+            .and_then(|ctx| self.resolve_native_context_candidate(ctx, context_index_by_ordinal))
+        {
+            return Some(ctx_idx);
+        }
+
+        if let Some(ctx_idx) = self
+            .find_edge_target(ordinal, "native_context")
+            .and_then(|ctx| self.resolve_native_context_candidate(ctx, context_index_by_ordinal))
+        {
+            return Some(ctx_idx);
+        }
+
+        if let Some(map_ordinal) = self.find_edge_target(ordinal, "map") {
+            if let Some(ctx_idx) = self
+                .find_edge_target(map_ordinal, "native_context")
+                .and_then(|ctx| {
+                    self.resolve_native_context_candidate(ctx, context_index_by_ordinal)
+                })
+            {
+                return Some(ctx_idx);
+            }
+        }
+
+        None
+    }
+
+    fn resolve_native_context_candidate(
+        &self,
+        ordinal: NodeOrdinal,
+        context_index_by_ordinal: &FxHashMap<usize, u32>,
+    ) -> Option<u32> {
+        if self.is_native_context(ordinal) {
+            return context_index_by_ordinal.get(&ordinal.0).copied();
+        }
+        if self.is_context(ordinal) {
+            return self
+                .find_native_context_for_context(ordinal)
+                .and_then(|ctx| context_index_by_ordinal.get(&ctx.0).copied());
+        }
+        None
+    }
+
+    fn merge_reach_class(current: ReachClass, incoming: ReachClass) -> ReachClass {
+        match (current, incoming) {
+            (ReachClass::Many, _) | (_, ReachClass::Many) => ReachClass::Many,
+            (ReachClass::None, other) => other,
+            (other, ReachClass::None) => other,
+            (ReachClass::One(a), ReachClass::One(b)) if a == b => ReachClass::One(a),
+            (ReachClass::One(_), ReachClass::One(_)) => ReachClass::Many,
         }
     }
 
@@ -3101,6 +3271,10 @@ impl HeapSnapshot {
             }
         }
         None
+    }
+
+    pub fn node_native_context_bucket(&self, ordinal: NodeOrdinal) -> NativeContextBucket {
+        self.node_native_context_buckets[ordinal.0]
     }
 
     /// Returns true if this node is a Context (including NativeContext).
