@@ -76,6 +76,7 @@ export function TreeTableRow(props: {
   return (
     <>
       <tr
+        data-node-id={props.linkId}
         onClick={handleClick}
         onDblClick={handleDblClick}
         onContextMenu={handleContextMenu}

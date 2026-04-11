@@ -59,7 +59,7 @@ test.describe('Heap Snapshot Viewer', () => {
 
   test('can filter constructors by text', async ({ page }) => {
     const filterInput = page.locator(
-      'input[placeholder="Filter constructors..."]',
+      'input[placeholder="Filter constructors or @id..."]',
     );
     await filterInput.fill('InitialObject');
 
@@ -481,7 +481,7 @@ test.describe('Heap Snapshot Viewer', () => {
   }) => {
     // Focus the filter input
     const filterInput = page.locator(
-      'input[placeholder="Filter constructors..."]',
+      'input[placeholder="Filter constructors or @id..."]',
     );
     await filterInput.click();
     await filterInput.fill('');
@@ -1121,5 +1121,175 @@ test.describe('Heap Snapshot Viewer', () => {
     // The retainers input should now contain the retainer's ID
     const input = page.locator('input[placeholder="@12345"]');
     await expect(input).toHaveValue(retainerText!.trim());
+  });
+
+  // ── Search by object ID (@id) ──────────────────────────────────────────
+
+  test('searching @id in summary expands constructor group and highlights object', async ({
+    page,
+  }) => {
+    // Expand the first constructor group to discover a valid object ID
+    const firstGroup = page
+      .locator('table')
+      .first()
+      .locator('tbody tr')
+      .first();
+    await firstGroup.dblclick();
+
+    const objectLink = page
+      .locator('a[href="#"]')
+      .filter({ hasText: '@' })
+      .first();
+    await expect(objectLink).toBeVisible({ timeout: 5000 });
+    const linkText = await objectLink.textContent();
+    const objectId = linkText!.trim(); // e.g. "@12345"
+
+    // Collapse the group again so we verify the search re-expands it
+    await firstGroup.dblclick();
+
+    // Type the object ID into the filter input and press Enter
+    const filterInput = page.locator(
+      'input[placeholder="Filter constructors or @id..."]',
+    );
+    await filterInput.fill(objectId);
+    await filterInput.press('Enter');
+
+    // Should stay on Summary tab
+    const summaryTab = page.locator('button:has-text("Summary")');
+    await expect(summaryTab).toHaveCSS('font-weight', '700');
+
+    // The constructor group should be expanded and the object visible
+    const targetLink = page
+      .locator('a[href="#"]')
+      .filter({ hasText: objectId })
+      .first();
+    await expect(targetLink).toBeVisible({ timeout: 5000 });
+
+    // The target row should be highlighted (selected via nodeId match)
+    const targetRow = page.locator(
+      `tr[data-node-id="${objectId.replace('@', '')}"]`,
+    );
+    await expect(targetRow).toBeVisible();
+    const bg = await targetRow.evaluate(
+      (el) => getComputedStyle(el).backgroundColor,
+    );
+    expect(bg).not.toBe('rgba(0, 0, 0, 0)');
+
+    // The filter input should be cleared after a successful search
+    await expect(filterInput).toHaveValue('');
+  });
+
+  test('searching invalid @id shows error', async ({ page }) => {
+    const filterInput = page.locator(
+      'input[placeholder="Filter constructors or @id..."]',
+    );
+    await filterInput.fill('@999999999');
+    await filterInput.press('Enter');
+
+    // Should show an error message
+    await expect(page.locator('text=/No object found/')).toBeVisible();
+
+    // Should still be on Summary tab
+    const summaryTab = page.locator('button:has-text("Summary")');
+    await expect(summaryTab).toHaveCSS('font-weight', '700');
+  });
+
+  test('searching @id with non-numeric value shows error', async ({ page }) => {
+    const filterInput = page.locator(
+      'input[placeholder="Filter constructors or @id..."]',
+    );
+    await filterInput.fill('@abc');
+    await filterInput.press('Enter');
+
+    await expect(page.locator('text=/Invalid id/')).toBeVisible();
+  });
+
+  test('typing @id does not filter constructor list', async ({ page }) => {
+    // Get the initial number of constructor groups
+    const initialRows = await page
+      .locator('table')
+      .first()
+      .locator('tbody tr')
+      .count();
+
+    // Type an @id prefix — should not filter out any groups
+    const filterInput = page.locator(
+      'input[placeholder="Filter constructors or @id..."]',
+    );
+    await filterInput.fill('@123');
+
+    const currentRows = await page
+      .locator('table')
+      .first()
+      .locator('tbody tr')
+      .count();
+    expect(currentRows).toBe(initialRows);
+  });
+
+  test('searching @id resets summary filter to "All objects"', async ({
+    page,
+  }) => {
+    // Switch to "Unreachable (all)" filter — this snapshot has no unreachable objects
+    const select = page.locator('select').first();
+    await select.selectOption('1');
+    await expect(page.locator('text=/^0 objects/')).toBeVisible({
+      timeout: 5000,
+    });
+
+    // Expand a group in "All objects" mode first to get a valid object ID,
+    // then search for it while "Unreachable" is active
+    await select.selectOption('0');
+    await expect(page.locator('text=/objects.*shallow/').first()).toBeVisible({
+      timeout: 5000,
+    });
+    const firstGroup = page
+      .locator('table')
+      .first()
+      .locator('tbody tr')
+      .first();
+    await firstGroup.dblclick();
+    const objectLink = page
+      .locator('a[href="#"]')
+      .filter({ hasText: '@' })
+      .first();
+    await expect(objectLink).toBeVisible({ timeout: 5000 });
+    const objectId = (await objectLink.textContent())!.trim();
+
+    // Switch back to Unreachable and search by @id
+    await select.selectOption('1');
+    await expect(page.locator('text=/^0 objects/')).toBeVisible({
+      timeout: 5000,
+    });
+
+    const filterInput = page.locator(
+      'input[placeholder="Filter constructors or @id..."]',
+    );
+    await filterInput.fill(objectId);
+    await filterInput.press('Enter');
+
+    // The dropdown should reset to "All objects"
+    await expect(select).toHaveValue('0');
+
+    // The object should be visible
+    const targetLink = page
+      .locator('a[href="#"]')
+      .filter({ hasText: objectId })
+      .first();
+    await expect(targetLink).toBeVisible({ timeout: 5000 });
+  });
+
+  test('searching @id clears error on new input', async ({ page }) => {
+    const filterInput = page.locator(
+      'input[placeholder="Filter constructors or @id..."]',
+    );
+
+    // Trigger an error
+    await filterInput.fill('@999999999');
+    await filterInput.press('Enter');
+    await expect(page.locator('text=/No object found/')).toBeVisible();
+
+    // Start typing — error should clear
+    await filterInput.fill('A');
+    await expect(page.locator('text=/No object found/')).not.toBeVisible();
   });
 });

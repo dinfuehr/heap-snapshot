@@ -1024,32 +1024,163 @@ fn test_reopening_contexts_does_not_requeue_cached_or_pending_reachable_work() {
 }
 
 #[test]
-fn test_search_id_opening_retainers_keeps_retainer_cache_paged() {
+fn test_search_id_from_containment_goes_to_summary() {
     let snap = make_many_retainers_snapshot(25);
     let (work_tx, _work_rx) = mpsc::channel();
     let (_result_tx, result_rx) = mpsc::channel();
     let mut app = App::new(&snap, Vec::new(), work_tx, result_rx);
 
-    // Search from containment view so @id opens retainers (summary view shows in summary instead)
+    // Search from containment view — @id should always show in summary.
     app.current_view = ViewType::Containment;
     app.input_mode = InputMode::Search;
     app.search_input = "@3".to_string();
     app.handle_search_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE), &snap);
 
-    assert!(matches!(app.current_view, ViewType::Retainers));
-    let children = app
-        .retainers
-        .tree_state
+    assert!(matches!(app.current_view, ViewType::Summary));
+}
+
+#[test]
+fn test_search_id_from_summary_expands_group_and_places_cursor() {
+    let count = EDGE_PAGE_SIZE + 10;
+    let (snap, mut app, _work_rx) = make_paged_summary_app(count);
+
+    // Collapse the group so the search has to re-expand it.
+    let group_id = app.summary_ids[0];
+    app.summary_state.expanded.remove(&group_id);
+    app.summary_state
         .children_map
-        .iter()
-        .find(|(k, _)| matches!(k, ChildrenKey::Retainers(_, ord) if *ord == NodeOrdinal(2)))
-        .map(|(_, v)| v)
-        .unwrap();
-    assert_eq!(children.len(), EDGE_PAGE_SIZE + 1);
-    assert_eq!(
-        children.last().unwrap().label,
-        Rc::<str>::from("1–20 of 25 retainers  (n/p: page, a: all)")
+        .remove(&ChildrenKey::ClassMembers(0));
+
+    // Pick an object on the first page. Its snapshot object id is 100 + idx.
+    let target = app.sorted_aggregates[0].node_ordinals[3];
+    let target_id = snap.node_id(target);
+
+    app.input_mode = InputMode::Search;
+    app.search_input = format!("@{target_id}");
+    app.handle_search_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE), &snap);
+
+    assert_eq!(app.current_view, ViewType::Summary);
+    assert!(app.search_error.is_none());
+    // Group must be expanded.
+    assert!(app.summary_state.expanded.contains(&group_id));
+    // Cursor should land on the target node.
+    let cursor_row = &app.cached_rows[app.summary_state.cursor];
+    assert_eq!(cursor_row.node_ordinal(), Some(target));
+}
+
+#[test]
+fn test_search_id_invalid_shows_error() {
+    let snap = make_many_retainers_snapshot(5);
+    let (work_tx, _work_rx) = mpsc::channel();
+    let (_result_tx, result_rx) = mpsc::channel();
+    let mut app = App::new(&snap, Vec::new(), work_tx, result_rx);
+
+    app.input_mode = InputMode::Search;
+    app.search_input = "@999999".to_string();
+    app.handle_search_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE), &snap);
+
+    assert!(app.search_error.is_some());
+    assert!(app.search_error.as_ref().unwrap().contains("999999"));
+}
+
+#[test]
+fn test_search_id_non_numeric_shows_error() {
+    let snap = make_many_retainers_snapshot(5);
+    let (work_tx, _work_rx) = mpsc::channel();
+    let (_result_tx, result_rx) = mpsc::channel();
+    let mut app = App::new(&snap, Vec::new(), work_tx, result_rx);
+
+    app.input_mode = InputMode::Search;
+    app.search_input = "@abc".to_string();
+    app.handle_search_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE), &snap);
+
+    assert!(app.search_error.is_some());
+    assert!(app.search_error.as_ref().unwrap().contains("Invalid"));
+}
+
+#[test]
+fn test_search_id_clears_constructor_filter() {
+    let count = EDGE_PAGE_SIZE + 10;
+    let (snap, mut app, _work_rx) = make_paged_summary_app(count);
+
+    // Apply a text filter first.
+    app.summary_filter = "something".to_string();
+
+    let target = app.sorted_aggregates[0].node_ordinals[0];
+    let target_id = snap.node_id(target);
+
+    app.input_mode = InputMode::Search;
+    app.search_input = format!("@{target_id}");
+    app.handle_search_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE), &snap);
+
+    // The text filter should be cleared by show_in_summary.
+    assert!(app.summary_filter.is_empty());
+    assert_eq!(app.current_view, ViewType::Summary);
+}
+
+#[test]
+fn test_search_id_pages_to_distant_object() {
+    let count = EDGE_PAGE_SIZE * 3;
+    let (snap, mut app, _work_rx) = make_paged_summary_app(count);
+
+    // Pick the last object — well beyond the default page window.
+    let last_idx = count - 1;
+    let target = app.sorted_aggregates[0].node_ordinals[last_idx];
+    let target_id = snap.node_id(target);
+
+    // Collapse so search starts from scratch.
+    let group_id = app.summary_ids[0];
+    app.summary_state.expanded.remove(&group_id);
+    app.summary_state
+        .children_map
+        .remove(&ChildrenKey::ClassMembers(0));
+
+    app.input_mode = InputMode::Search;
+    app.search_input = format!("@{target_id}");
+    app.handle_search_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE), &snap);
+
+    assert_eq!(app.current_view, ViewType::Summary);
+    // Cursor must be on the distant target.
+    let cursor_row = &app.cached_rows[app.summary_state.cursor];
+    assert_eq!(cursor_row.node_ordinal(), Some(target));
+
+    // The class-member window must have been adjusted to include it.
+    let w = app
+        .summary_state
+        .class_member_windows
+        .get(&0)
+        .expect("window should be set");
+    assert!(
+        last_idx >= w.start && last_idx < w.start + w.count,
+        "window {}-{} should contain index {last_idx}",
+        w.start,
+        w.start + w.count,
     );
+}
+
+#[test]
+fn test_slash_only_opens_search_in_summary_and_diff() {
+    let snap = make_many_retainers_snapshot(5);
+    let (work_tx, _work_rx) = mpsc::channel();
+    let (_result_tx, result_rx) = mpsc::channel();
+    let mut app = App::new(&snap, Vec::new(), work_tx, result_rx);
+
+    // / should work in Summary.
+    app.current_view = ViewType::Summary;
+    app.handle_normal_key(KeyEvent::new(KeyCode::Char('/'), KeyModifiers::NONE), &snap);
+    assert!(matches!(app.input_mode, InputMode::Search));
+    app.input_mode = InputMode::Normal;
+
+    // / should NOT work in Containment, Retainers, Dominators.
+    for view in [ViewType::Containment, ViewType::Retainers, ViewType::Dominators] {
+        app.set_view(view, &snap);
+        app.handle_normal_key(KeyEvent::new(KeyCode::Char('/'), KeyModifiers::NONE), &snap);
+        assert!(
+            matches!(app.input_mode, InputMode::Normal),
+            "/ should not open search in {:?}",
+            view,
+        );
+    }
 }
 
 #[test]

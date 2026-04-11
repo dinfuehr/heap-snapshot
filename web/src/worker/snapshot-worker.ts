@@ -199,6 +199,17 @@ async function processMessage(msg: WorkerMsg) {
       case 'getConstructorForNode':
         respond(id, snapshot.get_constructor_for_node(msg.nodeId as number));
         break;
+      case 'getSummaryObjectIndex':
+        respond(
+          id,
+          JSON.parse(
+            snapshot.get_summary_object_index(
+              String(msg['constructor']),
+              msg.nodeId as number,
+            ),
+          ),
+        );
+        break;
       case 'getReachableSize':
         respond(
           id,

@@ -644,6 +644,37 @@ impl WasmHeapSnapshot {
         )))
     }
 
+    /// Return the 0-based index of a node within its constructor group
+    /// in the *current* cached aggregates. Returns JSON `{"index": N, "total": M}`.
+    pub fn get_summary_object_index(
+        &self,
+        constructor: &str,
+        node_id: f64,
+    ) -> Result<String, JsError> {
+        let ordinal = self.resolve_ordinal(node_id)?;
+        let aggregates = self
+            .cached_aggregates
+            .as_ref()
+            .ok_or_else(|| JsError::new("No cached aggregates"))?;
+        let entry = aggregates
+            .get(constructor)
+            .ok_or_else(|| JsError::new(&format!("No constructor group \"{constructor}\"")))?;
+        let index = entry
+            .node_ordinals
+            .iter()
+            .position(|o| *o == ordinal)
+            .ok_or_else(|| {
+                JsError::new(&format!(
+                    "Node @{} not in group \"{constructor}\"",
+                    node_id as u64
+                ))
+            })?;
+        Ok(format!(
+            "{{\"index\":{index},\"total\":{}}}",
+            entry.node_ordinals.len()
+        ))
+    }
+
     pub fn compute_diff(&self, baseline: &WasmHeapSnapshot) -> String {
         let diffs = diff::compute_diff(&self.inner, &baseline.inner);
         let entries: Vec<JsClassDiff> = diffs

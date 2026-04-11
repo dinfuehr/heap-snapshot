@@ -2,8 +2,11 @@ import {
   createSignal,
   createResource,
   createMemo,
+  createEffect,
+  on,
   Show,
   For,
+  untrack,
   type JSX,
 } from 'solid-js';
 import type {
@@ -30,6 +33,12 @@ const numTd = {
 };
 
 const PAGE_SIZE = 100;
+
+interface FocusTarget {
+  nodeId: number;
+  constructorKey: string;
+  pageOffset: number;
+}
 
 function ExpandableObject(props: {
   obj: {
@@ -202,6 +211,9 @@ function SummaryGroup(props: {
   onSelect: (sel: RowSelection) => void;
   reachableSizes: Map<number, ReachableSizeInfo>;
   reachablePending: Set<number>;
+  focusTarget: () => FocusTarget | null;
+  onFocusHandled: () => void;
+  containerRef: () => HTMLElement | undefined;
 }): JSX.Element {
   const [expanded, setExpanded] = createSignal(false);
   const [loading, setLoading] = createSignal(false);
@@ -229,6 +241,42 @@ function SummaryGroup(props: {
     setObjects(null);
     await loadObjects(0, 100);
     setLoading(false);
+  };
+
+  // Auto-expand and scroll to the focused object when focusTarget matches.
+  createEffect(
+    on(props.focusTarget, (target) => {
+      if (!target || target.constructorKey !== props.entry.key) return;
+      const cur = untrack(objOffset);
+      const isLoaded = untrack(expanded) && cur === target.pageOffset;
+      if (isLoaded) {
+        // Already showing the right page — just scroll.
+        requestAnimationFrame(() => {
+          scrollToNode(target.nodeId);
+          props.onFocusHandled();
+        });
+        return;
+      }
+      setExpanded(true);
+      setLoading(true);
+      setObjects(null);
+      loadObjects(target.pageOffset, PAGE_SIZE).then(() => {
+        setLoading(false);
+        requestAnimationFrame(() => {
+          scrollToNode(target.nodeId);
+          props.onFocusHandled();
+        });
+      });
+    }),
+  );
+
+  const scrollToNode = (nodeId: number) => {
+    const container = props.containerRef();
+    const el = container
+      ? container.querySelector(`tr[data-node-id="${nodeId}"]`)
+      : document.querySelector(`tr[data-node-id="${nodeId}"]`);
+    el?.scrollIntoView({ block: 'center' });
+    props.onSelect({ rowId: -1, nodeId });
   };
 
   return (
@@ -308,11 +356,15 @@ export function SummaryTable(props: {
   onContextMenu: (e: MouseEvent, nodeId: number) => void;
   reachableSizes: Map<number, ReachableSizeInfo>;
   reachablePending: Set<number>;
+  focusTarget?: () => FocusTarget | null;
+  onFocusHandled?: () => void;
 }): JSX.Element {
   const [selection, setSelection] = createSignal<RowSelection | null>(null);
+  let containerEl: HTMLDivElement | undefined;
 
   return (
     <div
+      ref={containerEl}
       style={{
         flex: '1',
         'min-height': '0',
@@ -406,6 +458,9 @@ export function SummaryTable(props: {
                 onSelect={setSelection}
                 reachableSizes={props.reachableSizes}
                 reachablePending={props.reachablePending}
+                focusTarget={props.focusTarget ?? (() => null)}
+                onFocusHandled={props.onFocusHandled ?? (() => {})}
+                containerRef={() => containerEl}
               />
             )}
           </For>
@@ -429,12 +484,64 @@ export function SummaryView(props: {
     return props.call<AggregateEntry[]>({ type: 'getSummary' });
   });
   const [filter, setFilter] = createSignal('');
+  const [searchError, setSearchError] = createSignal<string | null>(null);
+  const [focusTarget, setFocusTarget] = createSignal<FocusTarget | null>(null);
+
+  const focusOnNode = async (nodeId: number) => {
+    // Ensure "All objects" filter so the node is visible.
+    setSummaryFilter(0);
+    await props.call({ type: 'setSummaryFilter', mode: 0 });
+    const constructorKey = await props.call<string>({
+      type: 'getConstructorForNode',
+      nodeId,
+    });
+    const pos = await props.call<{ index: number; total: number }>({
+      type: 'getSummaryObjectIndex',
+      constructor: constructorKey,
+      nodeId,
+    });
+    const pageOffset = Math.floor(pos.index / PAGE_SIZE) * PAGE_SIZE;
+    setFilter('');
+    setFocusTarget({ nodeId, constructorKey, pageOffset });
+  };
+
+  const handleFilterKeyDown = async (e: KeyboardEvent) => {
+    if (e.key !== 'Enter') return;
+    const value = filter().trim();
+    if (!value.startsWith('@')) return;
+    e.preventDefault();
+
+    const idStr = value.slice(1);
+    const id = parseInt(idStr, 10);
+    if (isNaN(id) || idStr === '') {
+      setSearchError(`Invalid id: ${idStr}`);
+      return;
+    }
+
+    try {
+      setSearchError(null);
+      await focusOnNode(id);
+    } catch {
+      setSearchError(`No object found with id @${id}`);
+    }
+  };
+
+  // React to external "Show in summary" navigation.
+  createEffect(
+    on(
+      () => props.highlightNodeId,
+      (nodeId) => {
+        if (nodeId === null) return;
+        focusOnNode(nodeId).catch(() => {});
+      },
+    ),
+  );
 
   const filtered = createMemo(() => {
     const e = entries();
     if (!e) return null;
     const f = filter().toLowerCase();
-    if (!f) return e;
+    if (!f || f.startsWith('@')) return e;
     return e.filter((entry) => entry.name.toLowerCase().includes(f));
   });
 
@@ -451,8 +558,12 @@ export function SummaryView(props: {
         <input
           type="text"
           value={filter()}
-          onInput={(e) => setFilter(e.currentTarget.value)}
-          placeholder="Filter constructors..."
+          onInput={(e) => {
+            setFilter(e.currentTarget.value);
+            setSearchError(null);
+          }}
+          onKeyDown={handleFilterKeyDown}
+          placeholder="Filter constructors or @id..."
           style={{
             padding: '4px 8px',
             'font-size': '13px',
@@ -479,6 +590,11 @@ export function SummaryView(props: {
         <Show when={entries.loading}>
           <span style={{ 'font-size': '12px', color: '#888' }}>Loading...</span>
         </Show>
+        <Show when={searchError()}>
+          {(err) => (
+            <span style={{ 'font-size': '12px', color: '#c00' }}>{err()}</span>
+          )}
+        </Show>
       </div>
       <Show
         when={filtered()}
@@ -499,7 +615,7 @@ export function SummaryView(props: {
                 gap: '8px',
               }}
             >
-              <Show when={filter()}>
+              <Show when={filter() && !filter().startsWith('@')}>
                 <span>
                   {list().length} of {entries()!.length} groups
                 </span>
@@ -520,6 +636,8 @@ export function SummaryView(props: {
               onContextMenu={props.onContextMenu}
               reachableSizes={props.reachableSizes}
               reachablePending={props.reachablePending}
+              focusTarget={focusTarget}
+              onFocusHandled={() => setFocusTarget(null)}
             />
           </>
         )}

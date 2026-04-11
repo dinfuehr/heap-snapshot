@@ -44,8 +44,8 @@ impl App {
             Line::from("  [ / ] pan the name column horizontally for long labels"),
             Line::from(""),
             Line::from(Span::styled("Search And Filters", Style::default().bold())),
-            Line::from("  /text filters Summary or Diff by constructor name"),
-            Line::from("  /@id opens Retainers for a snapshot object id"),
+            Line::from("  / opens search prompt (Summary and Diff views)"),
+            Line::from("    text filters by constructor name, @id jumps to an object"),
             Line::from("  f filters the current edge list; empty input clears it"),
             Line::from("  u / U cycles summary filter forward / backward"),
             Line::from(

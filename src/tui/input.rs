@@ -44,17 +44,13 @@ impl App {
                     self.search_error = None;
                     self.mark_rows_dirty();
                 } else if input.starts_with('@') {
-                    // @id → show in current view or open retainers
+                    // @id → show object in summary view
                     let id_str = &input[1..];
                     match id_str.parse::<u64>() {
                         Ok(id) => {
                             match snap.node_for_snapshot_object_id(crate::types::NodeId(id)) {
                                 Some(ordinal) => {
-                                    if self.current_view == ViewType::Summary {
-                                        self.show_in_summary(ordinal, snap);
-                                    } else {
-                                        self.set_retainers_target(ordinal, snap);
-                                    }
+                                    self.show_in_summary(ordinal, snap);
                                     self.search_error = None;
                                 }
                                 None => {
@@ -189,7 +185,12 @@ impl App {
                 };
                 self.set_view(next_view, snap);
             }
-            KeyCode::Char('/') => {
+            KeyCode::Char('/')
+                if matches!(
+                    self.current_view,
+                    ViewType::Summary | ViewType::Diff
+                ) =>
+            {
                 self.input_mode = InputMode::Search;
                 self.search_input.clear();
                 self.search_error = None;
