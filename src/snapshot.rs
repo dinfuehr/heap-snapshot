@@ -78,8 +78,43 @@ pub struct ReachableInfo {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum NativeContextKind {
+    Main,
+    Iframe,
+    Utility,
+}
+
+impl NativeContextKind {
+    fn as_str(self) -> &'static str {
+        match self {
+            NativeContextKind::Main => "main",
+            NativeContextKind::Iframe => "iframe",
+            NativeContextKind::Utility => "utility",
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct NativeContextData {
+    pub ordinal: NodeOrdinal,
+    pub kind: NativeContextKind,
+    pub is_extension: bool,
+    pub size: f64,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct NativeContextAttributableSizes {
+    pub native_contexts: Vec<NativeContextData>,
+    pub shared: f64,
+    pub unattributed: f64,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct NativeContextId(pub u32);
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum NativeContextBucket {
-    Context(NodeOrdinal),
+    Context(NativeContextId),
     Shared,
     Unattributed,
 }
@@ -87,7 +122,7 @@ pub enum NativeContextBucket {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ReachClass {
     None,
-    One(u32),
+    One(NativeContextId),
     Many,
 }
 
@@ -176,10 +211,13 @@ pub struct HeapSnapshot {
     location_line_offset: usize,
     location_column_offset: usize,
 
-    // Native contexts (ordinals of "system / NativeContext" nodes)
-    native_contexts: Vec<usize>,
+    // Native contexts (ordinals of "system / NativeContext" nodes) with
+    // attributable size metadata.
+    native_contexts: Vec<NativeContextData>,
     // Best-effort native context owner for each node.
     node_native_context_buckets: Vec<NativeContextBucket>,
+    shared_attributable_size: f64,
+    unattributed_size: f64,
     // Edge names common to all NativeContext global_objects
     native_context_global_fields: FxHashSet<String>,
     // Precomputed "Vars" string per NativeContext (joined unique global + script context vars)
@@ -385,6 +423,8 @@ impl HeapSnapshot {
             use_separate_class_index: false,
             native_contexts: Vec::new(),
             node_native_context_buckets: vec![NativeContextBucket::Unattributed; node_count],
+            shared_attributable_size: 0.0,
+            unattributed_size: 0.0,
             native_context_global_fields: FxHashSet::default(),
             native_context_vars: FxHashMap::default(),
             js_global_objects: Vec::new(),
@@ -516,8 +556,9 @@ impl HeapSnapshot {
         snap.calculate_distances();
 
         // Classify each node into a native-context bucket using direct
-        // inference first, then context reachability, then GC reachability.
+        // inference first, then context reachability.
         snap.compute_node_native_context_buckets();
+        snap.compute_native_context_attributable_sizes();
 
         // Calculate depths within the unreachable subgraph
         snap.calculate_unreachable_depths();
@@ -570,16 +611,39 @@ impl HeapSnapshot {
 
     fn find_native_contexts(&mut self) {
         for ordinal in 0..self.node_count {
-            if self.is_native_context(NodeOrdinal(ordinal)) {
-                self.native_contexts.push(ordinal);
+            let ordinal = NodeOrdinal(ordinal);
+            if self.is_native_context(ordinal) {
+                self.native_contexts.push(NativeContextData {
+                    ordinal,
+                    kind: self.compute_native_context_kind(ordinal),
+                    is_extension: self
+                        .native_context_url(ordinal)
+                        .is_some_and(|url| url.starts_with("chrome-extension://")),
+                    size: 0.0,
+                });
             }
+        }
+    }
+
+    fn compute_native_context_kind(&self, ordinal: NodeOrdinal) -> NativeContextKind {
+        let is_frame = self
+            .find_edge_target(ordinal, "global_object")
+            .is_some_and(|go| self.node_raw_name(go).starts_with("Window"));
+
+        if !is_frame {
+            return NativeContextKind::Utility;
+        }
+
+        match self.find_edge_target(ordinal, "global_proxy_object") {
+            Some(gp) if self.node_edge_count(gp) >= 10 => NativeContextKind::Main,
+            _ => NativeContextKind::Iframe,
         }
     }
 
     fn compute_node_native_context_buckets(&mut self) {
         let mut context_index_by_ordinal = FxHashMap::default();
-        for (idx, &ctx_ord) in self.native_contexts.iter().enumerate() {
-            context_index_by_ordinal.insert(ctx_ord, idx as u32);
+        for (idx, ctx) in self.native_contexts.iter().enumerate() {
+            context_index_by_ordinal.insert(ctx.ordinal.0, NativeContextId(idx as u32));
         }
 
         let mut fixed_owner = vec![None; self.node_count];
@@ -642,13 +706,9 @@ impl HeapSnapshot {
 
         for ordinal in 0..self.node_count {
             self.node_native_context_buckets[ordinal] = match fixed_owner[ordinal] {
-                Some(idx) => {
-                    NativeContextBucket::Context(NodeOrdinal(self.native_contexts[idx as usize]))
-                }
+                Some(id) => NativeContextBucket::Context(id),
                 None => match reach_owner[ordinal] {
-                    ReachClass::One(idx) => NativeContextBucket::Context(NodeOrdinal(
-                        self.native_contexts[idx as usize],
-                    )),
+                    ReachClass::One(id) => NativeContextBucket::Context(id),
                     ReachClass::Many => NativeContextBucket::Shared,
                     ReachClass::None => NativeContextBucket::Unattributed,
                 },
@@ -656,11 +716,42 @@ impl HeapSnapshot {
         }
     }
 
+    fn compute_native_context_attributable_sizes(&mut self) {
+        let mut native_context_sizes = vec![0.0; self.native_contexts.len()];
+        let mut shared_size = 0.0;
+        let mut unattributed_size = 0.0;
+
+        for ordinal in 0..self.node_count {
+            let size = self.node_self_size(NodeOrdinal(ordinal)) as f64;
+            match self.node_native_context_buckets[ordinal] {
+                NativeContextBucket::Context(id) => {
+                    native_context_sizes[id.0 as usize] += size;
+                }
+                NativeContextBucket::Shared => {
+                    shared_size += size;
+                }
+                NativeContextBucket::Unattributed => {
+                    unattributed_size += size;
+                }
+            }
+        }
+
+        for (ctx, size) in self
+            .native_contexts
+            .iter_mut()
+            .zip(native_context_sizes.into_iter())
+        {
+            ctx.size = size;
+        }
+        self.shared_attributable_size = shared_size;
+        self.unattributed_size = unattributed_size;
+    }
+
     fn infer_direct_native_context(
         &self,
         ordinal: NodeOrdinal,
-        context_index_by_ordinal: &FxHashMap<usize, u32>,
-    ) -> Option<u32> {
+        context_index_by_ordinal: &FxHashMap<usize, NativeContextId>,
+    ) -> Option<NativeContextId> {
         if self.is_native_context(ordinal) {
             return context_index_by_ordinal.get(&ordinal.0).copied();
         }
@@ -702,8 +793,8 @@ impl HeapSnapshot {
     fn resolve_native_context_candidate(
         &self,
         ordinal: NodeOrdinal,
-        context_index_by_ordinal: &FxHashMap<usize, u32>,
-    ) -> Option<u32> {
+        context_index_by_ordinal: &FxHashMap<usize, NativeContextId>,
+    ) -> Option<NativeContextId> {
         if self.is_native_context(ordinal) {
             return context_index_by_ordinal.get(&ordinal.0).copied();
         }
@@ -1184,9 +1275,9 @@ impl HeapSnapshot {
     }
 
     fn build_native_context_vars(&mut self) {
-        let contexts: Vec<usize> = self.native_contexts.clone();
-        for &ctx_ord in &contexts {
-            let ord = NodeOrdinal(ctx_ord);
+        let contexts: Vec<NodeOrdinal> =
+            self.native_contexts.iter().map(|ctx| ctx.ordinal).collect();
+        for &ord in &contexts {
             let mut vars = self.native_context_global_unique_fields(ord);
             let script_vars = self.native_context_script_context_vars(ord);
             for v in script_vars {
@@ -2671,8 +2762,46 @@ impl HeapSnapshot {
 
     // Public API
 
-    pub fn native_contexts(&self) -> &[usize] {
+    pub fn native_contexts(&self) -> &[NativeContextData] {
         &self.native_contexts
+    }
+
+    pub fn native_context_by_id(&self, id: NativeContextId) -> &NativeContextData {
+        &self.native_contexts[id.0 as usize]
+    }
+
+    pub fn native_context_id(&self, ordinal: NodeOrdinal) -> Option<NativeContextId> {
+        self.native_contexts
+            .iter()
+            .position(|ctx| ctx.ordinal == ordinal)
+            .map(|idx| NativeContextId(idx as u32))
+    }
+
+    pub fn native_context_data(&self, ordinal: NodeOrdinal) -> Option<&NativeContextData> {
+        self.native_contexts
+            .iter()
+            .find(|ctx| ctx.ordinal == ordinal)
+    }
+
+    pub fn native_context_attributable_sizes(&self) -> NativeContextAttributableSizes {
+        NativeContextAttributableSizes {
+            native_contexts: self.native_contexts.clone(),
+            shared: self.shared_attributable_size,
+            unattributed: self.unattributed_size,
+        }
+    }
+
+    pub fn native_context_attributable_size(&self, ordinal: NodeOrdinal) -> Option<f64> {
+        self.native_context_id(ordinal)
+            .map(|id| self.native_context_by_id(id).size)
+    }
+
+    pub fn shared_attributable_size(&self) -> f64 {
+        self.shared_attributable_size
+    }
+
+    pub fn unattributed_size(&self) -> f64 {
+        self.unattributed_size
     }
 
     /// Returns sorted edge names of this NativeContext's global_object that are
@@ -3381,19 +3510,11 @@ impl HeapSnapshot {
     pub fn native_context_label(&self, ordinal: NodeOrdinal) -> String {
         let node_id = self.node_id(ordinal);
         let url = self.native_context_url(ordinal);
-
-        let is_frame = self
-            .find_edge_target(ordinal, "global_object")
-            .is_some_and(|go| self.node_raw_name(go).starts_with("Window"));
-
-        let frame_kind = if !is_frame {
-            "utility"
-        } else {
-            match self.find_edge_target(ordinal, "global_proxy_object") {
-                Some(gp) if self.node_edge_count(gp) >= 10 => "main",
-                _ => "iframe",
-            }
-        };
+        let frame_kind = self
+            .native_context_data(ordinal)
+            .map(|ctx| ctx.kind)
+            .unwrap_or_else(|| self.compute_native_context_kind(ordinal))
+            .as_str();
 
         match url {
             Some(u) => format!("[{frame_kind}] {u} @{node_id}"),

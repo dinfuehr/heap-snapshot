@@ -480,12 +480,11 @@ fn main() {
         }
         Command::Contexts { snap_args, file } => {
             let snap = load_snapshot(&snap_args.to_options(), &file);
-            use types::NodeOrdinal;
             let contexts: Vec<_> = snap
                 .native_contexts()
                 .iter()
-                .map(|&ord| {
-                    let ord = NodeOrdinal(ord);
+                .map(|ctx| {
+                    let ord = ctx.ordinal;
                     let label = snap.native_context_label(ord);
                     let det = match snap.native_context_detachedness(ord) {
                         1 => "no",

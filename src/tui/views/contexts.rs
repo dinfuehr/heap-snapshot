@@ -1,5 +1,4 @@
 use crate::snapshot::HeapSnapshot;
-use crate::types::NodeOrdinal;
 
 use super::super::App;
 use super::super::types::*;
@@ -11,8 +10,8 @@ impl App {
         rows: &mut Vec<FlatRow>,
         snap: &HeapSnapshot,
     ) {
-        for (&ctx_ord, &id) in snap.native_contexts().iter().zip(self.contexts_ids.iter()) {
-            let ord = NodeOrdinal(ctx_ord);
+        for (ctx, &id) in snap.native_contexts().iter().zip(self.contexts_ids.iter()) {
+            let ord = ctx.ordinal;
             let has_children = snap.node_edge_count(ord) > 0;
             let mut label = snap.native_context_label(ord);
             // Replace chrome-extension:// URLs with resolved extension names

@@ -1522,8 +1522,61 @@ fn test_is_native_context() {
 fn test_native_contexts_list() {
     let snap = make_native_context_snapshot();
     let mut contexts = snap.native_contexts().to_vec();
-    contexts.sort();
-    assert_eq!(contexts, vec![2, 3, 4]);
+    contexts.sort_by_key(|ctx| ctx.ordinal.0);
+    assert_eq!(
+        contexts,
+        vec![
+            NativeContextData {
+                ordinal: NodeOrdinal(2),
+                kind: NativeContextKind::Main,
+                is_extension: false,
+                size: 201.0,
+            },
+            NativeContextData {
+                ordinal: NodeOrdinal(3),
+                kind: NativeContextKind::Iframe,
+                is_extension: false,
+                size: 200.0,
+            },
+            NativeContextData {
+                ordinal: NodeOrdinal(4),
+                kind: NativeContextKind::Utility,
+                is_extension: false,
+                size: 150.0,
+            },
+        ]
+    );
+}
+
+#[test]
+fn test_native_contexts_marks_extension_contexts() {
+    let snap = build_snapshot(
+        standard_node_fields(),
+        vec![
+            9, 0, 1, 0, 1, // 0 root
+            9, 1, 3, 0, 1, // 1 (GC roots)
+            3, 2, 5, 100, 0, // 2 NativeContext extension
+        ],
+        vec![
+            1, 0, 5, // root -> GC roots
+            1, 0, 10, // GC roots -> NativeContext
+        ],
+        s(&[
+            "",
+            "(GC roots)",
+            "system / NativeContext / chrome-extension://testid123/page.html",
+        ]),
+    );
+
+    assert_eq!(
+        snap.native_contexts(),
+        &[NativeContextData {
+            ordinal: NodeOrdinal(2),
+            kind: NativeContextKind::Utility,
+            is_extension: true,
+            size: 100.0,
+        }]
+    );
 }
 
 // ====== native_context_vars tests ======
@@ -7401,6 +7454,15 @@ fn make_native_context_ownership_snapshot() -> HeapSnapshot {
     )
 }
 
+fn assert_bucket_context(snap: &HeapSnapshot, node: NodeOrdinal, expected_ctx: NodeOrdinal) {
+    match snap.node_native_context_bucket(node) {
+        NativeContextBucket::Context(id) => {
+            assert_eq!(snap.native_context_by_id(id).ordinal, expected_ctx);
+        }
+        other => panic!("expected Context({expected_ctx:?}) for {node:?}, got {other:?}"),
+    }
+}
+
 #[test]
 fn test_node_native_context_direct_inference_uses_map_and_context_edges() {
     let snap = make_native_context_ownership_snapshot();
@@ -7411,30 +7473,12 @@ fn test_node_native_context_direct_inference_uses_map_and_context_edges() {
     const CONTEXT_A: NodeOrdinal = NodeOrdinal(10);
     const CLOSURE: NodeOrdinal = NodeOrdinal(11);
 
-    assert_eq!(
-        snap.node_native_context_bucket(CTX_A),
-        NativeContextBucket::Context(CTX_A)
-    );
-    assert_eq!(
-        snap.node_native_context_bucket(CTX_B),
-        NativeContextBucket::Context(CTX_B)
-    );
-    assert_eq!(
-        snap.node_native_context_bucket(FIXED_A),
-        NativeContextBucket::Context(CTX_A)
-    );
-    assert_eq!(
-        snap.node_native_context_bucket(FIXED_B),
-        NativeContextBucket::Context(CTX_B)
-    );
-    assert_eq!(
-        snap.node_native_context_bucket(CONTEXT_A),
-        NativeContextBucket::Context(CTX_A)
-    );
-    assert_eq!(
-        snap.node_native_context_bucket(CLOSURE),
-        NativeContextBucket::Context(CTX_A)
-    );
+    assert_bucket_context(&snap, CTX_A, CTX_A);
+    assert_bucket_context(&snap, CTX_B, CTX_B);
+    assert_bucket_context(&snap, FIXED_A, CTX_A);
+    assert_bucket_context(&snap, FIXED_B, CTX_B);
+    assert_bucket_context(&snap, CONTEXT_A, CTX_A);
+    assert_bucket_context(&snap, CLOSURE, CTX_A);
 }
 
 #[test]
@@ -7446,10 +7490,7 @@ fn test_node_native_context_bucket_assigns_unique_shared_and_unattributed() {
     const ISOLATED: NodeOrdinal = NodeOrdinal(12);
 
     // UniqueChild has no direct owner, but is only reachable through FixedA.
-    assert_eq!(
-        snap.node_native_context_bucket(UNIQUE_CHILD),
-        NativeContextBucket::Context(CTX_A)
-    );
+    assert_bucket_context(&snap, UNIQUE_CHILD, CTX_A);
     // SharedChild is reachable from GC roots but not attributable to one context.
     assert_eq!(
         snap.node_native_context_bucket(SHARED_CHILD),
@@ -7470,10 +7511,7 @@ fn test_node_native_context_fallback_does_not_overwrite_direct_owner() {
 
     // FixedA is directly attributed to NativeContext A via its map, even though
     // NativeContext B also reaches it through FixedB.
-    assert_eq!(
-        snap.node_native_context_bucket(FIXED_A),
-        NativeContextBucket::Context(CTX_A)
-    );
+    assert_bucket_context(&snap, FIXED_A, CTX_A);
 }
 
 /// Snapshot where one native context reaches `Target` via a weak edge and
@@ -7733,14 +7771,8 @@ fn test_node_native_context_bucket_propagates_transitive_shared() {
     const Y: NodeOrdinal = NodeOrdinal(5);
     const Z: NodeOrdinal = NodeOrdinal(6);
 
-    assert_eq!(
-        snap.node_native_context_bucket(X),
-        NativeContextBucket::Context(CTX_A)
-    );
-    assert_eq!(
-        snap.node_native_context_bucket(Y),
-        NativeContextBucket::Context(CTX_B)
-    );
+    assert_bucket_context(&snap, X, CTX_A);
+    assert_bucket_context(&snap, Y, CTX_B);
     assert_eq!(
         snap.node_native_context_bucket(Z),
         NativeContextBucket::Shared
@@ -7754,14 +7786,8 @@ fn test_node_native_context_bucket_assigns_single_context_scc() {
     const X: NodeOrdinal = NodeOrdinal(3);
     const Y: NodeOrdinal = NodeOrdinal(4);
 
-    assert_eq!(
-        snap.node_native_context_bucket(X),
-        NativeContextBucket::Context(CTX_A)
-    );
-    assert_eq!(
-        snap.node_native_context_bucket(Y),
-        NativeContextBucket::Context(CTX_A)
-    );
+    assert_bucket_context(&snap, X, CTX_A);
+    assert_bucket_context(&snap, Y, CTX_A);
 }
 
 #[test]
@@ -7771,10 +7797,7 @@ fn test_node_native_context_bucket_keeps_direct_assignment_for_unreachable_objec
     const UNREACHABLE_OBJECT: NodeOrdinal = NodeOrdinal(4);
 
     assert!(snap.node_distance(UNREACHABLE_OBJECT).is_unreachable());
-    assert_eq!(
-        snap.node_native_context_bucket(UNREACHABLE_OBJECT),
-        NativeContextBucket::Context(CTX_A)
-    );
+    assert_bucket_context(&snap, UNREACHABLE_OBJECT, CTX_A);
 }
 
 #[test]
@@ -7965,10 +7988,7 @@ fn test_node_native_context_bucket_ignores_shortcut_edges() {
     const CTX_B: NodeOrdinal = NodeOrdinal(3);
     const TARGET: NodeOrdinal = NodeOrdinal(6);
 
-    assert_eq!(
-        snap.node_native_context_bucket(TARGET),
-        NativeContextBucket::Context(CTX_B)
-    );
+    assert_bucket_context(&snap, TARGET, CTX_B);
 }
 
 #[test]
@@ -7997,8 +8017,74 @@ fn test_node_native_context_bucket_prefers_context_over_map_native_context() {
     // - `context` -> Context A -> NativeContext A
     // - `map` -> MapB -> native_context -> NativeContext B
     // The direct inference order currently prefers `context`.
+    assert_bucket_context(&snap, TARGET, CTX_A);
+}
+
+#[test]
+fn test_native_context_attributable_sizes_sum_bucketed_self_sizes() {
+    let snap = make_native_context_ownership_snapshot();
+    const CTX_A: NodeOrdinal = NodeOrdinal(2);
+    const CTX_B: NodeOrdinal = NodeOrdinal(3);
+
+    let sizes = snap.native_context_attributable_sizes();
+
     assert_eq!(
-        snap.node_native_context_bucket(TARGET),
-        NativeContextBucket::Context(CTX_A)
+        sizes,
+        NativeContextAttributableSizes {
+            native_contexts: vec![
+                NativeContextData {
+                    ordinal: CTX_A,
+                    kind: NativeContextKind::Utility,
+                    is_extension: false,
+                    size: 216.0,
+                },
+                NativeContextData {
+                    ordinal: CTX_B,
+                    kind: NativeContextKind::Utility,
+                    is_extension: false,
+                    size: 144.0,
+                },
+            ],
+            shared: 16.0,
+            unattributed: 16.0,
+        }
     );
+    assert_eq!(snap.native_context_attributable_size(CTX_A), Some(216.0));
+    assert_eq!(snap.native_context_attributable_size(CTX_B), Some(144.0));
+    assert_eq!(snap.shared_attributable_size(), 16.0);
+    assert_eq!(snap.unattributed_size(), 16.0);
+}
+
+#[test]
+fn test_native_context_attributable_sizes_count_mixed_weak_and_strong_shared_bytes() {
+    let snap = make_native_context_bucket_weak_snapshot();
+    const CTX_A: NodeOrdinal = NodeOrdinal(2);
+    const CTX_B: NodeOrdinal = NodeOrdinal(3);
+
+    assert_eq!(snap.native_context_attributable_size(CTX_A), Some(96.0));
+    assert_eq!(snap.native_context_attributable_size(CTX_B), Some(96.0));
+    assert_eq!(snap.shared_attributable_size(), 16.0);
+    assert_eq!(snap.unattributed_size(), 0.0);
+}
+
+#[test]
+fn test_native_context_attributable_sizes_keep_unreachable_direct_and_reachable_unattributed() {
+    let unreachable = make_native_context_bucket_unreachable_direct_snapshot();
+    const CTX_A: NodeOrdinal = NodeOrdinal(2);
+
+    assert_eq!(
+        unreachable.native_context_attributable_size(CTX_A),
+        Some(120.0)
+    );
+    assert_eq!(unreachable.shared_attributable_size(), 0.0);
+    assert_eq!(unreachable.unattributed_size(), 0.0);
+
+    let reachable_unattributed = make_native_context_bucket_reachable_unattributed_snapshot();
+
+    assert_eq!(
+        reachable_unattributed.native_context_attributable_size(CTX_A),
+        Some(80.0)
+    );
+    assert_eq!(reachable_unattributed.shared_attributable_size(), 0.0);
+    assert_eq!(reachable_unattributed.unattributed_size(), 16.0);
 }

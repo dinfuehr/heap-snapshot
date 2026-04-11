@@ -622,8 +622,7 @@ fn test_opening_contexts_queues_reachable_for_all_native_contexts() {
     let expected: Vec<NodeOrdinal> = snap
         .native_contexts()
         .iter()
-        .copied()
-        .map(NodeOrdinal)
+        .map(|ctx| ctx.ordinal)
         .collect();
     assert!(matches!(app.current_view, ViewType::Contexts));
     assert_eq!(queued, expected);

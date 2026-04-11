@@ -443,8 +443,8 @@ impl App {
     }
 
     fn queue_extension_name_lookups(&mut self, snap: &HeapSnapshot) {
-        for &ord in snap.native_contexts() {
-            let ord = NodeOrdinal(ord);
+        for ctx in snap.native_contexts() {
+            let ord = ctx.ordinal;
             if let Some(url) = snap.native_context_url(ord) {
                 if let Some(ext_id) = url
                     .strip_prefix("chrome-extension://")
@@ -467,8 +467,7 @@ impl App {
         let ordinals: Vec<NodeOrdinal> = snap
             .native_contexts()
             .iter()
-            .copied()
-            .map(NodeOrdinal)
+            .map(|ctx| ctx.ordinal)
             .collect();
         for ordinal in ordinals {
             self.queue_reachable(ordinal);

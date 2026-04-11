@@ -499,8 +499,8 @@ impl McpServer {
         let mut lines = Vec::new();
         let contexts = snapshot.native_contexts();
 
-        for &ord in contexts {
-            let ord = NodeOrdinal(ord);
+        for ctx in contexts {
+            let ord = ctx.ordinal;
             let id = snapshot.node_id(ord);
             let label = snapshot.native_context_label(ord);
             let det = match snapshot.native_context_detachedness(ord) {
