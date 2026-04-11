@@ -286,7 +286,6 @@ function SummaryGroup(props: {
         onDblClick={toggle}
         style={{
           cursor: 'pointer',
-          'user-select': 'none',
           background: expanded() ? '#f0f0f0' : undefined,
         }}
       >
@@ -298,7 +297,9 @@ function SummaryGroup(props: {
             'text-overflow': 'ellipsis',
           }}
         >
-          {expanded() ? (loading() ? '\u22EF' : '\u25bc') : '\u25b6'}{' '}
+          <span style={{ 'user-select': 'none' }}>
+            {expanded() ? (loading() ? '\u22EF' : '\u25bc') : '\u25b6'}{' '}
+          </span>
           {props.entry.name}{' '}
           <span style={{ color: '#888' }}>
             {'\u00d7'}

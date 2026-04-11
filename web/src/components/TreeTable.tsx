@@ -80,7 +80,7 @@ export function TreeTableRow(props: {
         onClick={handleClick}
         onDblClick={handleDblClick}
         onContextMenu={handleContextMenu}
-        style={{ cursor: 'pointer', background: bg(), 'user-select': 'none' }}
+        style={{ cursor: 'pointer', background: bg() }}
       >
         <td
           style={{
@@ -97,6 +97,7 @@ export function TreeTableRow(props: {
                 display: 'inline-block',
                 width: '16px',
                 cursor: 'pointer',
+                'user-select': 'none',
               }}
               onClick={(e) => {
                 e.stopPropagation();
