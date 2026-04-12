@@ -92,6 +92,14 @@ impl NativeContextKind {
             NativeContextKind::Utility => "utility",
         }
     }
+
+    fn sort_priority(self) -> u8 {
+        match self {
+            NativeContextKind::Main => 0,
+            NativeContextKind::Iframe => 1,
+            NativeContextKind::Utility => 2,
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -623,6 +631,11 @@ impl HeapSnapshot {
                 });
             }
         }
+
+        // Assign earlier native-context IDs to primary page contexts before
+        // less-interesting buckets like utility and extension contexts.
+        self.native_contexts
+            .sort_by_key(|ctx| (ctx.is_extension, ctx.kind.sort_priority(), ctx.ordinal.0));
     }
 
     fn compute_native_context_kind(&self, ordinal: NodeOrdinal) -> NativeContextKind {

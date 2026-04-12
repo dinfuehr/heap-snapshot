@@ -1454,6 +1454,112 @@ fn make_native_context_snapshot() -> HeapSnapshot {
     )
 }
 
+fn make_native_context_sorting_snapshot() -> HeapSnapshot {
+    let nfc = 5u32;
+    let n = |ord: u32| ord * nfc;
+
+    build_snapshot(
+        standard_node_fields(),
+        vec![
+            9, 0, 1, 0, 1, // 0 root
+            9, 1, 3, 0, 4, // 1 (GC roots)
+            0, 2, 5, 100, 0, // 2 extension NativeContext (discovered first, should sort last)
+            0, 3, 7, 100, 2, // 3 iframe NativeContext
+            0, 4, 9, 100, 2, // 4 main NativeContext
+            0, 5, 11, 100, 1, // 5 utility NativeContext
+            8, 6, 13, 50, 0, // 6 Window global for iframe
+            3, 7, 15, 50, 0, // 7 Window proxy for iframe (<10 edges)
+            8, 8, 17, 50, 0, // 8 Window global for main
+            3, 9, 19, 50, 10, // 9 Window proxy for main (>=10 edges)
+            3, 10, 21, 50, 0, // 10 NonWindow global for utility
+            2, 11, 23, 1, 0, // 11 dummy string
+        ],
+        vec![
+            1,
+            0,
+            n(1), // root -> GC roots
+            2,
+            12,
+            n(2), // GC roots -> extension context
+            2,
+            13,
+            n(3), // GC roots -> iframe context
+            2,
+            14,
+            n(4), // GC roots -> main context
+            2,
+            15,
+            n(5), // GC roots -> utility context
+            3,
+            16,
+            n(6), // iframe -> global_object
+            3,
+            17,
+            n(7), // iframe -> global_proxy_object
+            3,
+            16,
+            n(8), // main -> global_object
+            3,
+            17,
+            n(9), // main -> global_proxy_object
+            3,
+            16,
+            n(10), // utility -> global_object
+            2,
+            18,
+            n(11), // main proxy filler edges
+            2,
+            18,
+            n(11),
+            2,
+            18,
+            n(11),
+            2,
+            18,
+            n(11),
+            2,
+            18,
+            n(11),
+            2,
+            18,
+            n(11),
+            2,
+            18,
+            n(11),
+            2,
+            18,
+            n(11),
+            2,
+            18,
+            n(11),
+            2,
+            18,
+            n(11),
+        ],
+        s(&[
+            "",
+            "(GC roots)",
+            "system / NativeContext / chrome-extension://testid123/page.html",
+            "system / NativeContext / https://iframe.test",
+            "system / NativeContext / https://main.test",
+            "system / NativeContext",
+            "Window (global*)",
+            "Window (global)",
+            "Window (global*)",
+            "Window (global)",
+            "NonWindow",
+            "dummy",
+            "ext",
+            "iframe",
+            "main",
+            "utility",
+            "global_object",
+            "global_proxy_object",
+            "p",
+        ]),
+    )
+}
+
 // ====== 9. native_context_url tests ======
 
 #[test]
@@ -1577,6 +1683,48 @@ fn test_native_contexts_marks_extension_contexts() {
             size: 100.0,
         }]
     );
+}
+
+#[test]
+fn test_native_contexts_sort_main_first_and_extensions_last() {
+    let snap = make_native_context_sorting_snapshot();
+
+    // Discovery order is extension(2), iframe(3), main(4), utility(5).
+    // The stored order should instead prioritize interesting page contexts:
+    // main first, then iframe, then utility, with the extension context last.
+    let ordinals: Vec<_> = snap
+        .native_contexts()
+        .iter()
+        .map(|ctx| ctx.ordinal)
+        .collect();
+    assert_eq!(
+        ordinals,
+        vec![
+            NodeOrdinal(4),
+            NodeOrdinal(3),
+            NodeOrdinal(5),
+            NodeOrdinal(2),
+        ]
+    );
+
+    // NativeContextId is derived from the sorted order above, so the earlier
+    // IDs should also go to the main page contexts instead of the extension.
+    assert_eq!(
+        snap.native_context_id(NodeOrdinal(4)),
+        Some(NativeContextId(0))
+    ); // main context
+    assert_eq!(
+        snap.native_context_id(NodeOrdinal(3)),
+        Some(NativeContextId(1))
+    ); // iframe context
+    assert_eq!(
+        snap.native_context_id(NodeOrdinal(5)),
+        Some(NativeContextId(2))
+    ); // utility context
+    assert_eq!(
+        snap.native_context_id(NodeOrdinal(2)),
+        Some(NativeContextId(3))
+    ); // extension context
 }
 
 // ====== native_context_vars tests ======
