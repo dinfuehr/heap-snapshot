@@ -11,6 +11,7 @@ impl App {
         let should_quit = match self.input_mode {
             InputMode::Search => self.handle_search_key(key, snap),
             InputMode::EdgeFilter => self.handle_edge_filter_key(key, snap),
+            InputMode::FilterOverlay => self.handle_filter_overlay_key(key, snap),
             InputMode::Normal => self.handle_normal_key(key, snap),
         };
         if self.current_view != prev_view {
@@ -127,6 +128,94 @@ impl App {
             }
             KeyCode::Char(c) => {
                 self.edge_filter_input.push(c);
+            }
+            _ => {}
+        }
+        false
+    }
+
+    pub(super) fn handle_filter_overlay_key(&mut self, key: KeyEvent, snap: &HeapSnapshot) -> bool {
+        let item_count = self.filter_overlay_items.len();
+        match key.code {
+            KeyCode::Esc | KeyCode::Char('q') => {
+                self.input_mode = InputMode::Normal;
+            }
+            KeyCode::Up | KeyCode::Char('k') => {
+                // Skip headers when moving up
+                let mut idx = self.filter_overlay_cursor;
+                loop {
+                    if idx == 0 {
+                        break;
+                    }
+                    idx -= 1;
+                    if matches!(self.filter_overlay_items[idx], FilterOverlayItem::Filter { .. }) {
+                        self.filter_overlay_cursor = idx;
+                        break;
+                    }
+                }
+            }
+            KeyCode::Down | KeyCode::Char('j') => {
+                // Skip headers when moving down
+                let mut idx = self.filter_overlay_cursor;
+                loop {
+                    if idx + 1 >= item_count {
+                        break;
+                    }
+                    idx += 1;
+                    if matches!(self.filter_overlay_items[idx], FilterOverlayItem::Filter { .. }) {
+                        self.filter_overlay_cursor = idx;
+                        break;
+                    }
+                }
+            }
+            KeyCode::Home | KeyCode::Char('g') => {
+                self.filter_overlay_cursor = 0;
+                if matches!(
+                    self.filter_overlay_items.first(),
+                    Some(FilterOverlayItem::Header(_))
+                ) && item_count > 1
+                {
+                    self.filter_overlay_cursor = 1;
+                }
+            }
+            KeyCode::End | KeyCode::Char('G') => {
+                self.filter_overlay_cursor = item_count.saturating_sub(1);
+            }
+            KeyCode::PageUp
+            | KeyCode::Char('b')
+                if key.modifiers.contains(KeyModifiers::CONTROL)
+                    || matches!(key.code, KeyCode::PageUp) =>
+            {
+                let page = self.summary_state.page_height.max(1);
+                let target = self.filter_overlay_cursor.saturating_sub(page);
+                self.filter_overlay_cursor = (target..item_count)
+                    .find(|&i| {
+                        matches!(self.filter_overlay_items[i], FilterOverlayItem::Filter { .. })
+                    })
+                    .unwrap_or(self.filter_overlay_cursor);
+            }
+            KeyCode::PageDown
+            | KeyCode::Char('f')
+                if key.modifiers.contains(KeyModifiers::CONTROL)
+                    || matches!(key.code, KeyCode::PageDown) =>
+            {
+                let page = self.summary_state.page_height.max(1);
+                let target = (self.filter_overlay_cursor + page).min(item_count.saturating_sub(1));
+                self.filter_overlay_cursor = (0..=target)
+                    .rev()
+                    .find(|&i| {
+                        matches!(self.filter_overlay_items[i], FilterOverlayItem::Filter { .. })
+                    })
+                    .unwrap_or(self.filter_overlay_cursor);
+            }
+            KeyCode::Enter => {
+                if let Some(FilterOverlayItem::Filter { mode, .. }) =
+                    self.filter_overlay_items.get(self.filter_overlay_cursor)
+                {
+                    let mode = *mode;
+                    self.input_mode = InputMode::Normal;
+                    self.set_summary_filter(mode, snap);
+                }
             }
             _ => {}
         }
@@ -347,14 +436,9 @@ impl App {
             KeyCode::Char('-') => {
                 self.adjust_edge_count(-(EDGE_PAGE_SIZE as isize), snap);
             }
-            KeyCode::Char('u') => {
+            KeyCode::Char('F') => {
                 if self.current_view == ViewType::Summary {
-                    self.set_summary_filter(self.summary_filter_mode.next(), snap);
-                }
-            }
-            KeyCode::Char('U') => {
-                if self.current_view == ViewType::Summary {
-                    self.set_summary_filter(self.summary_filter_mode.prev(), snap);
+                    self.open_filter_overlay(snap);
                 }
             }
             KeyCode::Char('n') => {

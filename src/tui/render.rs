@@ -65,7 +65,10 @@ impl App {
 
         self.render_header(frame, chunks[0], snap);
         self.render_content(frame, chunks[1], snap);
-        self.render_footer(frame, chunks[2]);
+        self.render_footer(frame, chunks[2], snap);
+        if self.input_mode == InputMode::FilterOverlay {
+            self.render_filter_overlay(frame, chunks[1]);
+        }
     }
 
     fn render_header(&mut self, frame: &mut Frame, area: Rect, snap: &HeapSnapshot) {
@@ -149,7 +152,7 @@ impl App {
             let count: u32 = self.sorted_aggregates.iter().map(|a| a.count).sum();
             let spans: Vec<Span<'static>> = vec![
                 Span::styled(
-                    format!(" {} ", mode.label()),
+                    format!(" {} ", mode.label(snap)),
                     Style::default().fg(Color::Yellow),
                 ),
                 Span::styled(
@@ -469,7 +472,7 @@ impl App {
         }
     }
 
-    fn render_footer(&self, frame: &mut Frame, area: Rect) {
+    fn render_footer(&self, frame: &mut Frame, area: Rect, snap: &HeapSnapshot) {
         let line = match self.input_mode {
             InputMode::Search => {
                 let prompt = format!("/{}\u{2588}", self.search_input);
@@ -479,6 +482,10 @@ impl App {
                 let prompt = format!("filter edges: {}\u{2588}", self.edge_filter_input);
                 Line::from(Span::styled(prompt, Style::default().fg(Color::Yellow)))
             }
+            InputMode::FilterOverlay => Line::from(Span::styled(
+                "\u{2191}\u{2193}:navigate  Enter:select  Esc:cancel",
+                Style::default().fg(Color::Yellow),
+            )),
             InputMode::Normal => {
                 if self.current_view == ViewType::Help {
                     Line::from(Span::styled(
@@ -492,7 +499,7 @@ impl App {
                     let mode = self.summary_filter_mode;
                     if mode != SummaryFilterMode::All {
                         spans.push(Span::styled(
-                            mode.label(),
+                            mode.label(snap),
                             Style::default().fg(Color::Yellow),
                         ));
                     }
@@ -506,7 +513,7 @@ impl App {
                         ));
                     }
                     spans.push(Span::styled(
-                        "  (u/U: cycle filter, /: text filter)",
+                        "  (F: filter, /: text filter)",
                         Style::default().dim(),
                     ));
                     Line::from(spans)

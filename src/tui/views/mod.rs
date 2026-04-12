@@ -1,5 +1,6 @@
 mod containment;
 mod contexts;
+mod filter_overlay;
 mod diff;
 mod dominators;
 mod help;

@@ -101,8 +101,10 @@ fn contains_ignore_case(haystack: &str, needle: &str) -> bool {
         .any(|w| w.eq_ignore_ascii_case(needle.as_bytes()))
 }
 
+use crate::snapshot::NativeContextId;
+
 /// Summary view filter mode.
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum SummaryFilterMode {
     /// Show all objects (no filter).
     All,
@@ -116,37 +118,30 @@ pub(super) enum SummaryFilterMode {
     RetainedByConsole,
     /// Objects only retained by event handlers.
     RetainedByEventHandlers,
+    /// Objects attributed to a specific native context.
+    NativeContext(NativeContextId),
+    /// Objects shared across multiple native contexts.
+    SharedContext,
+    /// Objects not attributed to any native context.
+    UnattributedContext,
 }
 
 impl SummaryFilterMode {
-    fn label(self) -> &'static str {
+    fn label(self, snap: &HeapSnapshot) -> String {
         match self {
-            Self::All => "All objects",
-            Self::Unreachable => "Unreachable (all)",
-            Self::UnreachableRoots => "Unreachable (roots only)",
-            Self::RetainedByDetachedDom => "Retained by detached DOM",
-            Self::RetainedByConsole => "Retained by DevTools console",
-            Self::RetainedByEventHandlers => "Retained by event handlers",
+            Self::All => "All objects".to_string(),
+            Self::Unreachable => "Unreachable (all)".to_string(),
+            Self::UnreachableRoots => "Unreachable (roots only)".to_string(),
+            Self::RetainedByDetachedDom => "Retained by detached DOM".to_string(),
+            Self::RetainedByConsole => "Retained by DevTools console".to_string(),
+            Self::RetainedByEventHandlers => "Retained by event handlers".to_string(),
+            Self::NativeContext(id) => {
+                let ctx = &snap.native_contexts()[id.0 as usize];
+                snap.native_context_label(ctx.ordinal)
+            }
+            Self::SharedContext => "Shared (multiple contexts)".to_string(),
+            Self::UnattributedContext => "Unattributed".to_string(),
         }
-    }
-
-    const MODES: [Self; 6] = [
-        Self::All,
-        Self::Unreachable,
-        Self::UnreachableRoots,
-        Self::RetainedByDetachedDom,
-        Self::RetainedByConsole,
-        Self::RetainedByEventHandlers,
-    ];
-
-    fn next(self) -> Self {
-        let idx = Self::MODES.iter().position(|&m| m == self).unwrap_or(0);
-        Self::MODES[(idx + 1) % Self::MODES.len()]
-    }
-
-    fn prev(self) -> Self {
-        let idx = Self::MODES.iter().position(|&m| m == self).unwrap_or(0);
-        Self::MODES[(idx + Self::MODES.len() - 1) % Self::MODES.len()]
     }
 }
 
@@ -224,6 +219,10 @@ struct App {
     timeline_state: ScrollState,
     // retainers view
     retainers: RetainersViewState,
+    // filter overlay state
+    filter_overlay_items: Vec<FilterOverlayItem>,
+    filter_overlay_cursor: usize,
+    filter_overlay_scroll: usize,
 }
 
 // Core App methods used across multiple submodules.
@@ -373,6 +372,9 @@ impl App {
             statistics_state: ScrollState::new(),
             timeline_state: ScrollState::new(),
             retainers: RetainersViewState::new(),
+            filter_overlay_items: Vec::new(),
+            filter_overlay_cursor: 0,
+            filter_overlay_scroll: 0,
         }
     }
 
@@ -512,6 +514,9 @@ impl App {
             SummaryFilterMode::RetainedByDetachedDom => snap.retained_by_detached_dom(),
             SummaryFilterMode::RetainedByConsole => snap.retained_by_console(),
             SummaryFilterMode::RetainedByEventHandlers => snap.retained_by_event_handlers(),
+            SummaryFilterMode::NativeContext(id) => snap.aggregates_for_native_context(id),
+            SummaryFilterMode::SharedContext => snap.aggregates_for_shared_context(),
+            SummaryFilterMode::UnattributedContext => snap.aggregates_for_unattributed_context(),
         };
         let mut sorted: Vec<AggregateInfo> = aggregates.into_values().collect();
         sorted.sort_by(|a, b| {
@@ -527,6 +532,66 @@ impl App {
         self.sorted_aggregates = sorted;
         self.summary_state = TreeState::new();
         self.mark_rows_dirty();
+    }
+
+    fn open_filter_overlay(&mut self, snap: &HeapSnapshot) {
+        let mut items = Vec::new();
+
+        // Static filter modes
+        for mode in [
+            SummaryFilterMode::All,
+            SummaryFilterMode::Unreachable,
+            SummaryFilterMode::UnreachableRoots,
+            SummaryFilterMode::RetainedByDetachedDom,
+            SummaryFilterMode::RetainedByConsole,
+            SummaryFilterMode::RetainedByEventHandlers,
+        ] {
+            items.push(FilterOverlayItem::Filter {
+                label: mode.label(snap),
+                mode,
+            });
+        }
+
+        // Native contexts
+        if !snap.native_contexts().is_empty() {
+            items.push(FilterOverlayItem::Header("Native contexts".to_string()));
+            for (idx, ctx) in snap.native_contexts().iter().enumerate() {
+                let mut label = snap.native_context_label(ctx.ordinal);
+                if let Some(url) = snap.native_context_url(ctx.ordinal) {
+                    if let Some(ext_id) = url
+                        .strip_prefix("chrome-extension://")
+                        .and_then(|s| s.split('/').next())
+                    {
+                        if let Some(name) = self.extension_names.get(ext_id) {
+                            label = label.replace(url, &format!("{name} ({ext_id})"));
+                        }
+                    }
+                }
+                items.push(FilterOverlayItem::Filter {
+                    label,
+                    mode: SummaryFilterMode::NativeContext(NativeContextId(idx as u32)),
+                });
+            }
+            items.push(FilterOverlayItem::Filter {
+                label: "Shared (multiple contexts)".to_string(),
+                mode: SummaryFilterMode::SharedContext,
+            });
+            items.push(FilterOverlayItem::Filter {
+                label: "Unattributed".to_string(),
+                mode: SummaryFilterMode::UnattributedContext,
+            });
+        }
+
+        // Pre-select current mode
+        let current_idx = items
+            .iter()
+            .position(|item| matches!(item, FilterOverlayItem::Filter { mode, .. } if *mode == self.summary_filter_mode))
+            .unwrap_or(0);
+
+        self.filter_overlay_items = items;
+        self.filter_overlay_cursor = current_idx;
+        self.filter_overlay_scroll = 0;
+        self.input_mode = InputMode::FilterOverlay;
     }
 
     fn current_row(&self) -> Option<&FlatRow> {

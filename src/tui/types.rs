@@ -22,11 +22,22 @@ pub(super) enum ViewType {
     Help,
 }
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub(super) enum InputMode {
     Normal,
     Search,
     EdgeFilter,
+    FilterOverlay,
+}
+
+use super::SummaryFilterMode;
+
+pub(super) enum FilterOverlayItem {
+    Filter {
+        label: String,
+        mode: SummaryFilterMode,
+    },
+    Header(String),
 }
 
 // Unique identity for a row in the tree. Auto-incremented, Copy-cheap.

@@ -47,10 +47,7 @@ impl App {
             Line::from("  / opens search prompt (Summary and Diff views)"),
             Line::from("    text filters by constructor name, @id jumps to an object"),
             Line::from("  f filters the current edge list; empty input clears it"),
-            Line::from("  u / U cycles summary filter forward / backward"),
-            Line::from(
-                "    (All, Unreachable, Unreachable roots, Detached DOM, Console, Event handlers)",
-            ),
+            Line::from("  F opens the summary filter picker"),
             Line::from("  Enter applies a prompt, Esc cancels, Backspace deletes"),
             Line::from(""),
             Line::from(Span::styled("Inspection", Style::default().bold())),

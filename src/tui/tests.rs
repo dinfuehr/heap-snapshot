@@ -5078,3 +5078,281 @@ fn test_fit_tabs_extreme_narrow() {
         "minimum possible total is 24 (8 * 3), got {total}"
     );
 }
+
+// ── Filter overlay tests ────────────────────────────────────────────────
+
+#[test]
+fn test_filter_overlay_opens_on_f_key() {
+    let snap = load_test_snapshot(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/data/globals.heapsnapshot"
+    ));
+    let (work_tx, _work_rx) = mpsc::channel();
+    let (_result_tx, result_rx) = mpsc::channel();
+    let mut app = App::new(&snap, Vec::new(), work_tx, result_rx);
+
+    assert_eq!(app.input_mode, InputMode::Normal);
+    app.handle_key(
+        KeyEvent::new(KeyCode::Char('F'), KeyModifiers::SHIFT),
+        &snap,
+    );
+    assert_eq!(app.input_mode, InputMode::FilterOverlay);
+    assert!(!app.filter_overlay_items.is_empty());
+}
+
+#[test]
+fn test_filter_overlay_contains_static_modes() {
+    let snap = load_test_snapshot(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/data/globals.heapsnapshot"
+    ));
+    let (work_tx, _work_rx) = mpsc::channel();
+    let (_result_tx, result_rx) = mpsc::channel();
+    let mut app = App::new(&snap, Vec::new(), work_tx, result_rx);
+
+    app.open_filter_overlay(&snap);
+
+    // First 6 items should be the static filter modes
+    let labels: Vec<&str> = app
+        .filter_overlay_items
+        .iter()
+        .filter_map(|item| match item {
+            FilterOverlayItem::Filter { label, .. } => Some(label.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert!(labels.contains(&"All objects"));
+    assert!(labels.contains(&"Unreachable (all)"));
+    assert!(labels.contains(&"Unreachable (roots only)"));
+    assert!(labels.contains(&"Retained by detached DOM"));
+    assert!(labels.contains(&"Retained by DevTools console"));
+    assert!(labels.contains(&"Retained by event handlers"));
+}
+
+#[test]
+fn test_filter_overlay_contains_native_contexts() {
+    let snap = load_test_snapshot(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/data/globals.heapsnapshot"
+    ));
+    let (work_tx, _work_rx) = mpsc::channel();
+    let (_result_tx, result_rx) = mpsc::channel();
+    let mut app = App::new(&snap, Vec::new(), work_tx, result_rx);
+
+    app.open_filter_overlay(&snap);
+
+    let has_header = app
+        .filter_overlay_items
+        .iter()
+        .any(|item| matches!(item, FilterOverlayItem::Header(s) if s == "Native contexts"));
+    assert!(has_header, "should have a 'Native contexts' header");
+
+    let context_count = snap.native_contexts().len();
+    let nc_items = app.filter_overlay_items.iter().filter(|item| {
+        matches!(item, FilterOverlayItem::Filter { mode: SummaryFilterMode::NativeContext(_), .. })
+    }).count();
+    assert_eq!(nc_items, context_count);
+
+    // Should also have shared + unattributed
+    let has_shared = app.filter_overlay_items.iter().any(|item| {
+        matches!(item, FilterOverlayItem::Filter { mode: SummaryFilterMode::SharedContext, .. })
+    });
+    let has_unattributed = app.filter_overlay_items.iter().any(|item| {
+        matches!(item, FilterOverlayItem::Filter { mode: SummaryFilterMode::UnattributedContext, .. })
+    });
+    assert!(has_shared);
+    assert!(has_unattributed);
+}
+
+#[test]
+fn test_filter_overlay_preselects_current_mode() {
+    let snap = load_test_snapshot(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/data/globals.heapsnapshot"
+    ));
+    let (work_tx, _work_rx) = mpsc::channel();
+    let (_result_tx, result_rx) = mpsc::channel();
+    let mut app = App::new(&snap, Vec::new(), work_tx, result_rx);
+
+    app.set_summary_filter(SummaryFilterMode::Unreachable, &snap);
+    app.open_filter_overlay(&snap);
+
+    match &app.filter_overlay_items[app.filter_overlay_cursor] {
+        FilterOverlayItem::Filter { mode, .. } => {
+            assert_eq!(*mode, SummaryFilterMode::Unreachable);
+        }
+        _ => panic!("cursor should be on a filter item"),
+    }
+}
+
+#[test]
+fn test_filter_overlay_enter_applies_filter() {
+    let snap = load_test_snapshot(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/data/globals.heapsnapshot"
+    ));
+    let (work_tx, _work_rx) = mpsc::channel();
+    let (_result_tx, result_rx) = mpsc::channel();
+    let mut app = App::new(&snap, Vec::new(), work_tx, result_rx);
+
+    app.open_filter_overlay(&snap);
+    // Move down to "Unreachable (all)" (index 1)
+    app.handle_filter_overlay_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE), &snap);
+    assert_eq!(app.filter_overlay_cursor, 1);
+
+    app.handle_filter_overlay_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE), &snap);
+    assert_eq!(app.input_mode, InputMode::Normal);
+    assert_eq!(app.summary_filter_mode, SummaryFilterMode::Unreachable);
+}
+
+#[test]
+fn test_filter_overlay_esc_cancels() {
+    let snap = load_test_snapshot(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/data/globals.heapsnapshot"
+    ));
+    let (work_tx, _work_rx) = mpsc::channel();
+    let (_result_tx, result_rx) = mpsc::channel();
+    let mut app = App::new(&snap, Vec::new(), work_tx, result_rx);
+
+    app.open_filter_overlay(&snap);
+    // Move cursor but then cancel
+    app.handle_filter_overlay_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE), &snap);
+    app.handle_filter_overlay_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE), &snap);
+
+    assert_eq!(app.input_mode, InputMode::Normal);
+    assert_eq!(app.summary_filter_mode, SummaryFilterMode::All);
+}
+
+#[test]
+fn test_filter_overlay_q_cancels() {
+    let snap = load_test_snapshot(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/data/globals.heapsnapshot"
+    ));
+    let (work_tx, _work_rx) = mpsc::channel();
+    let (_result_tx, result_rx) = mpsc::channel();
+    let mut app = App::new(&snap, Vec::new(), work_tx, result_rx);
+
+    app.open_filter_overlay(&snap);
+    app.handle_filter_overlay_key(
+        KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE),
+        &snap,
+    );
+
+    assert_eq!(app.input_mode, InputMode::Normal);
+    assert_eq!(app.summary_filter_mode, SummaryFilterMode::All);
+}
+
+#[test]
+fn test_filter_overlay_cursor_skips_headers() {
+    let snap = load_test_snapshot(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/data/globals.heapsnapshot"
+    ));
+    let (work_tx, _work_rx) = mpsc::channel();
+    let (_result_tx, result_rx) = mpsc::channel();
+    let mut app = App::new(&snap, Vec::new(), work_tx, result_rx);
+
+    app.open_filter_overlay(&snap);
+
+    // Find the header index
+    let header_idx = app
+        .filter_overlay_items
+        .iter()
+        .position(|item| matches!(item, FilterOverlayItem::Header(_)))
+        .expect("should have a header");
+
+    // Position cursor just before the header
+    app.filter_overlay_cursor = header_idx - 1;
+    app.handle_filter_overlay_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE), &snap);
+
+    // Should have skipped the header
+    assert_eq!(app.filter_overlay_cursor, header_idx + 1);
+    assert!(matches!(
+        app.filter_overlay_items[app.filter_overlay_cursor],
+        FilterOverlayItem::Filter { .. }
+    ));
+
+    // Moving back up should also skip the header
+    app.handle_filter_overlay_key(KeyEvent::new(KeyCode::Up, KeyModifiers::NONE), &snap);
+    assert_eq!(app.filter_overlay_cursor, header_idx - 1);
+}
+
+#[test]
+fn test_filter_overlay_g_and_capital_g() {
+    let snap = load_test_snapshot(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/data/globals.heapsnapshot"
+    ));
+    let (work_tx, _work_rx) = mpsc::channel();
+    let (_result_tx, result_rx) = mpsc::channel();
+    let mut app = App::new(&snap, Vec::new(), work_tx, result_rx);
+
+    app.open_filter_overlay(&snap);
+    let last = app.filter_overlay_items.len() - 1;
+
+    // G goes to end
+    app.handle_filter_overlay_key(
+        KeyEvent::new(KeyCode::Char('G'), KeyModifiers::SHIFT),
+        &snap,
+    );
+    assert_eq!(app.filter_overlay_cursor, last);
+
+    // g goes to start
+    app.handle_filter_overlay_key(
+        KeyEvent::new(KeyCode::Char('g'), KeyModifiers::NONE),
+        &snap,
+    );
+    assert_eq!(app.filter_overlay_cursor, 0);
+}
+
+#[test]
+fn test_filter_overlay_select_native_context() {
+    let snap = load_test_snapshot(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/data/globals.heapsnapshot"
+    ));
+    let (work_tx, _work_rx) = mpsc::channel();
+    let (_result_tx, result_rx) = mpsc::channel();
+    let mut app = App::new(&snap, Vec::new(), work_tx, result_rx);
+
+    app.open_filter_overlay(&snap);
+
+    // Find the first native context item
+    let nc_idx = app
+        .filter_overlay_items
+        .iter()
+        .position(|item| {
+            matches!(item, FilterOverlayItem::Filter { mode: SummaryFilterMode::NativeContext(_), .. })
+        })
+        .expect("should have native context items");
+
+    app.filter_overlay_cursor = nc_idx;
+    app.handle_filter_overlay_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE), &snap);
+
+    assert_eq!(app.input_mode, InputMode::Normal);
+    assert!(matches!(
+        app.summary_filter_mode,
+        SummaryFilterMode::NativeContext(_)
+    ));
+    // Should have recomputed aggregates (non-empty or empty is fine, just shouldn't panic)
+}
+
+#[test]
+fn test_filter_overlay_f_does_not_open_in_other_views() {
+    let snap = load_test_snapshot(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/data/globals.heapsnapshot"
+    ));
+    let (work_tx, _work_rx) = mpsc::channel();
+    let (_result_tx, result_rx) = mpsc::channel();
+    let mut app = App::new(&snap, Vec::new(), work_tx, result_rx);
+
+    app.current_view = ViewType::Containment;
+    app.handle_key(
+        KeyEvent::new(KeyCode::Char('F'), KeyModifiers::SHIFT),
+        &snap,
+    );
+    assert_eq!(app.input_mode, InputMode::Normal);
+}
