@@ -10,16 +10,16 @@ use rmcp::model::*;
 use rmcp::schemars;
 use rmcp::{ErrorData as McpError, RoleServer, ServerHandler, tool, tool_handler, tool_router};
 
-use heap_snapshot::diff;
-use heap_snapshot::parser;
-use heap_snapshot::print::closure_leaks;
-use heap_snapshot::print::diff::{format_signed_count, format_signed_size};
-use heap_snapshot::print::format_size;
-use heap_snapshot::retaining_path::{
+use crate::diff;
+use crate::parser;
+use crate::print::closure_leaks;
+use crate::print::diff::{format_signed_count, format_signed_size};
+use crate::print::format_size;
+use crate::retaining_path::{
     RetainerAutoExpandLimits, RetainerPathEdge, plan_gc_root_retainer_paths,
 };
-use heap_snapshot::snapshot::{HeapSnapshot, RootKind, SnapshotOptions};
-use heap_snapshot::types::{AggregateMap, NodeId, NodeOrdinal};
+use crate::snapshot::{HeapSnapshot, RootKind, SnapshotOptions};
+use crate::types::{AggregateMap, NodeId, NodeOrdinal};
 
 // ---------------------------------------------------------------------------
 // Parameter types
@@ -1188,7 +1188,7 @@ impl McpServer {
 
                     lines.push(format!(
                         "@{id} (retained: {})  vars: [{}]",
-                        heap_snapshot::print::format_size(retained),
+                        crate::print::format_size(retained),
                         all_vars.join(", "),
                     ));
 
@@ -1210,7 +1210,7 @@ impl McpServer {
                                         let child_retained = snapshot.node_retained_size(child_ord);
                                         format!(
                                             ": @{child_id} {child_name} (retained: {})",
-                                            heap_snapshot::print::format_size(child_retained),
+                                            crate::print::format_size(child_retained),
                                         )
                                     })
                                     .unwrap_or_default();
@@ -1356,15 +1356,17 @@ impl ServerHandler for McpServer {
 // Entry point
 // ---------------------------------------------------------------------------
 
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     use rmcp::{ServiceExt, transport::stdio};
 
-    // Logs go to stderr since stdout is the MCP transport
-    eprintln!("heap-snapshot-mcp starting...");
+    let rt = tokio::runtime::Runtime::new()?;
+    rt.block_on(async {
+        // Logs go to stderr since stdout is the MCP transport
+        eprintln!("heap-snapshot-mcp starting...");
 
-    let service = McpServer::new().serve(stdio()).await?;
-    service.waiting().await?;
+        let service = McpServer::new().serve(stdio()).await?;
+        service.waiting().await?;
 
-    Ok(())
+        Ok(())
+    })
 }

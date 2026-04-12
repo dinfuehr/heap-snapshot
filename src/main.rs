@@ -1,6 +1,7 @@
 use clap::{Parser, Subcommand};
 use std::fs::File;
 
+use heap_snapshot::mcp;
 use heap_snapshot::parser;
 use heap_snapshot::print::{self, EdgeWindow, ExpandMap, GroupExpandMap, GroupWindow};
 use heap_snapshot::snapshot::{self, HeapSnapshot, SnapshotOptions};
@@ -242,6 +243,8 @@ enum Command {
         /// Object ID of a Script or SharedFunctionInfo (e.g. @3005313 or 3005313)
         object_id: String,
     },
+    /// Start the MCP (Model Context Protocol) server
+    Mcp,
     /// Compare two heap snapshots
     Diff {
         #[command(flatten)]
@@ -719,6 +722,12 @@ fn main() {
                 std::process::exit(1);
             });
             print::scopes::print_scopes(&snap, id);
+        }
+        Command::Mcp => {
+            mcp::run().unwrap_or_else(|e| {
+                eprintln!("Error in MCP server: {e}");
+                std::process::exit(1);
+            });
         }
         Command::Diff {
             snap_args,

@@ -8,7 +8,9 @@ fn test_dir() -> &'static str {
 }
 
 fn mcp_bin() -> Command {
-    Command::new(env!("CARGO_BIN_EXE_heap-snapshot-mcp"))
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_heap-snapshot"));
+    cmd.arg("mcp");
+    cmd
 }
 
 /// A running MCP server process that supports multi-round request/response.

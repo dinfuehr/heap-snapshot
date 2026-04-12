@@ -35,10 +35,6 @@ oxc_semantic = "0.123"
 oxc_span = "0.123"
 oxc_syntax = "0.123"
 
-[[bin]]
-name = "heap-snapshot-mcp"
-path = "src/mcp.rs"
-
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }
 serde_json = "1"

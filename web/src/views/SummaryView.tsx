@@ -488,11 +488,23 @@ export function SummaryView(props: {
     if (key.startsWith('ctx:')) {
       const sub = key.slice(4);
       if (sub === 'shared') {
-        await props.call({ type: 'setSummaryFilterContext', contextMode: 1, contextIndex: 0 });
+        await props.call({
+          type: 'setSummaryFilterContext',
+          contextMode: 1,
+          contextIndex: 0,
+        });
       } else if (sub === 'unattributed') {
-        await props.call({ type: 'setSummaryFilterContext', contextMode: 2, contextIndex: 0 });
+        await props.call({
+          type: 'setSummaryFilterContext',
+          contextMode: 2,
+          contextIndex: 0,
+        });
       } else {
-        await props.call({ type: 'setSummaryFilterContext', contextMode: 0, contextIndex: parseInt(sub, 10) });
+        await props.call({
+          type: 'setSummaryFilterContext',
+          contextMode: 0,
+          contextIndex: parseInt(sub, 10),
+        });
       }
     } else {
       await props.call({ type: 'setSummaryFilter', mode: parseInt(key, 10) });
@@ -605,11 +617,7 @@ export function SummaryView(props: {
           <Show when={contexts() && contexts()!.length > 0}>
             <optgroup label="Native contexts">
               <For each={contexts()!}>
-                {(ctx, i) => (
-                  <option value={`ctx:${i()}`}>
-                    {ctx.label}
-                  </option>
-                )}
+                {(ctx, i) => <option value={`ctx:${i()}`}>{ctx.label}</option>}
               </For>
               <option value="ctx:shared">Shared (multiple contexts)</option>
               <option value="ctx:unattributed">Unattributed</option>
