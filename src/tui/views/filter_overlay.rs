@@ -2,7 +2,7 @@ use ratatui::prelude::*;
 use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 
 use crate::tui::types::FilterOverlayItem;
-use crate::tui::{truncate_str, App};
+use crate::tui::{App, truncate_str};
 
 impl App {
     pub(in crate::tui) fn render_filter_overlay(&mut self, frame: &mut Frame, area: Rect) {

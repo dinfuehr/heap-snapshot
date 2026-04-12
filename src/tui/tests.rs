@@ -5148,17 +5148,39 @@ fn test_filter_overlay_contains_native_contexts() {
     assert!(has_header, "should have a 'Native contexts' header");
 
     let context_count = snap.native_contexts().len();
-    let nc_items = app.filter_overlay_items.iter().filter(|item| {
-        matches!(item, FilterOverlayItem::Filter { mode: SummaryFilterMode::NativeContext(_), .. })
-    }).count();
+    let nc_items = app
+        .filter_overlay_items
+        .iter()
+        .filter(|item| {
+            matches!(
+                item,
+                FilterOverlayItem::Filter {
+                    mode: SummaryFilterMode::NativeContext(_),
+                    ..
+                }
+            )
+        })
+        .count();
     assert_eq!(nc_items, context_count);
 
     // Should also have shared + unattributed
     let has_shared = app.filter_overlay_items.iter().any(|item| {
-        matches!(item, FilterOverlayItem::Filter { mode: SummaryFilterMode::SharedContext, .. })
+        matches!(
+            item,
+            FilterOverlayItem::Filter {
+                mode: SummaryFilterMode::SharedContext,
+                ..
+            }
+        )
     });
     let has_unattributed = app.filter_overlay_items.iter().any(|item| {
-        matches!(item, FilterOverlayItem::Filter { mode: SummaryFilterMode::UnattributedContext, .. })
+        matches!(
+            item,
+            FilterOverlayItem::Filter {
+                mode: SummaryFilterMode::UnattributedContext,
+                ..
+            }
+        )
     });
     assert!(has_shared);
     assert!(has_unattributed);
@@ -5235,10 +5257,7 @@ fn test_filter_overlay_q_cancels() {
     let mut app = App::new(&snap, Vec::new(), work_tx, result_rx);
 
     app.open_filter_overlay(&snap);
-    app.handle_filter_overlay_key(
-        KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE),
-        &snap,
-    );
+    app.handle_filter_overlay_key(KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE), &snap);
 
     assert_eq!(app.input_mode, InputMode::Normal);
     assert_eq!(app.summary_filter_mode, SummaryFilterMode::All);
@@ -5300,10 +5319,7 @@ fn test_filter_overlay_g_and_capital_g() {
     assert_eq!(app.filter_overlay_cursor, last);
 
     // g goes to start
-    app.handle_filter_overlay_key(
-        KeyEvent::new(KeyCode::Char('g'), KeyModifiers::NONE),
-        &snap,
-    );
+    app.handle_filter_overlay_key(KeyEvent::new(KeyCode::Char('g'), KeyModifiers::NONE), &snap);
     assert_eq!(app.filter_overlay_cursor, 0);
 }
 
@@ -5324,7 +5340,13 @@ fn test_filter_overlay_select_native_context() {
         .filter_overlay_items
         .iter()
         .position(|item| {
-            matches!(item, FilterOverlayItem::Filter { mode: SummaryFilterMode::NativeContext(_), .. })
+            matches!(
+                item,
+                FilterOverlayItem::Filter {
+                    mode: SummaryFilterMode::NativeContext(_),
+                    ..
+                }
+            )
         })
         .expect("should have native context items");
 

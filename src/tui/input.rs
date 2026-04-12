@@ -148,7 +148,10 @@ impl App {
                         break;
                     }
                     idx -= 1;
-                    if matches!(self.filter_overlay_items[idx], FilterOverlayItem::Filter { .. }) {
+                    if matches!(
+                        self.filter_overlay_items[idx],
+                        FilterOverlayItem::Filter { .. }
+                    ) {
                         self.filter_overlay_cursor = idx;
                         break;
                     }
@@ -162,7 +165,10 @@ impl App {
                         break;
                     }
                     idx += 1;
-                    if matches!(self.filter_overlay_items[idx], FilterOverlayItem::Filter { .. }) {
+                    if matches!(
+                        self.filter_overlay_items[idx],
+                        FilterOverlayItem::Filter { .. }
+                    ) {
                         self.filter_overlay_cursor = idx;
                         break;
                     }
@@ -181,8 +187,7 @@ impl App {
             KeyCode::End | KeyCode::Char('G') => {
                 self.filter_overlay_cursor = item_count.saturating_sub(1);
             }
-            KeyCode::PageUp
-            | KeyCode::Char('b')
+            KeyCode::PageUp | KeyCode::Char('b')
                 if key.modifiers.contains(KeyModifiers::CONTROL)
                     || matches!(key.code, KeyCode::PageUp) =>
             {
@@ -190,12 +195,14 @@ impl App {
                 let target = self.filter_overlay_cursor.saturating_sub(page);
                 self.filter_overlay_cursor = (target..item_count)
                     .find(|&i| {
-                        matches!(self.filter_overlay_items[i], FilterOverlayItem::Filter { .. })
+                        matches!(
+                            self.filter_overlay_items[i],
+                            FilterOverlayItem::Filter { .. }
+                        )
                     })
                     .unwrap_or(self.filter_overlay_cursor);
             }
-            KeyCode::PageDown
-            | KeyCode::Char('f')
+            KeyCode::PageDown | KeyCode::Char('f')
                 if key.modifiers.contains(KeyModifiers::CONTROL)
                     || matches!(key.code, KeyCode::PageDown) =>
             {
@@ -204,7 +211,10 @@ impl App {
                 self.filter_overlay_cursor = (0..=target)
                     .rev()
                     .find(|&i| {
-                        matches!(self.filter_overlay_items[i], FilterOverlayItem::Filter { .. })
+                        matches!(
+                            self.filter_overlay_items[i],
+                            FilterOverlayItem::Filter { .. }
+                        )
                     })
                     .unwrap_or(self.filter_overlay_cursor);
             }

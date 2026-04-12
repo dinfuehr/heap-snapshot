@@ -1,8 +1,8 @@
 mod containment;
 mod contexts;
-mod filter_overlay;
 mod diff;
 mod dominators;
+mod filter_overlay;
 mod help;
 mod history;
 mod retainers;
