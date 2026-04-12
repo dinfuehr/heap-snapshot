@@ -8,7 +8,7 @@ use heap_snapshot::parser;
 use heap_snapshot::retaining_path::{
     RetainerAutoExpandLimits, RetainerPathEdge, plan_gc_root_retainer_paths,
 };
-use heap_snapshot::snapshot::{HeapSnapshot, RootKind, SnapshotOptions};
+use heap_snapshot::snapshot::{HeapSnapshot, NativeContextId, RootKind, SnapshotOptions};
 use heap_snapshot::types::AggregateInfo;
 use heap_snapshot::types::{NodeId, NodeOrdinal};
 use rustc_hash::FxHashMap;
@@ -258,6 +258,26 @@ impl WasmHeapSnapshot {
         });
     }
 
+    /// mode: 0 = specific context (uses context_index), 1 = shared, 2 = unattributed
+    pub fn set_summary_filter_context(
+        &mut self,
+        mode: u32,
+        context_index: u32,
+    ) -> Result<(), JsError> {
+        self.cached_aggregates = Some(match mode {
+            1 => self.inner.aggregates_for_shared_context(),
+            2 => self.inner.aggregates_for_unattributed_context(),
+            _ => {
+                if (context_index as usize) >= self.inner.native_contexts().len() {
+                    return Err(JsError::new("Invalid context index"));
+                }
+                self.inner
+                    .aggregates_for_native_context(NativeContextId(context_index))
+            }
+        });
+        Ok(())
+    }
+
     pub fn get_summary(&self) -> String {
         let aggregates = self.cached_aggregates.as_ref().unwrap();
         let mut entries: Vec<JsAggregateEntry> = aggregates
@@ -498,8 +518,8 @@ impl WasmHeapSnapshot {
         let contexts: Vec<JsNativeContext> = snap
             .native_contexts()
             .iter()
-            .map(|&ord| {
-                let ord = NodeOrdinal(ord);
+            .map(|ctx| {
+                let ord = ctx.ordinal;
                 JsNativeContext {
                     id: snap.node_id(ord).0,
                     label: snap.native_context_label(ord),

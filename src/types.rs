@@ -36,9 +36,22 @@ impl std::fmt::Display for Distance {
     }
 }
 
+/// Internal index of a node within one loaded heap snapshot.
+///
+/// This is an array-position handle used throughout snapshot analysis code for
+/// fast access into flat `nodes`/`edges` storage. It is only meaningful within
+/// a single `HeapSnapshot` instance and should not be treated as a stable
+/// object identifier.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct NodeOrdinal(pub usize);
 
+/// Heap snapshot object ID from the snapshot's `id` field.
+///
+/// This is the external identifier shown to users as `@<id>` and used by CLI
+/// and MCP APIs. These IDs increase as objects are assigned snapshot IDs, and
+/// the same live object keeps the same `NodeId` across multiple snapshots.
+/// Convert between `NodeId` and `NodeOrdinal` with
+/// `HeapSnapshot::node_for_snapshot_object_id` and `HeapSnapshot::node_id`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct NodeId(pub u64);
 

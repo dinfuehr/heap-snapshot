@@ -150,6 +150,12 @@ export type WorkerRequest =
   | { id: number; type: 'close'; snapshotId: number }
   | { id: number; type: 'getStatistics' }
   | { id: number; type: 'setSummaryFilter'; mode: number }
+  | {
+      id: number;
+      type: 'setSummaryFilterContext';
+      contextMode: number;
+      contextIndex: number;
+    }
   | { id: number; type: 'getSummary' }
   | {
       id: number;

@@ -113,6 +113,13 @@ async function processMessage(msg: WorkerMsg) {
         snapshot.set_summary_filter((msg.mode as number) || 0);
         respond(id, null);
         break;
+      case 'setSummaryFilterContext':
+        snapshot.set_summary_filter_context(
+          msg.contextMode as number,
+          msg.contextIndex as number,
+        );
+        respond(id, null);
+        break;
       case 'getSummary':
         respond(id, JSON.parse(snapshot.get_summary()));
         break;

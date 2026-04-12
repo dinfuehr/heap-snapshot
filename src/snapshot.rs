@@ -3933,6 +3933,45 @@ impl HeapSnapshot {
         aggregates
     }
 
+    pub fn aggregates_for_native_context(&self, context_id: NativeContextId) -> AggregateMap {
+        let mut aggregates = self.build_aggregates(|ordinal| {
+            self.node_native_context_buckets[ordinal] == NativeContextBucket::Context(context_id)
+        });
+        self.calculate_classes_retained_size(&mut aggregates);
+        for agg in aggregates.values_mut() {
+            let rs = &self.retained_sizes;
+            agg.node_ordinals
+                .sort_by(|a, b| rs[b.0].partial_cmp(&rs[a.0]).unwrap());
+        }
+        aggregates
+    }
+
+    pub fn aggregates_for_shared_context(&self) -> AggregateMap {
+        let mut aggregates = self.build_aggregates(|ordinal| {
+            self.node_native_context_buckets[ordinal] == NativeContextBucket::Shared
+        });
+        self.calculate_classes_retained_size(&mut aggregates);
+        for agg in aggregates.values_mut() {
+            let rs = &self.retained_sizes;
+            agg.node_ordinals
+                .sort_by(|a, b| rs[b.0].partial_cmp(&rs[a.0]).unwrap());
+        }
+        aggregates
+    }
+
+    pub fn aggregates_for_unattributed_context(&self) -> AggregateMap {
+        let mut aggregates = self.build_aggregates(|ordinal| {
+            self.node_native_context_buckets[ordinal] == NativeContextBucket::Unattributed
+        });
+        self.calculate_classes_retained_size(&mut aggregates);
+        for agg in aggregates.values_mut() {
+            let rs = &self.retained_sizes;
+            agg.node_ordinals
+                .sort_by(|a, b| rs[b.0].partial_cmp(&rs[a.0]).unwrap());
+        }
+        aggregates
+    }
+
     /// BFS from the root, skipping edges where `skip_edge` returns true.
     /// Returns a bitmap where `true` means the node is NOT reachable under
     /// these constraints (i.e. only retained via skipped edges).

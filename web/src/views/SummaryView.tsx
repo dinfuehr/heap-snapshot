@@ -14,6 +14,7 @@ import type {
   SummaryExpanded,
   Children,
   ReachableSizeInfo,
+  NativeContext,
 } from '../types.ts';
 import type { SnapshotCall } from '../worker/use-snapshot.ts';
 import type { NavigateOptions } from '../components/ObjectLink.tsx';
@@ -479,9 +480,23 @@ export function SummaryView(props: {
   reachablePending: Set<number>;
   highlightNodeId: number | null;
 }): JSX.Element {
-  const [summaryFilter, setSummaryFilter] = createSignal(0);
-  const [entries] = createResource(summaryFilter, async (mode) => {
-    await props.call({ type: 'setSummaryFilter', mode });
+  const [contexts] = createResource(() =>
+    props.call<NativeContext[]>({ type: 'getNativeContexts' }),
+  );
+  const [summaryFilter, setSummaryFilter] = createSignal('0');
+  const [entries] = createResource(summaryFilter, async (key) => {
+    if (key.startsWith('ctx:')) {
+      const sub = key.slice(4);
+      if (sub === 'shared') {
+        await props.call({ type: 'setSummaryFilterContext', contextMode: 1, contextIndex: 0 });
+      } else if (sub === 'unattributed') {
+        await props.call({ type: 'setSummaryFilterContext', contextMode: 2, contextIndex: 0 });
+      } else {
+        await props.call({ type: 'setSummaryFilterContext', contextMode: 0, contextIndex: parseInt(sub, 10) });
+      }
+    } else {
+      await props.call({ type: 'setSummaryFilter', mode: parseInt(key, 10) });
+    }
     return props.call<AggregateEntry[]>({ type: 'getSummary' });
   });
   const [filter, setFilter] = createSignal('');
@@ -490,7 +505,7 @@ export function SummaryView(props: {
 
   const focusOnNode = async (nodeId: number) => {
     // Ensure "All objects" filter so the node is visible.
-    setSummaryFilter(0);
+    setSummaryFilter('0');
     await props.call({ type: 'setSummaryFilter', mode: 0 });
     const constructorKey = await props.call<string>({
       type: 'getConstructorForNode',
@@ -574,19 +589,32 @@ export function SummaryView(props: {
         <select
           value={summaryFilter()}
           onChange={(e) => {
-            setSummaryFilter(parseInt(e.currentTarget.value, 10));
+            setSummaryFilter(e.currentTarget.value);
           }}
           style={{
             padding: '4px 8px',
             'font-size': '13px',
           }}
         >
-          <option value={0}>All objects</option>
-          <option value={1}>Unreachable (all)</option>
-          <option value={2}>Unreachable (roots only)</option>
-          <option value={3}>Retained by detached DOM</option>
-          <option value={4}>Retained by DevTools console</option>
-          <option value={5}>Retained by event handlers</option>
+          <option value="0">All objects</option>
+          <option value="1">Unreachable (all)</option>
+          <option value="2">Unreachable (roots only)</option>
+          <option value="3">Retained by detached DOM</option>
+          <option value="4">Retained by DevTools console</option>
+          <option value="5">Retained by event handlers</option>
+          <Show when={contexts() && contexts()!.length > 0}>
+            <optgroup label="Native contexts">
+              <For each={contexts()!}>
+                {(ctx, i) => (
+                  <option value={`ctx:${i()}`}>
+                    {ctx.label}
+                  </option>
+                )}
+              </For>
+              <option value="ctx:shared">Shared (multiple contexts)</option>
+              <option value="ctx:unattributed">Unattributed</option>
+            </optgroup>
+          </Show>
         </select>
         <Show when={entries.loading}>
           <span style={{ 'font-size': '12px', color: '#888' }}>Loading...</span>
