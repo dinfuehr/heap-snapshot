@@ -165,6 +165,7 @@ export function TimelineView(props: {
                     <SummaryTable
                       entries={entries()}
                       call={props.call}
+                      objectsMessageType="getTimelineObjects"
                       onNavigate={props.onNavigate}
                       onContextMenu={props.onContextMenu}
                       reachableSizes={props.reachableSizes}

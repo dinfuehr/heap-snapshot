@@ -3926,54 +3926,37 @@ impl HeapSnapshot {
         &self.statistics
     }
 
-    pub fn aggregates_with_filter(&self) -> AggregateMap {
-        let mut aggregates = self.build_aggregates(|_| true);
-        self.calculate_classes_retained_size(&mut aggregates);
-        for agg in aggregates.values_mut() {
-            let rs = &self.retained_sizes;
+    fn compute_aggregates(&self, filter: impl Fn(usize) -> bool) -> AggregateMap {
+        let (mut aggregates, ord_to_agg) = self.build_aggregates(filter);
+        self.calculate_classes_retained_size(&mut aggregates, &ord_to_agg);
+        let rs = &self.retained_sizes;
+        for agg in aggregates.iter_mut() {
             agg.node_ordinals
                 .sort_by(|a, b| rs[b.0].partial_cmp(&rs[a.0]).unwrap());
         }
         aggregates
+    }
+
+    pub fn aggregates_with_filter(&self) -> AggregateMap {
+        self.compute_aggregates(|_| true)
     }
 
     pub fn aggregates_for_native_context(&self, context_id: NativeContextId) -> AggregateMap {
-        let mut aggregates = self.build_aggregates(|ordinal| {
+        self.compute_aggregates(|ordinal| {
             self.node_native_context_buckets[ordinal] == NativeContextBucket::Context(context_id)
-        });
-        self.calculate_classes_retained_size(&mut aggregates);
-        for agg in aggregates.values_mut() {
-            let rs = &self.retained_sizes;
-            agg.node_ordinals
-                .sort_by(|a, b| rs[b.0].partial_cmp(&rs[a.0]).unwrap());
-        }
-        aggregates
+        })
     }
 
     pub fn aggregates_for_shared_context(&self) -> AggregateMap {
-        let mut aggregates = self.build_aggregates(|ordinal| {
+        self.compute_aggregates(|ordinal| {
             self.node_native_context_buckets[ordinal] == NativeContextBucket::Shared
-        });
-        self.calculate_classes_retained_size(&mut aggregates);
-        for agg in aggregates.values_mut() {
-            let rs = &self.retained_sizes;
-            agg.node_ordinals
-                .sort_by(|a, b| rs[b.0].partial_cmp(&rs[a.0]).unwrap());
-        }
-        aggregates
+        })
     }
 
     pub fn aggregates_for_unattributed_context(&self) -> AggregateMap {
-        let mut aggregates = self.build_aggregates(|ordinal| {
+        self.compute_aggregates(|ordinal| {
             self.node_native_context_buckets[ordinal] == NativeContextBucket::Unattributed
-        });
-        self.calculate_classes_retained_size(&mut aggregates);
-        for agg in aggregates.values_mut() {
-            let rs = &self.retained_sizes;
-            agg.node_ordinals
-                .sort_by(|a, b| rs[b.0].partial_cmp(&rs[a.0]).unwrap());
-        }
-        aggregates
+        })
     }
 
     /// BFS from the root, skipping edges where `skip_edge` returns true.
@@ -4045,14 +4028,14 @@ impl HeapSnapshot {
     /// Objects only retained by detached DOM nodes.
     pub fn retained_by_detached_dom(&self) -> AggregateMap {
         if self.node_detachedness_offset < 0 {
-            return FxHashMap::default();
+            return Vec::new();
         }
         let det_off = self.node_detachedness_offset as usize;
         let nfc = self.node_field_count;
         let retained = self.compute_retained_bitmap(|_ei, _src, target| {
             self.nodes[target * nfc + det_off] & BITMASK_FOR_DOM_LINK_STATE == 2
         });
-        self.build_aggregates(|ordinal| retained[ordinal])
+        self.compute_aggregates(|ordinal| retained[ordinal])
     }
 
     /// Objects only retained by DevTools console references.
@@ -4065,7 +4048,7 @@ impl HeapSnapshot {
             }
             self.edge_name(ei).ends_with(" / DevTools console")
         });
-        self.build_aggregates(|ordinal| retained[ordinal])
+        self.compute_aggregates(|ordinal| retained[ordinal])
     }
 
     /// Objects only retained by event handler functions.
@@ -4113,34 +4096,35 @@ impl HeapSnapshot {
 
         // Step 2: BFS skipping handler nodes
         let retained = self.compute_retained_bitmap(|_ei, _src, target| is_handler[target]);
-        self.build_aggregates(|ordinal| retained[ordinal])
+        self.compute_aggregates(|ordinal| retained[ordinal])
     }
 
     /// Build aggregates for unreachable nodes only (distance >= UNREACHABLE_BASE).
     pub fn unreachable_aggregates(&self) -> AggregateMap {
-        self.build_aggregates(|ordinal| self.node_distances[ordinal].is_unreachable())
+        self.compute_aggregates(|ordinal| self.node_distances[ordinal].is_unreachable())
     }
 
     /// Build aggregates for fully unreachable nodes only (distance == UNREACHABLE_BASE).
     pub fn unreachable_root_aggregates(&self) -> AggregateMap {
-        self.build_aggregates(|ordinal| self.node_distances[ordinal].is_unreachable_root())
+        self.compute_aggregates(|ordinal| self.node_distances[ordinal].is_unreachable_root())
     }
 
     /// Build aggregates for objects whose ID falls in (id_from, id_to].
     pub fn aggregates_for_id_range(&self, id_from: u64, id_to: u64) -> AggregateMap {
         let nfc = self.node_field_count;
         let ido = self.node_id_offset;
-        self.build_aggregates(|ordinal| {
+        self.compute_aggregates(|ordinal| {
             let id = self.nodes[ordinal * nfc + ido] as u64;
             id > id_from && id <= id_to
         })
     }
 
-    fn build_aggregates(&self, filter: impl Fn(usize) -> bool) -> AggregateMap {
+    fn build_aggregates(&self, filter: impl Fn(usize) -> bool) -> (AggregateMap, Vec<u32>) {
         let nfc = self.node_field_count;
         let sso = self.node_self_size_offset;
 
-        let mut aggregates: FxHashMap<ClassKey, AggregateInfo> = FxHashMap::default();
+        let mut aggregates: FxHashMap<ClassKey, (u32, AggregateInfo)> = FxHashMap::default();
+        let mut ord_to_agg: Vec<u32> = vec![u32::MAX; self.node_count];
         let mut next_first_seen: u32 = 0;
 
         for ordinal in 0..self.node_count {
@@ -4160,7 +4144,8 @@ impl HeapSnapshot {
 
             aggregates
                 .entry(class_key)
-                .and_modify(|agg| {
+                .and_modify(|(idx, agg)| {
+                    ord_to_agg[ordinal] = *idx;
                     agg.distance = agg.distance.min(distance);
                     agg.count += 1;
                     agg.self_size += self_size;
@@ -4168,56 +4153,67 @@ impl HeapSnapshot {
                 })
                 .or_insert_with(|| {
                     let fs = next_first_seen;
+                    ord_to_agg[ordinal] = fs;
                     next_first_seen += 1;
-                    AggregateInfo {
-                        count: 1,
-                        distance,
-                        self_size,
-                        max_ret: 0.0,
-                        name: class_name,
-                        first_seen: fs,
-                        node_ordinals: vec![node_ordinal],
-                    }
+                    (
+                        fs,
+                        AggregateInfo {
+                            count: 1,
+                            distance,
+                            self_size,
+                            max_ret: 0.0,
+                            name: class_name,
+                            first_seen: fs,
+                            node_ordinals: vec![node_ordinal],
+                        },
+                    )
                 });
         }
 
-        // Convert to string-keyed map
-        let mut result: AggregateMap = FxHashMap::default();
-        for (key, agg) in aggregates {
-            let str_key = match key {
-                ClassKey::Index(idx) => self.strings[idx as usize].clone(),
-                ClassKey::Location(sid, line, col, ref name) => {
-                    format!("{sid},{line},{col},{name}")
+        // Resolve location-based names and collect into Vec
+        let mut result: AggregateMap = aggregates
+            .into_iter()
+            .map(|(key, (_, mut agg))| {
+                if let ClassKey::Location(sid, line, col, _) = key {
+                    let loc = SourceLocation {
+                        script_id: sid,
+                        line,
+                        column: col,
+                    };
+                    agg.name = format!("{} [{}]", agg.name, self.format_location(&loc));
                 }
-            };
-            result.insert(str_key, agg);
-        }
-        result
+                agg
+            })
+            .collect();
+        result.sort_by_key(|a| a.first_seen);
+        (result, ord_to_agg)
     }
 
-    fn calculate_classes_retained_size(&self, aggregates: &mut AggregateMap) {
+    fn calculate_classes_retained_size(&self, aggregates: &mut AggregateMap, ord_to_agg: &[u32]) {
         let nfc = self.node_field_count;
 
         let mut list: Vec<usize> = vec![self.gc_roots_ordinal * nfc];
         let mut sizes: Vec<i64> = vec![-1];
-        let mut class_keys: Vec<String> = Vec::new();
-        let mut seen_class_keys: FxHashMap<String, bool> = FxHashMap::default();
+        let mut class_stack: Vec<u32> = Vec::new();
+        let mut seen: FxHashSet<u32> = FxHashSet::default();
 
         while let Some(node_index) = list.pop() {
             let ordinal = node_index / nfc;
-            let class_key = self.class_key_string(NodeOrdinal(ordinal));
-            let seen = *seen_class_keys.get(&class_key).unwrap_or(&false);
+            let agg_idx = ord_to_agg[ordinal];
+            let is_seen = agg_idx != u32::MAX && seen.contains(&agg_idx);
             let dom_from = self.first_dominated_node_index[ordinal] as usize;
             let dom_to = self.first_dominated_node_index[ordinal + 1] as usize;
 
-            if !seen && self.nodes[ordinal * nfc + self.node_self_size_offset] > 0 {
-                if let Some(agg) = aggregates.get_mut(&class_key) {
-                    agg.max_ret += self.retained_sizes[ordinal];
+            if !is_seen && self.nodes[ordinal * nfc + self.node_self_size_offset] > 0 {
+                if agg_idx != u32::MAX {
+                    aggregates[agg_idx as usize].max_ret += self.retained_sizes[ordinal];
                 }
                 if dom_from != dom_to {
-                    seen_class_keys.insert(class_key.clone(), true);
+                    if agg_idx != u32::MAX {
+                        seen.insert(agg_idx);
+                    }
                     sizes.push(list.len() as i64);
-                    class_keys.push(class_key.clone());
+                    class_stack.push(agg_idx);
                 }
             }
 
@@ -4228,8 +4224,8 @@ impl HeapSnapshot {
             let l = list.len() as i64;
             while !sizes.is_empty() && *sizes.last().unwrap() == l {
                 sizes.pop();
-                if let Some(ck) = class_keys.pop() {
-                    seen_class_keys.insert(ck, false);
+                if let Some(idx) = class_stack.pop() {
+                    seen.remove(&idx);
                 }
             }
         }
@@ -4286,15 +4282,6 @@ impl HeapSnapshot {
                 .then(b.count.cmp(&a.count))
         });
         result
-    }
-
-    fn class_key_string(&self, ordinal: NodeOrdinal) -> String {
-        match self.class_key_internal(ordinal) {
-            ClassKey::Index(idx) => self.strings[idx as usize].clone(),
-            ClassKey::Location(sid, line, col, name) => {
-                format!("{sid},{line},{col},{name}")
-            }
-        }
     }
 }
 

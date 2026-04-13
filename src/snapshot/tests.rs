@@ -1,5 +1,13 @@
 use super::*;
-use crate::types::{Distance, RawHeapSnapshot, SnapshotHeader, SnapshotMeta};
+use crate::types::{AggregateInfo, Distance, RawHeapSnapshot, SnapshotHeader, SnapshotMeta};
+
+/// Find an aggregate by name, panicking if not found.
+fn find_first_agg<'a>(aggs: &'a [AggregateInfo], name: &str) -> &'a AggregateInfo {
+    aggs.iter().find(|a| a.name == name).unwrap_or_else(|| {
+        let names: Vec<_> = aggs.iter().map(|a| a.name.as_str()).collect();
+        panic!("no aggregate named \"{name}\", have: {names:?}");
+    })
+}
 
 /// Builds a minimal snapshot with 5 nodes and 4 edges:
 ///
@@ -720,23 +728,182 @@ fn test_aggregates() {
     // Synthetic nodes have self_size=0, so (synthetic) is excluded
     assert_eq!(aggs.len(), 3);
 
-    let obj = &aggs["Object"];
+    let obj = find_first_agg(&aggs, "Object");
     assert_eq!(obj.count, 1);
     assert_eq!(obj.self_size, 100.0);
     assert_eq!(obj.max_ret, 150.0);
     assert_eq!(obj.distance, Distance(1));
 
-    let str_agg = &aggs["(string)"];
+    let str_agg = find_first_agg(&aggs, "(string)");
     assert_eq!(str_agg.count, 1);
     assert_eq!(str_agg.self_size, 50.0);
     assert_eq!(str_agg.max_ret, 50.0);
     assert_eq!(str_agg.distance, Distance(2));
 
-    let arr_agg = &aggs["(array)"];
+    let arr_agg = find_first_agg(&aggs, "(array)");
     assert_eq!(arr_agg.count, 1);
     assert_eq!(arr_agg.self_size, 200.0);
     assert_eq!(arr_agg.max_ret, 200.0);
     assert_eq!(arr_agg.distance, Distance(1));
+}
+
+// ====== Retained size computation tests ======
+
+/// Two nodes of the same class "Foo" where one dominates the other:
+///   root → GC roots → Foo(A, size=100) → Foo(B, size=50)
+/// The "Foo" group should NOT double-count: A's retained size (150)
+/// already includes B. The algorithm should only count A's retained
+/// size for the group, giving max_ret = 150, not 250.
+#[test]
+fn test_retained_size_same_class_dominator_chain() {
+    let nfc = 5u32;
+    let n = |ord: u32| ord * nfc;
+    let snap = build_snapshot(
+        standard_node_fields(),
+        vec![
+            // type, name, id, self_size, edge_count
+            9, 0, 1, 0, 1, // 0: synthetic root → GC roots
+            9, 1, 2, 0, 1, // 1: GC roots → A
+            3, 2, 3, 100, 1, // 2: Foo A, size=100 → B
+            3, 2, 5, 50, 0, // 3: Foo B, size=50
+        ],
+        vec![
+            // type, name_or_index, to_node
+            2,
+            3,
+            n(1), // root → GC roots
+            2,
+            3,
+            n(2), // GC roots → A
+            2,
+            3,
+            n(3), // A → B
+        ],
+        s(&[
+            "",           // 0
+            "(GC roots)", // 1
+            "Foo",        // 2
+            "ref",        // 3
+        ]),
+    );
+    let aggs = snap.aggregates_with_filter();
+    let foo = find_first_agg(&aggs, "Foo");
+    assert_eq!(foo.count, 2);
+    assert_eq!(foo.self_size, 150.0);
+    // A dominates B, both are "Foo". The algorithm marks "Foo" as seen
+    // after visiting A, so B's retained size is not added again.
+    // Group retained = A's retained = 100 + 50 = 150.
+    assert_eq!(foo.max_ret, 150.0);
+}
+
+/// Three classes in a dominator chain:
+///   root → GC roots → A(Alpha, 100) → B(Beta, 80) → C(Gamma, 60)
+/// Each group's retained size reflects its position in the chain.
+#[test]
+fn test_retained_size_chain_different_classes() {
+    let nfc = 5u32;
+    let n = |ord: u32| ord * nfc;
+    let snap = build_snapshot(
+        standard_node_fields(),
+        vec![
+            9, 0, 1, 0, 1, // 0: synthetic root
+            9, 1, 2, 0, 1, // 1: GC roots
+            3, 2, 3, 100, 1, // 2: Alpha, size=100
+            3, 3, 5, 80, 1, // 3: Beta, size=80
+            3, 4, 7, 60, 0, // 4: Gamma, size=60
+        ],
+        vec![
+            2,
+            5,
+            n(1), // root → GC roots
+            2,
+            5,
+            n(2), // GC roots → Alpha
+            2,
+            5,
+            n(3), // Alpha → Beta
+            2,
+            5,
+            n(4), // Beta → Gamma
+        ],
+        s(&[
+            "",           // 0
+            "(GC roots)", // 1
+            "Alpha",      // 2
+            "Beta",       // 3
+            "Gamma",      // 4
+            "ref",        // 5
+        ]),
+    );
+    let aggs = snap.aggregates_with_filter();
+
+    // Alpha dominates Beta and Gamma: retained = 100 + 80 + 60 = 240
+    assert_eq!(find_first_agg(&aggs, "Alpha").max_ret, 240.0);
+    // Beta dominates Gamma: retained = 80 + 60 = 140
+    assert_eq!(find_first_agg(&aggs, "Beta").max_ret, 140.0);
+    // Gamma is a leaf: retained = 60
+    assert_eq!(find_first_agg(&aggs, "Gamma").max_ret, 60.0);
+}
+
+/// Diamond dominator structure:
+///   root → GC roots → A(Top, 100) → B(Left, 60)
+///                                  → C(Right, 40) → D(Bottom, 30)
+///                        B also → D
+/// D is dominated by A (not B or C, since both paths go through A).
+/// So: Top retained = 100+60+40+30 = 230, Left = 60, Right = 40, Bottom = 30.
+#[test]
+fn test_retained_size_diamond_dominator() {
+    let nfc = 5u32;
+    let n = |ord: u32| ord * nfc;
+    let snap = build_snapshot(
+        standard_node_fields(),
+        vec![
+            9, 0, 1, 0, 1, // 0: synthetic root
+            9, 1, 2, 0, 1, // 1: GC roots
+            3, 2, 3, 100, 2, // 2: Top, size=100, 2 edges
+            3, 3, 5, 60, 1, // 3: Left, size=60, 1 edge
+            3, 4, 7, 40, 1, // 4: Right, size=40, 1 edge
+            3, 5, 9, 30, 0, // 5: Bottom, size=30
+        ],
+        vec![
+            2,
+            6,
+            n(1), // root → GC roots
+            2,
+            6,
+            n(2), // GC roots → Top
+            2,
+            6,
+            n(3), // Top → Left
+            2,
+            6,
+            n(4), // Top → Right
+            2,
+            6,
+            n(5), // Left → Bottom
+            2,
+            6,
+            n(5), // Right → Bottom
+        ],
+        s(&[
+            "",           // 0
+            "(GC roots)", // 1
+            "Top",        // 2
+            "Left",       // 3
+            "Right",      // 4
+            "Bottom",     // 5
+            "ref",        // 6
+        ]),
+    );
+    let aggs = snap.aggregates_with_filter();
+
+    // Top dominates everything: retained = 100 + 60 + 40 + 30 = 230
+    assert_eq!(find_first_agg(&aggs, "Top").max_ret, 230.0);
+    // Left and Right are leaves in the dominator tree (Bottom is dominated by Top, not them)
+    assert_eq!(find_first_agg(&aggs, "Left").max_ret, 60.0);
+    assert_eq!(find_first_agg(&aggs, "Right").max_ret, 40.0);
+    // Bottom is a leaf
+    assert_eq!(find_first_agg(&aggs, "Bottom").max_ret, 30.0);
 }
 
 // ====== Shared test helpers ======
@@ -2066,24 +2233,25 @@ fn test_aggregates_split_by_location() {
     let aggs = snap.aggregates_with_filter();
 
     // Two objects with the same class but different locations → separate entries
-    let key_1 = "1,10,5,MyClass";
-    let key_2 = "1,20,3,MyClass";
+    let name_1 = "MyClass [script_id=1:L11:6]";
+    let name_2 = "MyClass [script_id=1:L21:4]";
 
+    let names: Vec<_> = aggs.iter().map(|a| a.name.as_str()).collect();
     assert!(
-        aggs.contains_key(key_1),
-        "missing aggregate for {key_1}, keys: {:?}",
-        aggs.keys().collect::<Vec<_>>()
+        names.contains(&name_1),
+        "missing {name_1}, names: {names:?}"
     );
     assert!(
-        aggs.contains_key(key_2),
-        "missing aggregate for {key_2}, keys: {:?}",
-        aggs.keys().collect::<Vec<_>>()
+        names.contains(&name_2),
+        "missing {name_2}, names: {names:?}"
     );
 
-    assert_eq!(aggs[key_1].count, 1);
-    assert_eq!(aggs[key_1].self_size, 100.0);
-    assert_eq!(aggs[key_2].count, 1);
-    assert_eq!(aggs[key_2].self_size, 200.0);
+    let a1 = aggs.iter().find(|a| a.name == name_1).unwrap();
+    let a2 = aggs.iter().find(|a| a.name == name_2).unwrap();
+    assert_eq!(a1.count, 1);
+    assert_eq!(a1.self_size, 100.0);
+    assert_eq!(a2.count, 1);
+    assert_eq!(a2.self_size, 200.0);
 }
 
 #[test]
@@ -2092,9 +2260,9 @@ fn test_aggregates_no_location_uses_class_index() {
     let snap = make_test_snapshot();
     let aggs = snap.aggregates_with_filter();
 
-    // "Object" is keyed by class name string, not a location key
-    assert!(aggs.contains_key("Object"));
-    assert_eq!(aggs["Object"].count, 1);
+    let obj = aggs.iter().find(|a| a.name == "Object");
+    assert!(obj.is_some());
+    assert_eq!(obj.unwrap().count, 1);
 }
 
 // ====== WeakMap ephemeron tests ======
@@ -2875,7 +3043,7 @@ fn test_aggregates_multiple_same_class() {
     );
 
     let aggs = snap.aggregates_with_filter();
-    let foo = &aggs["Foo"];
+    let foo = find_first_agg(&aggs, "Foo");
 
     // count: 3 Foo objects
     assert_eq!(foo.count, 3);
@@ -2954,7 +3122,7 @@ fn test_aggregates_max_ret_dedup() {
     );
 
     let aggs = snap.aggregates_with_filter();
-    let foo = &aggs["Foo"];
+    let foo = find_first_agg(&aggs, "Foo");
 
     assert_eq!(foo.count, 3);
     assert_eq!(foo.self_size, 450.0); // 100 + 200 + 150
@@ -3019,19 +3187,19 @@ fn test_aggregates_class_names_by_node_type() {
 
     let aggs = snap.aggregates_with_filter();
 
-    let system = &aggs["(system)"];
+    let system = find_first_agg(&aggs, "(system)");
     assert_eq!(system.count, 1);
     assert_eq!(system.self_size, 40.0);
 
-    let code = &aggs["(compiled code)"];
+    let code = find_first_agg(&aggs, "(compiled code)");
     assert_eq!(code.count, 1);
     assert_eq!(code.self_size, 50.0);
 
-    let func = &aggs["Function"];
+    let func = find_first_agg(&aggs, "Function");
     assert_eq!(func.count, 1);
     assert_eq!(func.self_size, 60.0);
 
-    let re = &aggs["RegExp"];
+    let re = find_first_agg(&aggs, "RegExp");
     assert_eq!(re.count, 1);
     assert_eq!(re.self_size, 70.0);
 }
@@ -3082,12 +3250,12 @@ fn test_aggregates_angle_bracket_name_truncation() {
     let aggs = snap.aggregates_with_filter();
 
     // Both <div ...> objects grouped under "<div>"
-    let div = &aggs["<div>"];
+    let div = find_first_agg(&aggs, "<div>");
     assert_eq!(div.count, 2);
     assert_eq!(div.self_size, 300.0); // 100 + 200
 
     // <span ...> grouped under "<span>"
-    let span = &aggs["<span>"];
+    let span = find_first_agg(&aggs, "<span>");
     assert_eq!(span.count, 1);
     assert_eq!(span.self_size, 150.0);
 }
@@ -3269,9 +3437,9 @@ fn test_aggregates_zero_size_excluded() {
     );
 
     let aggs = snap.aggregates_with_filter();
-    assert!(!aggs.contains_key("Ghost"));
-    assert!(aggs.contains_key("Real"));
-    assert_eq!(aggs["Real"].count, 1);
+    assert!(aggs.iter().find(|a| a.name == "Ghost").is_none());
+    let real = aggs.iter().find(|a| a.name == "Real").unwrap();
+    assert_eq!(real.count, 1);
 }
 
 // ── aggregates: first_seen ordering ─────────────────────────────────────
@@ -3318,7 +3486,7 @@ fn test_aggregates_first_seen_ordering() {
 
     let aggs = snap.aggregates_with_filter();
     // Alpha encountered first (ordinal 2), Beta second (ordinal 3)
-    assert!(aggs["Alpha"].first_seen < aggs["Beta"].first_seen);
+    assert!(find_first_agg(&aggs, "Alpha").first_seen < find_first_agg(&aggs, "Beta").first_seen);
 }
 
 /// Builds a snapshot with one unreachable node:
@@ -4083,8 +4251,8 @@ fn test_unreachable_aggregates_include_all_unreachable() {
     let aggs = snap.unreachable_aggregates();
 
     // Both node 3 (Unreachable, 300) and node 4 (Child, 150) are unreachable.
-    let total_count: u32 = aggs.values().map(|a| a.count).sum();
-    let total_size: f64 = aggs.values().map(|a| a.self_size).sum();
+    let total_count: u32 = aggs.iter().map(|a| a.count).sum();
+    let total_size: f64 = aggs.iter().map(|a| a.self_size).sum();
     assert_eq!(total_count, 2);
     assert_eq!(total_size, 450.0);
 }
@@ -4096,16 +4264,65 @@ fn test_unreachable_aggregates_distances() {
 
     // Node 3 ("Unreachable"): has reachable retainer → UNREACHABLE_BASE (U)
     // Node 4 ("Child"): only reachable from node 3 → UNREACHABLE_BASE+1 (U+1)
-    let unreachable_agg = aggs.values().find(|a| a.name == "Unreachable").unwrap();
+    let unreachable_agg = aggs.iter().find(|a| a.name == "Unreachable").unwrap();
     assert_eq!(unreachable_agg.distance, Distance::UNREACHABLE_BASE);
     assert_eq!(unreachable_agg.count, 1);
 
-    let child_agg = aggs.values().find(|a| a.name == "Child").unwrap();
+    let child_agg = aggs.iter().find(|a| a.name == "Child").unwrap();
     assert_eq!(
         child_agg.distance,
         Distance(Distance::UNREACHABLE_BASE.0 + 1)
     );
     assert_eq!(child_agg.count, 1);
+}
+
+#[test]
+fn test_unreachable_aggregates_retained_sizes() {
+    let snap = make_unreachable_snapshot();
+    let aggs = snap.unreachable_aggregates();
+
+    // Node 3 ("Unreachable", self=300) dominates node 4 ("Child", self=150),
+    // so "Unreachable" retained = 300 + 150 = 450, "Child" retained = 150.
+    let unreachable_agg = aggs.iter().find(|a| a.name == "Unreachable").unwrap();
+    assert_eq!(unreachable_agg.max_ret, 450.0);
+
+    let child_agg = aggs.iter().find(|a| a.name == "Child").unwrap();
+    assert_eq!(child_agg.max_ret, 150.0);
+}
+
+/// Retained sizes with filtered-out nodes in the dominator chain.
+///   root → GC roots → Reachable(100) → Unreachable(300) → Child(150)
+/// When filtering for unreachable only, "Reachable" is not in any group.
+/// The dominator walk should still correctly compute retained sizes for
+/// the unreachable groups, passing through the filtered-out "Reachable" node.
+#[test]
+fn test_retained_size_with_filtered_out_nodes_in_dominator_chain() {
+    // make_unreachable_snapshot already has this structure:
+    // node 2 (Reachable, 100) → weak ref → node 3 (Unreachable, 300) → node 4 (Child, 150)
+    // When filtering for unreachable, node 2 is excluded.
+    let snap = make_unreachable_snapshot();
+
+    // Verify the full view has all three groups with retained sizes
+    let all = snap.aggregates_with_filter();
+    assert_eq!(find_first_agg(&all, "Reachable").max_ret, 100.0);
+
+    // Now check the filtered view
+    let filtered = snap.unreachable_aggregates();
+    assert!(
+        filtered.iter().all(|a| a.name != "Reachable"),
+        "Reachable should be filtered out"
+    );
+    // Unreachable still dominates Child in the full dominator tree
+    let unreachable_agg = filtered.iter().find(|a| a.name == "Unreachable").unwrap();
+    assert!(
+        unreachable_agg.max_ret > 0.0,
+        "retained size should be computed even when parent nodes are filtered out"
+    );
+    let child_agg = filtered.iter().find(|a| a.name == "Child").unwrap();
+    assert!(
+        child_agg.max_ret > 0.0,
+        "retained size should be computed for leaf nodes in filtered view"
+    );
 }
 
 #[test]
@@ -4115,7 +4332,7 @@ fn test_unreachable_roots_only_excludes_transitive() {
 
     // Filter to roots only (distance == UNREACHABLE_BASE)
     let roots_only: Vec<_> = aggs
-        .values()
+        .iter()
         .filter(|a| {
             a.node_ordinals
                 .iter()
@@ -7128,7 +7345,7 @@ fn test_timeline_empty_without_samples() {
 // ── retained-by filters ─────────────────────────────────────────────────
 
 fn agg_names(aggs: &AggregateMap) -> Vec<String> {
-    let mut names: Vec<String> = aggs.values().map(|a| a.name.clone()).collect();
+    let mut names: Vec<String> = aggs.iter().map(|a| a.name.clone()).collect();
     names.sort();
     names
 }

@@ -236,7 +236,7 @@ impl App {
         work_tx: mpsc::Sender<WorkItem>,
         result_rx: mpsc::Receiver<WorkResult>,
     ) -> Self {
-        let mut sorted: Vec<AggregateInfo> = snap.aggregates_with_filter().into_values().collect();
+        let mut sorted: Vec<AggregateInfo> = snap.aggregates_with_filter();
         sorted.sort_by(|a, b| {
             b.max_ret
                 .partial_cmp(&a.max_ret)
@@ -520,7 +520,7 @@ impl App {
             SummaryFilterMode::SharedContext => snap.aggregates_for_shared_context(),
             SummaryFilterMode::UnattributedContext => snap.aggregates_for_unattributed_context(),
         };
-        let mut sorted: Vec<AggregateInfo> = aggregates.into_values().collect();
+        let mut sorted: Vec<AggregateInfo> = aggregates;
         sorted.sort_by(|a, b| {
             b.max_ret
                 .partial_cmp(&a.max_ret)
@@ -744,8 +744,7 @@ pub fn run(
             area,
         );
     })?;
-    let aggregates = snap.aggregates_with_filter();
-    let mut sorted: Vec<AggregateInfo> = aggregates.into_values().collect();
+    let mut sorted: Vec<AggregateInfo> = snap.aggregates_with_filter();
     sorted.sort_by(|a, b| {
         b.max_ret
             .partial_cmp(&a.max_ret)

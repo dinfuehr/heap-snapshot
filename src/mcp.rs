@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use rustc_hash::FxHashMap;
 use std::fs::File;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -171,7 +171,7 @@ struct GetTimelineParams {
 
 #[derive(Clone)]
 struct McpServer {
-    snapshots: Arc<Mutex<HashMap<u32, Arc<HeapSnapshot>>>>,
+    snapshots: Arc<Mutex<FxHashMap<u32, Arc<HeapSnapshot>>>>,
     next_id: Arc<AtomicU32>,
     tool_router: ToolRouter<McpServer>,
 }
@@ -184,7 +184,7 @@ struct McpServer {
 impl McpServer {
     fn new() -> Self {
         Self {
-            snapshots: Arc::new(Mutex::new(HashMap::new())),
+            snapshots: Arc::new(Mutex::new(FxHashMap::default())),
             next_id: Arc::new(AtomicU32::new(1)),
             tool_router: Self::tool_router(),
         }
@@ -652,33 +652,39 @@ impl McpServer {
             let aggregates = resolve_summary_filter(&snapshot, filter.as_deref(), filter_interval)?;
 
             if let Some(ref class_name) = class_name {
-                let entry = aggregates.get(class_name.as_str()).ok_or_else(|| {
-                    McpError::invalid_params(
+                let matching: Vec<_> = aggregates
+                    .iter()
+                    .filter(|a| a.name == *class_name)
+                    .collect();
+                if matching.is_empty() {
+                    return Err(McpError::invalid_params(
                         format!("No constructor group named \"{class_name}\""),
                         None,
-                    )
-                })?;
-
-                let total = entry.node_ordinals.len();
-                let start = offset.min(total);
-                let end = (start + limit).min(total);
+                    ));
+                }
 
                 let mut lines = Vec::new();
-                lines.push(format!(
-                    "{class_name}: {total} objects, {:.0} shallow bytes, {:.0} retained bytes",
-                    entry.self_size, entry.max_ret
-                ));
-                lines.push(format!("Showing {}-{} of {total}:", start + 1, end));
+                for entry in &matching {
+                    let total = entry.node_ordinals.len();
+                    let start = offset.min(total);
+                    let end = (start + limit).min(total);
 
-                for &ord in &entry.node_ordinals[start..end] {
-                    let id = snapshot.node_id(ord);
-                    let name = snapshot.node_display_name(ord);
-                    let self_size = snapshot.node_self_size(ord);
-                    let retained = snapshot.node_retained_size(ord);
                     lines.push(format!(
-                        "  @{} {name} (self_size: {self_size}, retained_size: {retained:.0})",
-                        id.0
+                        "{class_name}: {total} objects, {:.0} shallow bytes, {:.0} retained bytes",
+                        entry.self_size, entry.max_ret
                     ));
+                    lines.push(format!("Showing {}-{} of {total}:", start + 1, end));
+
+                    for &ord in &entry.node_ordinals[start..end] {
+                        let id = snapshot.node_id(ord);
+                        let name = snapshot.node_display_name(ord);
+                        let self_size = snapshot.node_self_size(ord);
+                        let retained = snapshot.node_retained_size(ord);
+                        lines.push(format!(
+                            "  @{} {name} (self_size: {self_size}, retained_size: {retained:.0})",
+                            id.0
+                        ));
+                    }
                 }
 
                 Ok(CallToolResult::success(vec![Content::text(
@@ -687,10 +693,10 @@ impl McpServer {
             } else {
                 let mut entries: Vec<_> = aggregates.iter().collect();
                 entries.sort_by(|a, b| {
-                    b.1.max_ret
-                        .partial_cmp(&a.1.max_ret)
+                    b.max_ret
+                        .partial_cmp(&a.max_ret)
                         .unwrap()
-                        .then(a.1.first_seen.cmp(&b.1.first_seen))
+                        .then(a.first_seen.cmp(&b.first_seen))
                 });
 
                 let mut lines = Vec::new();
@@ -698,15 +704,10 @@ impl McpServer {
                     "{:<50} {:>8} {:>14} {:>14}",
                     "Constructor", "Count", "Shallow size", "Retained size"
                 ));
-                for (key, entry) in &entries {
-                    let label = if *key != &entry.name {
-                        format!("{} [key: {}]", entry.name, key)
-                    } else {
-                        entry.name.clone()
-                    };
+                for entry in &entries {
                     lines.push(format!(
                         "{:<50} {:>8} {:>14.0} {:>14.0}",
-                        label, entry.count, entry.self_size, entry.max_ret
+                        entry.name, entry.count, entry.self_size, entry.max_ret
                     ));
                 }
 
@@ -999,41 +1000,46 @@ impl McpServer {
             let diffs = diff::compute_diff(&snapshot, &baseline);
 
             if let Some(ref class_name) = class_name {
-                let entry = diffs.iter().find(|d| d.name == *class_name).ok_or_else(|| {
-                    McpError::invalid_params(
+                let matching: Vec<_> = diffs.iter()
+                    .filter(|d| d.name == *class_name)
+                    .collect();
+                if matching.is_empty() {
+                    return Err(McpError::invalid_params(
                         format!("No diff entry for constructor \"{class_name}\""),
                         None,
-                    )
-                })?;
+                    ));
+                }
 
                 let mut lines = Vec::new();
-                lines.push(format!(
-                    "{class_name}: # new: {}, # deleted: {}, # delta: {}, alloc size: {}, freed size: {}, size delta: {}",
-                    entry.new_count,
-                    entry.deleted_count,
-                    format_signed_count(entry.delta_count()),
-                    format_signed_size(entry.alloc_size),
-                    format_signed_size(entry.freed_size),
-                    format_signed_size(entry.size_delta()),
-                ));
-
-                let all_objects: Vec<(bool, &NodeId, &u32)> = entry
-                    .new_objects
-                    .iter()
-                    .map(|(id, sz)| (true, id, sz))
-                    .chain(entry.deleted_objects.iter().map(|(id, sz)| (false, id, sz)))
-                    .collect();
-                let total = all_objects.len();
-                let start = offset.min(total);
-                let end = (start + limit).min(total);
-
-                lines.push(format!("Showing {}-{} of {total} objects:", start + 1, end));
-                for &(is_new, node_id, self_size) in &all_objects[start..end] {
-                    let status = if is_new { "+" } else { "\u{2212}" };
+                for entry in &matching {
                     lines.push(format!(
-                        "  {status} @{} (self_size: {self_size})",
-                        node_id.0
+                        "{class_name}: # new: {}, # deleted: {}, # delta: {}, alloc size: {}, freed size: {}, size delta: {}",
+                        entry.new_count,
+                        entry.deleted_count,
+                        format_signed_count(entry.delta_count()),
+                        format_signed_size(entry.alloc_size),
+                        format_signed_size(entry.freed_size),
+                        format_signed_size(entry.size_delta()),
                     ));
+
+                    let all_objects: Vec<(bool, &NodeId, &u32)> = entry
+                        .new_objects
+                        .iter()
+                        .map(|(id, sz)| (true, id, sz))
+                        .chain(entry.deleted_objects.iter().map(|(id, sz)| (false, id, sz)))
+                        .collect();
+                    let total = all_objects.len();
+                    let start = offset.min(total);
+                    let end = (start + limit).min(total);
+
+                    lines.push(format!("Showing {}-{} of {total} objects:", start + 1, end));
+                    for &(is_new, node_id, self_size) in &all_objects[start..end] {
+                        let status = if is_new { "+" } else { "\u{2212}" };
+                        lines.push(format!(
+                            "  {status} @{} (self_size: {self_size})",
+                            node_id.0
+                        ));
+                    }
                 }
 
                 Ok(CallToolResult::success(vec![Content::text(

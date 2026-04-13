@@ -195,7 +195,7 @@ pub fn print_summary(
         return;
     }
 
-    let mut entries: Vec<_> = aggregates.values().collect();
+    let mut entries: Vec<_> = aggregates.iter().collect();
     if is_filtered {
         entries.sort_by(|a, b| {
             b.self_size
@@ -257,7 +257,11 @@ pub fn print_summary(
                 .node_ordinals
                 .iter()
                 .any(|&o| expand_ids.contains_key(&snap.node_id(o)));
-        let group_window = expand_constructors.get(&entry.name);
+        let group_window = expand_constructors.get(&entry.name).or_else(|| {
+            // Match by base name (without location bracket suffix).
+            let base = entry.name.split(" [").next().unwrap_or(&entry.name);
+            expand_constructors.get(base)
+        });
         let is_expanded = group_window.is_some() || has_expanded_node;
         let marker = if is_expanded {
             "\u{25bc} " /* ▼ */

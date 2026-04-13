@@ -70,16 +70,11 @@ fn containment_specific_node() {
     let stdout = String::from_utf8(summary_out.stdout).unwrap();
 
     let mut node_id = String::new();
+    // Match lines like "InitialObject @123" or "InitialObject [file:1:2] @123"
+    let re = regex::Regex::new(r"InitialObject\b.*?@(\d+)").unwrap();
     for line in stdout.lines() {
-        if let Some(pos) = line.find("InitialObject @") {
-            let after_at = &line[pos + "InitialObject @".len()..];
-            node_id = format!(
-                "@{}",
-                after_at
-                    .chars()
-                    .take_while(|c| c.is_ascii_digit())
-                    .collect::<String>()
-            );
+        if let Some(caps) = re.captures(line) {
+            node_id = format!("@{}", &caps[1]);
             break;
         }
     }

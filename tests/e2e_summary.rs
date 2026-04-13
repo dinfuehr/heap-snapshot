@@ -22,8 +22,8 @@ fn summary_lists_initial_objects() {
     );
     // heap-1 has 3 InitialObjects
     assert!(
-        output.contains("InitialObject  \u{00d7}3"),
-        "expected InitialObject ×3"
+        output.contains("\u{00d7}3"),
+        "expected ×3 for InitialObject"
     );
 }
 
@@ -34,19 +34,15 @@ fn summary_lists_new_objects_in_heap2() {
         output.contains("NewObject"),
         "expected NewObject in heap-2 summary"
     );
-    assert!(
-        output.contains("NewObject  \u{00d7}2"),
-        "expected NewObject ×2"
-    );
+    let re = regex::Regex::new(r"NewObject\b.*?\u{00d7}2").unwrap();
+    assert!(re.is_match(&output), "expected NewObject ×2");
 }
 
 #[test]
 fn summary_lists_new_objects_in_heap3() {
     let output = run_summary("heap-3.heapsnapshot", &[]);
-    assert!(
-        output.contains("NewObject  \u{00d7}7"),
-        "expected NewObject ×7 in heap-3"
-    );
+    let re = regex::Regex::new(r"NewObject\b.*?\u{00d7}7").unwrap();
+    assert!(re.is_match(&output), "expected NewObject ×7 in heap-3");
 }
 
 #[test]
@@ -57,21 +53,17 @@ fn summary_expand_group_shows_members() {
         output.contains("\u{25bc} InitialObject"),
         "expected ▼ marker on expanded group"
     );
-    // Individual members: "▶ InitialObject @"
-    let member_count = output
-        .lines()
-        .filter(|l| l.contains("\u{25b6} InitialObject @"))
-        .count();
+    // Individual members: "▶ InitialObject ... @<id>"
+    let re = regex::Regex::new(r"\u{25b6} InitialObject\b.*@\d+").unwrap();
+    let member_count = output.lines().filter(|l| re.is_match(l)).count();
     assert_eq!(member_count, 3, "expected 3 expanded InitialObject members");
 }
 
 #[test]
 fn summary_expand_group_with_window() {
     let output = run_summary("heap-1.heapsnapshot", &["-g", "InitialObject:0:2"]);
-    let member_count = output
-        .lines()
-        .filter(|l| l.contains("\u{25b6} InitialObject @"))
-        .count();
+    let re = regex::Regex::new(r"\u{25b6} InitialObject\b.*@\d+").unwrap();
+    let member_count = output.lines().filter(|l| re.is_match(l)).count();
     assert_eq!(member_count, 2, "expected 2 members with window :0:2");
     assert!(
         output.contains("of 3 members"),

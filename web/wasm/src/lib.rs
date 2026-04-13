@@ -13,7 +13,6 @@ use heap_snapshot::snapshot::{
 };
 use heap_snapshot::types::AggregateInfo;
 use heap_snapshot::types::{NodeId, NodeOrdinal};
-use rustc_hash::FxHashMap;
 
 // ---------------------------------------------------------------------------
 // Serialization types
@@ -37,7 +36,7 @@ struct JsStatistics {
 
 #[derive(Serialize)]
 struct JsAggregateEntry {
-    key: String,
+    index: usize,
     name: String,
     count: u32,
     self_size: f64,
@@ -175,7 +174,8 @@ struct JsClassDiff {
 #[wasm_bindgen]
 pub struct WasmHeapSnapshot {
     inner: HeapSnapshot,
-    cached_aggregates: Option<FxHashMap<String, AggregateInfo>>,
+    cached_summary_aggregates: Option<Vec<AggregateInfo>>,
+    cached_interval_aggregates: Option<Vec<AggregateInfo>>,
 }
 
 fn format_ctx_bucket(bucket: NativeContextBucket) -> String {
@@ -227,10 +227,11 @@ impl WasmHeapSnapshot {
                 weak_is_reachable: false,
             },
         );
-        let cached_aggregates = Some(inner.aggregates_with_filter());
+        let cached_summary_aggregates = Some(inner.aggregates_with_filter());
         Ok(WasmHeapSnapshot {
             inner,
-            cached_aggregates,
+            cached_summary_aggregates,
+            cached_interval_aggregates: None,
         })
     }
 
@@ -261,7 +262,7 @@ impl WasmHeapSnapshot {
     /// 3 = retained by detached DOM, 4 = retained by console,
     /// 5 = retained by event handlers.
     pub fn set_summary_filter(&mut self, mode: u32) {
-        self.cached_aggregates = Some(match mode {
+        self.cached_summary_aggregates = Some(match mode {
             1 => self.inner.unreachable_aggregates(),
             2 => self.inner.unreachable_root_aggregates(),
             3 => self.inner.retained_by_detached_dom(),
@@ -277,7 +278,7 @@ impl WasmHeapSnapshot {
         mode: u32,
         context_index: u32,
     ) -> Result<(), JsError> {
-        self.cached_aggregates = Some(match mode {
+        self.cached_summary_aggregates = Some(match mode {
             1 => self.inner.aggregates_for_shared_context(),
             2 => self.inner.aggregates_for_unattributed_context(),
             _ => {
@@ -292,11 +293,12 @@ impl WasmHeapSnapshot {
     }
 
     pub fn get_summary(&self) -> String {
-        let aggregates = self.cached_aggregates.as_ref().unwrap();
+        let aggregates = self.cached_summary_aggregates.as_ref().unwrap();
         let mut entries: Vec<JsAggregateEntry> = aggregates
             .iter()
-            .map(|(key, agg)| JsAggregateEntry {
-                key: key.clone(),
+            .enumerate()
+            .map(|(i, agg)| JsAggregateEntry {
+                index: i,
                 name: agg.name.clone(),
                 count: agg.count,
                 self_size: agg.self_size,
@@ -309,14 +311,16 @@ impl WasmHeapSnapshot {
 
     pub fn get_summary_objects(
         &self,
-        constructor: &str,
+        constructor_index: usize,
         offset: usize,
         limit: usize,
     ) -> Result<String, JsError> {
-        let aggregates = self.cached_aggregates.as_ref().unwrap();
-        let entry = aggregates
-            .get(constructor)
-            .ok_or_else(|| JsError::new(&format!("No constructor group \"{constructor}\"")))?;
+        let aggregates = self.cached_summary_aggregates.as_ref().unwrap();
+        let entry = aggregates.get(constructor_index).ok_or_else(|| {
+            JsError::new(&format!(
+                "No constructor group at index {constructor_index}"
+            ))
+        })?;
 
         let total = entry.node_ordinals.len();
         let start = offset.min(total);
@@ -338,7 +342,7 @@ impl WasmHeapSnapshot {
             .collect();
 
         Ok(to_json(&JsSummaryExpanded {
-            constructor: constructor.to_string(),
+            constructor: entry.name.clone(),
             total,
             objects,
         }))
@@ -664,12 +668,16 @@ impl WasmHeapSnapshot {
         Ok(to_json(&ids))
     }
 
-    pub fn get_constructor_for_node(&self, node_id: f64) -> Result<String, JsError> {
+    /// Return the aggregate index for the constructor group containing a given node.
+    pub fn get_constructor_for_node(&self, node_id: f64) -> Result<usize, JsError> {
         let ordinal = self.resolve_ordinal(node_id)?;
-        let aggregates = self.inner.aggregates_with_filter();
-        for (key, agg) in &aggregates {
+        let aggregates = self
+            .cached_summary_aggregates
+            .as_ref()
+            .ok_or_else(|| JsError::new("No cached aggregates"))?;
+        for (i, agg) in aggregates.iter().enumerate() {
             if agg.node_ordinals.contains(&ordinal) {
-                return Ok(key.clone());
+                return Ok(i);
             }
         }
         Err(JsError::new(&format!(
@@ -682,24 +690,26 @@ impl WasmHeapSnapshot {
     /// in the *current* cached aggregates. Returns JSON `{"index": N, "total": M}`.
     pub fn get_summary_object_index(
         &self,
-        constructor: &str,
+        constructor_index: usize,
         node_id: f64,
     ) -> Result<String, JsError> {
         let ordinal = self.resolve_ordinal(node_id)?;
         let aggregates = self
-            .cached_aggregates
+            .cached_summary_aggregates
             .as_ref()
             .ok_or_else(|| JsError::new("No cached aggregates"))?;
-        let entry = aggregates
-            .get(constructor)
-            .ok_or_else(|| JsError::new(&format!("No constructor group \"{constructor}\"")))?;
+        let entry = aggregates.get(constructor_index).ok_or_else(|| {
+            JsError::new(&format!(
+                "No constructor group at index {constructor_index}"
+            ))
+        })?;
         let index = entry
             .node_ordinals
             .iter()
             .position(|o| *o == ordinal)
             .ok_or_else(|| {
                 JsError::new(&format!(
-                    "Node @{} not in group \"{constructor}\"",
+                    "Node @{} not in group at index {constructor_index}",
                     node_id as u64
                 ))
             })?;
@@ -744,7 +754,7 @@ impl WasmHeapSnapshot {
         to_json(&intervals)
     }
 
-    pub fn get_summary_for_interval(&self, interval_index: usize) -> Result<String, JsError> {
+    pub fn get_summary_for_interval(&mut self, interval_index: usize) -> Result<String, JsError> {
         let intervals = self.inner.get_timeline();
         let interval = intervals.get(interval_index).ok_or_else(|| {
             JsError::new(&format!(
@@ -755,10 +765,13 @@ impl WasmHeapSnapshot {
         let aggregates = self
             .inner
             .aggregates_for_id_range(interval.id_from, interval.id_to);
-        let mut entries: Vec<JsAggregateEntry> = aggregates
+        self.cached_interval_aggregates = Some(aggregates);
+        let cached = self.cached_interval_aggregates.as_ref().unwrap();
+        let mut entries: Vec<JsAggregateEntry> = cached
             .iter()
-            .map(|(key, agg)| JsAggregateEntry {
-                key: key.clone(),
+            .enumerate()
+            .map(|(i, agg)| JsAggregateEntry {
+                index: i,
                 name: agg.name.clone(),
                 count: agg.count,
                 self_size: agg.self_size,
@@ -767,6 +780,48 @@ impl WasmHeapSnapshot {
             .collect();
         entries.sort_by(|a, b| b.retained_size.partial_cmp(&a.retained_size).unwrap());
         Ok(to_json(&entries))
+    }
+
+    pub fn get_timeline_objects(
+        &self,
+        constructor_index: usize,
+        offset: usize,
+        limit: usize,
+    ) -> Result<String, JsError> {
+        let aggregates = self
+            .cached_interval_aggregates
+            .as_ref()
+            .ok_or_else(|| JsError::new("No cached interval aggregates"))?;
+        let entry = aggregates.get(constructor_index).ok_or_else(|| {
+            JsError::new(&format!(
+                "No constructor group at index {constructor_index}"
+            ))
+        })?;
+
+        let total = entry.node_ordinals.len();
+        let start = offset.min(total);
+        let end = (start + limit).min(total);
+
+        let objects: Vec<JsSummaryObject> = entry.node_ordinals[start..end]
+            .iter()
+            .map(|&ord| {
+                let snap = &self.inner;
+                JsSummaryObject {
+                    id: snap.node_id(ord).0,
+                    name: snap.node_display_name(ord).to_string(),
+                    self_size: snap.node_self_size(ord),
+                    retained_size: snap.node_retained_size(ord),
+                    detachedness: snap.node_detachedness(ord),
+                    ctx: format_ctx_bucket(snap.node_native_context_bucket(ord)),
+                }
+            })
+            .collect();
+
+        Ok(to_json(&JsSummaryExpanded {
+            constructor: entry.name.clone(),
+            total,
+            objects,
+        }))
     }
 
     pub fn get_allocation_stack(&self, node_id: f64) -> Result<String, JsError> {

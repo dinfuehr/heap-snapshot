@@ -128,7 +128,7 @@ async function processMessage(msg: WorkerMsg) {
           id,
           JSON.parse(
             snapshot.get_summary_objects(
-              String(msg['constructor']),
+              msg.constructorIndex as number,
               msg.offset as number,
               msg.limit as number,
             ),
@@ -211,7 +211,7 @@ async function processMessage(msg: WorkerMsg) {
           id,
           JSON.parse(
             snapshot.get_summary_object_index(
-              String(msg['constructor']),
+              msg.constructorIndex as number,
               msg.nodeId as number,
             ),
           ),
@@ -237,6 +237,18 @@ async function processMessage(msg: WorkerMsg) {
           id,
           JSON.parse(
             snapshot.get_summary_for_interval(msg.intervalIndex as number),
+          ),
+        );
+        break;
+      case 'getTimelineObjects':
+        respond(
+          id,
+          JSON.parse(
+            snapshot.get_timeline_objects(
+              msg.constructorIndex as number,
+              msg.offset as number,
+              msg.limit as number,
+            ),
           ),
         );
         break;

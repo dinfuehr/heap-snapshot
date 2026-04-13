@@ -38,7 +38,7 @@ const PAGE_SIZE = 100;
 
 interface FocusTarget {
   nodeId: number;
-  constructorKey: string;
+  constructorIndex: number;
   pageOffset: number;
 }
 
@@ -197,6 +197,7 @@ function ObjectChildren(props: {
 function SummaryGroup(props: {
   entry: AggregateEntry;
   call: SnapshotCall;
+  objectsMessageType?: string;
   onNavigate: (opts: NavigateOptions) => void;
   onContextMenu: (e: MouseEvent, nodeId: number) => void;
   selection: () => RowSelection | null;
@@ -213,9 +214,10 @@ function SummaryGroup(props: {
   const [objOffset, setObjOffset] = createSignal(0);
 
   const loadObjects = async (o: number, l: number) => {
+    const msgType = props.objectsMessageType ?? 'getSummaryObjects';
     const result = await props.call<SummaryExpanded>({
-      type: 'getSummaryObjects',
-      constructor: props.entry.key,
+      type: msgType as 'getSummaryObjects',
+      constructorIndex: props.entry.index,
       offset: o,
       limit: l,
     });
@@ -238,7 +240,7 @@ function SummaryGroup(props: {
   // Auto-expand and scroll to the focused object when focusTarget matches.
   createEffect(
     on(props.focusTarget, (target) => {
-      if (!target || target.constructorKey !== props.entry.key) return;
+      if (!target || target.constructorIndex !== props.entry.index) return;
       const cur = untrack(objOffset);
       const isLoaded = untrack(expanded) && cur === target.pageOffset;
       if (isLoaded) {
@@ -346,6 +348,7 @@ function SummaryGroup(props: {
 export function SummaryTable(props: {
   entries: AggregateEntry[];
   call: SnapshotCall;
+  objectsMessageType?: string;
   onNavigate: (opts: NavigateOptions) => void;
   onContextMenu: (e: MouseEvent, nodeId: number) => void;
   reachableSizes: Map<number, ReachableSizeInfo>;
@@ -456,6 +459,7 @@ export function SummaryTable(props: {
               <SummaryGroup
                 entry={entry}
                 call={props.call}
+                objectsMessageType={props.objectsMessageType}
                 onNavigate={props.onNavigate}
                 onContextMenu={props.onContextMenu}
                 selection={selection}
@@ -486,53 +490,60 @@ export function SummaryView(props: {
     props.call<NativeContext[]>({ type: 'getNativeContexts' }),
   );
   const [summaryFilter, setSummaryFilter] = createSignal('0');
-  const [entries] = createResource(summaryFilter, async (key) => {
-    if (key.startsWith('ctx:')) {
-      const sub = key.slice(4);
-      if (sub === 'shared') {
-        await props.call({
-          type: 'setSummaryFilterContext',
-          contextMode: 1,
-          contextIndex: 0,
-        });
-      } else if (sub === 'unattributed') {
-        await props.call({
-          type: 'setSummaryFilterContext',
-          contextMode: 2,
-          contextIndex: 0,
-        });
+  const [entries, { refetch: refetchEntries }] = createResource(
+    summaryFilter,
+    async (key) => {
+      if (key.startsWith('ctx:')) {
+        const sub = key.slice(4);
+        if (sub === 'shared') {
+          await props.call({
+            type: 'setSummaryFilterContext',
+            contextMode: 1,
+            contextIndex: 0,
+          });
+        } else if (sub === 'unattributed') {
+          await props.call({
+            type: 'setSummaryFilterContext',
+            contextMode: 2,
+            contextIndex: 0,
+          });
+        } else {
+          await props.call({
+            type: 'setSummaryFilterContext',
+            contextMode: 0,
+            contextIndex: parseInt(sub, 10),
+          });
+        }
       } else {
-        await props.call({
-          type: 'setSummaryFilterContext',
-          contextMode: 0,
-          contextIndex: parseInt(sub, 10),
-        });
+        await props.call({ type: 'setSummaryFilter', mode: parseInt(key, 10) });
       }
-    } else {
-      await props.call({ type: 'setSummaryFilter', mode: parseInt(key, 10) });
-    }
-    return props.call<AggregateEntry[]>({ type: 'getSummary' });
-  });
+      return props.call<AggregateEntry[]>({ type: 'getSummary' });
+    },
+  );
   const [filter, setFilter] = createSignal('');
   const [searchError, setSearchError] = createSignal<string | null>(null);
   const [focusTarget, setFocusTarget] = createSignal<FocusTarget | null>(null);
 
   const focusOnNode = async (nodeId: number) => {
-    // Ensure "All objects" filter so the node is visible.
+    // Switch to "All objects" and wait for entries to arrive before
+    // computing indices — stale rows could match the wrong index.
     setSummaryFilter('0');
-    await props.call({ type: 'setSummaryFilter', mode: 0 });
-    const constructorKey = await props.call<string>({
+    // The resource fetcher updates the worker filter and fetches entries.
+    // Await refetch to ensure rows re-render with correct indices before
+    // we set the focus target.
+    await refetchEntries();
+    const constructorIndex = await props.call<number>({
       type: 'getConstructorForNode',
       nodeId,
     });
     const pos = await props.call<{ index: number; total: number }>({
       type: 'getSummaryObjectIndex',
-      constructor: constructorKey,
+      constructorIndex,
       nodeId,
     });
     const pageOffset = Math.floor(pos.index / PAGE_SIZE) * PAGE_SIZE;
     setFilter('');
-    setFocusTarget({ nodeId, constructorKey, pageOffset });
+    setFocusTarget({ nodeId, constructorIndex, pageOffset });
   };
 
   const handleFilterKeyDown = async (e: KeyboardEvent) => {

@@ -55,7 +55,10 @@ pub fn print_diff(snap1: &HeapSnapshot, snap2: &HeapSnapshot, expand_groups: &Gr
     );
 
     for diff in &entries {
-        let group_window = expand_groups.get(&diff.name);
+        let group_window = expand_groups.get(&diff.name).or_else(|| {
+            let base = diff.name.split(" [").next().unwrap_or(&diff.name);
+            expand_groups.get(base)
+        });
         let expand = group_window.is_some();
         let marker = if expand && (!diff.new_objects.is_empty() || !diff.deleted_objects.is_empty())
         {

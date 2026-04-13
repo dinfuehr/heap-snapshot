@@ -22,17 +22,11 @@ fn find_initial_object_id(file: &str) -> String {
         .output()
         .expect("failed to run heap-snapshot");
     let stdout = String::from_utf8(output.stdout).unwrap();
-    // Find a line like "  ▶ InitialObject @21129"
+    // Find a line like "  ▶ InitialObject @21129" or "  ▶ InitialObject [file:1:2] @21129"
+    let re = regex::Regex::new(r"InitialObject\b.*?@(\d+)").unwrap();
     for line in stdout.lines() {
-        if let Some(pos) = line.find("InitialObject @") {
-            let after_at = &line[pos + "InitialObject @".len()..];
-            let id: String = after_at
-                .chars()
-                .take_while(|c| c.is_ascii_digit())
-                .collect();
-            if !id.is_empty() {
-                return format!("@{id}");
-            }
+        if let Some(caps) = re.captures(line) {
+            return format!("@{}", &caps[1]);
         }
     }
     panic!("could not find an InitialObject node ID in summary output");

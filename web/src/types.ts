@@ -14,7 +14,7 @@ export interface Statistics {
 }
 
 export interface AggregateEntry {
-  key: string;
+  index: number;
   name: string;
   count: number;
   self_size: number;
@@ -162,7 +162,7 @@ export type WorkerRequest =
   | {
       id: number;
       type: 'getSummaryObjects';
-      constructor: string;
+      constructorIndex: number;
       offset: number;
       limit: number;
     }
@@ -193,6 +193,13 @@ export type WorkerRequest =
   | { id: number; type: 'getNodeInfo'; nodeId: number }
   | { id: number; type: 'getAllocationStack'; nodeId: number }
   | { id: number; type: 'getSummaryForInterval'; intervalIndex: number }
+  | {
+      id: number;
+      type: 'getTimelineObjects';
+      constructorIndex: number;
+      offset: number;
+      limit: number;
+    }
   | { id: number; type: 'getTimeline' };
 
 export type WorkerResponse =
