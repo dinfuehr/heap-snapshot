@@ -1,6 +1,6 @@
 {
   "name": "@heap-snapshot/win32-arm64",
-  "version": "0.0.7",
+  "version": "0.0.8",
   "description": "V8 heap snapshot analyzer (Windows ARM64)",
   "license": "MIT",
   "preferUnplugged": true,
