@@ -82,6 +82,7 @@ function HistoryEntry(props: {
       selection={props.selection()}
       onSelect={props.onSelect}
       detachedness={props.node.detachedness}
+      ctx={props.node.ctx}
       distance={props.node.distance}
       selfSize={props.node.self_size}
       retainedSize={props.node.retained_size}
@@ -110,6 +111,7 @@ function HistoryEntry(props: {
               selection={props.selection()}
               onSelect={props.onSelect}
               detachedness={child.node.detachedness}
+              ctx={child.node.ctx}
               distance={child.node.distance}
               selfSize={child.node.self_size}
               retainedSize={child.node.retained_size}

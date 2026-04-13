@@ -8,7 +8,9 @@ use heap_snapshot::parser;
 use heap_snapshot::retaining_path::{
     RetainerAutoExpandLimits, RetainerPathEdge, plan_gc_root_retainer_paths,
 };
-use heap_snapshot::snapshot::{HeapSnapshot, NativeContextId, RootKind, SnapshotOptions};
+use heap_snapshot::snapshot::{
+    HeapSnapshot, NativeContextBucket, NativeContextId, RootKind, SnapshotOptions,
+};
 use heap_snapshot::types::AggregateInfo;
 use heap_snapshot::types::{NodeId, NodeOrdinal};
 use rustc_hash::FxHashMap;
@@ -52,6 +54,7 @@ struct JsNodeInfo {
     distance: u32,
     edge_count: u32,
     detachedness: u8,
+    ctx: String,
 }
 
 #[derive(Serialize)]
@@ -89,6 +92,7 @@ struct JsSummaryObject {
     self_size: u32,
     retained_size: f64,
     detachedness: u8,
+    ctx: String,
 }
 
 #[derive(Serialize)]
@@ -174,6 +178,14 @@ pub struct WasmHeapSnapshot {
     cached_aggregates: Option<FxHashMap<String, AggregateInfo>>,
 }
 
+fn format_ctx_bucket(bucket: NativeContextBucket) -> String {
+    match bucket {
+        NativeContextBucket::Context(id) => format!("${}", id.0),
+        NativeContextBucket::Shared => "S".to_string(),
+        NativeContextBucket::Unattributed => String::new(),
+    }
+}
+
 impl WasmHeapSnapshot {
     fn node_info(&self, ordinal: NodeOrdinal) -> JsNodeInfo {
         let snap = &self.inner;
@@ -186,6 +198,7 @@ impl WasmHeapSnapshot {
             distance: snap.node_distance(ordinal).0,
             edge_count: snap.node_edge_count(ordinal) as u32,
             detachedness: snap.node_detachedness(ordinal),
+            ctx: format_ctx_bucket(snap.node_native_context_bucket(ordinal)),
         }
     }
 
@@ -319,6 +332,7 @@ impl WasmHeapSnapshot {
                     self_size: snap.node_self_size(ord),
                     retained_size: snap.node_retained_size(ord),
                     detachedness: snap.node_detachedness(ord),
+                    ctx: format_ctx_bucket(snap.node_native_context_bucket(ord)),
                 }
             })
             .collect();

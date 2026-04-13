@@ -30,6 +30,7 @@ export function TreeTableRow(props: {
   selection?: RowSelection | null;
   onSelect?: (sel: RowSelection) => void;
   detachedness?: number;
+  ctx?: string;
   distance?: number;
   selfSize: number;
   retainedSize: number;
@@ -164,6 +165,7 @@ export function TreeTableRow(props: {
               ? 'attached'
               : ''}
         </td>
+        <td style={numStyle}>{props.ctx ?? ''}</td>
       </tr>
       {props.children}
     </>
@@ -194,6 +196,7 @@ export function TreeTableShell(props: { children: JSX.Element }): JSX.Element {
           <col style={{ width: '110px' }} />
           <col style={{ width: '120px' }} />
           <col style={{ width: '80px' }} />
+          <col style={{ width: '50px' }} />
         </colgroup>
         <thead>
           <tr
@@ -252,6 +255,15 @@ export function TreeTableShell(props: { children: JSX.Element }): JSX.Element {
             >
               Status
             </th>
+            <th
+              style={{
+                padding: '4px 8px',
+                'text-align': 'right',
+                'white-space': 'nowrap',
+              }}
+            >
+              Ctx
+            </th>
           </tr>
         </thead>
         <tbody>{props.children}</tbody>
@@ -264,7 +276,7 @@ export function TreeTableLoading(props: { depth: number }): JSX.Element {
   return (
     <tr>
       <td
-        colSpan={6}
+        colSpan={7}
         style={{
           padding: '2px 8px',
           'padding-left': `${8 + props.depth * 16}px`,

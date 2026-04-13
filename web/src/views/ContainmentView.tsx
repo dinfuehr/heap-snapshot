@@ -102,6 +102,7 @@ function TreeNode(props: {
       selection={props.selection()}
       onSelect={props.onSelect}
       detachedness={props.node.detachedness}
+      ctx={props.node.ctx}
       distance={props.node.distance}
       selfSize={props.node.self_size}
       retainedSize={props.node.retained_size}

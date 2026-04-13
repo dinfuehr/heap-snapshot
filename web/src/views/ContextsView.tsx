@@ -26,6 +26,7 @@ const PAGE_SIZE = 100;
 
 function ContextNode(props: {
   ctx: NativeContext;
+  index: number;
   call: SnapshotCall;
   onNavigate: (opts: NavigateOptions) => void;
   onContextMenu: (e: MouseEvent, nodeId: number) => void;
@@ -110,6 +111,7 @@ function ContextNode(props: {
             ? 1
             : 0
       }
+      ctx={`$${props.index}`}
       selfSize={props.ctx.self_size}
       retainedSize={props.ctx.retained_size}
       reachableInfo={props.reachableSizes.get(props.ctx.id)}
@@ -131,6 +133,7 @@ function ContextNode(props: {
               selection={props.selection()}
               onSelect={props.onSelect}
               detachedness={child.node.detachedness}
+              ctx={child.node.ctx}
               distance={child.node.distance}
               selfSize={child.node.self_size}
               retainedSize={child.node.retained_size}
@@ -204,9 +207,10 @@ export function ContextsView(props: {
             </p>
             <TreeTableShell>
               <For each={ctxs()}>
-                {(ctx) => (
+                {(ctx, i) => (
                   <ContextNode
                     ctx={ctx}
+                    index={i()}
                     call={props.call}
                     onNavigate={props.onNavigate}
                     onContextMenu={props.onContextMenu}

@@ -48,6 +48,7 @@ function ExpandableObject(props: {
     self_size: number;
     retained_size: number;
     detachedness: number;
+    ctx: string;
   };
   call: SnapshotCall;
   onNavigate: (opts: NavigateOptions) => void;
@@ -87,6 +88,7 @@ function ExpandableObject(props: {
       selection={props.selection()}
       onSelect={props.onSelect}
       detachedness={props.obj.detachedness}
+      ctx={props.obj.ctx}
       selfSize={props.obj.self_size}
       retainedSize={props.obj.retained_size}
       reachableInfo={props.reachableSizes.get(props.obj.id)}
@@ -312,6 +314,7 @@ function SummaryGroup(props: {
         <td style={numTd}>{formatBytes(props.entry.retained_size)}</td>
         <td style={{ ...numTd, color: '#ccc' }}>{'\u2014'}</td>
         <td />
+        <td />
       </tr>
       <Show when={expanded() && objects()}>
         {(objs) => (
@@ -331,7 +334,7 @@ function SummaryGroup(props: {
               )}
             </For>
             <tr>
-              <td colSpan={6}>
+              <td colSpan={7}>
                 <TreeTablePager
                   depth={1}
                   shown={objs().objects.length}
@@ -388,6 +391,7 @@ export function SummaryTable(props: {
           <col style={{ width: '110px' }} />
           <col style={{ width: '120px' }} />
           <col style={{ width: '80px' }} />
+          <col style={{ width: '50px' }} />
         </colgroup>
         <thead>
           <tr
@@ -445,6 +449,15 @@ export function SummaryTable(props: {
               }}
             >
               Status
+            </th>
+            <th
+              style={{
+                padding: '4px 8px',
+                'text-align': 'right',
+                'white-space': 'nowrap',
+              }}
+            >
+              Ctx
             </th>
           </tr>
         </thead>
