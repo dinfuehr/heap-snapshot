@@ -58,7 +58,7 @@ fn stack_contains_known_objects() {
 fn stack_shows_reached_native_contexts() {
     let output = run_stack("heap-1.heapsnapshot");
     assert!(
-        output.contains("\u{2192} [utility] @7165"),
+        output.contains("\u{2192} [utility] $0"),
         "expected arrow with NativeContext in output, got:\n{output}"
     );
 }

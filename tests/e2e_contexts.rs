@@ -16,7 +16,7 @@ fn run_contexts(file: &str) -> String {
 fn contexts_finds_native_context() {
     let output = run_contexts("heap-1.heapsnapshot");
     assert!(
-        output.contains("[utility] @7165"),
+        output.contains("[utility] $0"),
         "expected native context in output, got:\n{output}"
     );
 }

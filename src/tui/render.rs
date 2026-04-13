@@ -2,7 +2,7 @@ use ratatui::prelude::*;
 use ratatui::widgets::Paragraph;
 
 use crate::print::{format_distance, format_size, pct_str};
-use crate::snapshot::HeapSnapshot;
+use crate::snapshot::{HeapSnapshot, NativeContextBucket};
 
 use super::types::*;
 
@@ -33,8 +33,8 @@ pub(super) fn fit_tabs(tabs: &mut [(String, ViewType)], width: usize) {
     }
 }
 use super::{
-    App, COL_DETACHED, COL_DIST, COL_REACHABLE, COL_REACHABLE_PCT, COL_RETAINED, COL_RETAINED_PCT,
-    COL_SHALLOW, COL_SHALLOW_PCT, SummaryFilterMode, fit_cell, fit_name_cell,
+    App, COL_CTX, COL_DETACHED, COL_DIST, COL_REACHABLE, COL_REACHABLE_PCT, COL_RETAINED,
+    COL_RETAINED_PCT, COL_SHALLOW, COL_SHALLOW_PCT, SummaryFilterMode, fit_cell, fit_name_cell,
     regular_name_col_width,
 };
 
@@ -257,7 +257,7 @@ impl App {
         if self.current_view == ViewType::Diff {
             self.render_diff_rows(frame, tree_area);
         } else {
-            self.render_rows(frame, tree_area);
+            self.render_rows(frame, tree_area, snap);
         }
     }
 
@@ -293,6 +293,10 @@ impl App {
                 format!("{:>w$}", "Det", w = COL_DETACHED),
                 Style::default().bold(),
             ),
+            Span::styled(
+                format!("{:>w$}", "Ctx", w = COL_CTX),
+                Style::default().bold(),
+            ),
         ]);
         frame.render_widget(Paragraph::new(header), Rect { height: 1, ..area });
 
@@ -308,7 +312,7 @@ impl App {
         );
     }
 
-    fn render_rows(&mut self, frame: &mut Frame, area: Rect) {
+    fn render_rows(&mut self, frame: &mut Frame, area: Rect, snap: &HeapSnapshot) {
         let tree_height = area.height as usize;
         let col_name = regular_name_col_width(area.width);
         let horizontal_scroll = self.clamp_horizontal_scroll(col_name);
@@ -455,6 +459,18 @@ impl App {
                             None => "\u{2013}",
                         },
                         w = COL_DETACHED
+                    ),
+                    Style::default().bg(bg),
+                ),
+                Span::styled(
+                    format!(
+                        "{:>w$}",
+                        match node_ordinal.map(|o| snap.node_native_context_bucket(o)) {
+                            Some(NativeContextBucket::Context(id)) => format!("${}", id.0),
+                            Some(NativeContextBucket::Shared) => "S".to_string(),
+                            Some(NativeContextBucket::Unattributed) | None => String::new(),
+                        },
+                        w = COL_CTX
                     ),
                     Style::default().bg(bg),
                 ),

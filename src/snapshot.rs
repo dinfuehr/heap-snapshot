@@ -3528,10 +3528,14 @@ impl HeapSnapshot {
             .map(|ctx| ctx.kind)
             .unwrap_or_else(|| self.compute_native_context_kind(ordinal))
             .as_str();
+        let ctx_idx = match self.node_native_context_bucket(ordinal) {
+            NativeContextBucket::Context(id) => format!(" ${}", id.0),
+            _ => String::new(),
+        };
 
         match url {
-            Some(u) => format!("[{frame_kind}] {u} @{node_id}"),
-            None => format!("[{frame_kind}] @{node_id}"),
+            Some(u) => format!("[{frame_kind}]{ctx_idx} {u} @{node_id}"),
+            None => format!("[{frame_kind}]{ctx_idx} @{node_id}"),
         }
     }
 

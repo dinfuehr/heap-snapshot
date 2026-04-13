@@ -48,6 +48,7 @@ const COL_RETAINED_PCT: usize = 5;
 const COL_REACHABLE: usize = 14;
 const COL_REACHABLE_PCT: usize = 5;
 const COL_DETACHED: usize = 5;
+const COL_CTX: usize = 4;
 
 // Diff view column widths (match print/diff.rs)
 const COL_DIFF_NAME: usize = 40;
@@ -67,6 +68,7 @@ fn regular_fixed_col_width() -> usize {
         + COL_REACHABLE
         + COL_REACHABLE_PCT
         + COL_DETACHED
+        + COL_CTX
 }
 
 fn regular_name_col_width(area_width: u16) -> usize {
