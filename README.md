@@ -105,8 +105,8 @@ The binary also implements an MCP server (`heap-snapshot mcp`). To add it to Cla
 {
   "mcpServers": {
     "heap-snapshot": {
-      "command": "heap-snapshot",
-      "args": ["mcp"]
+      "command": "npx",
+      "args": ["-y", "@heap-snapshot/tool", "mcp"]
     }
   }
 }
