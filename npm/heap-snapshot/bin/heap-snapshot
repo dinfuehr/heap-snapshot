@@ -29,7 +29,7 @@ try {
   console.error(
     `Error: Could not find the ${pkg} package.\n` +
       "Make sure it was installed — optional dependencies may have been skipped.\n" +
-      "Try reinstalling with: npm install @heap-snapshot/cli"
+      "Try reinstalling with: npm install @heap-snapshot/tool"
   );
   process.exit(1);
 }
