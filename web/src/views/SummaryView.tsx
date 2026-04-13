@@ -496,28 +496,30 @@ export function SummaryView(props: {
       if (key.startsWith('ctx:')) {
         const sub = key.slice(4);
         if (sub === 'shared') {
-          await props.call({
-            type: 'setSummaryFilterContext',
+          return props.call<AggregateEntry[]>({
+            type: 'getSummaryWithContextFilter',
             contextMode: 1,
             contextIndex: 0,
           });
         } else if (sub === 'unattributed') {
-          await props.call({
-            type: 'setSummaryFilterContext',
+          return props.call<AggregateEntry[]>({
+            type: 'getSummaryWithContextFilter',
             contextMode: 2,
             contextIndex: 0,
           });
         } else {
-          await props.call({
-            type: 'setSummaryFilterContext',
+          return props.call<AggregateEntry[]>({
+            type: 'getSummaryWithContextFilter',
             contextMode: 0,
             contextIndex: parseInt(sub, 10),
           });
         }
       } else {
-        await props.call({ type: 'setSummaryFilter', mode: parseInt(key, 10) });
+        return props.call<AggregateEntry[]>({
+          type: 'getSummaryWithFilter',
+          mode: parseInt(key, 10),
+        });
       }
-      return props.call<AggregateEntry[]>({ type: 'getSummary' });
     },
   );
   const [filter, setFilter] = createSignal('');

@@ -257,11 +257,13 @@ impl WasmHeapSnapshot {
         })
     }
 
-    /// Recompute cached aggregates with the given filter mode.
+    /// Recompute cached aggregates with the given filter mode and return
+    /// the summary entries. Combines filter update and summary fetch into
+    /// one call so the cache and UI entries are always in sync.
     /// 0 = all objects, 1 = all unreachable, 2 = unreachable roots only,
     /// 3 = retained by detached DOM, 4 = retained by console,
     /// 5 = retained by event handlers.
-    pub fn set_summary_filter(&mut self, mode: u32) {
+    pub fn get_summary_with_filter(&mut self, mode: u32) -> String {
         self.cached_summary_aggregates = Some(match mode {
             1 => self.inner.unreachable_aggregates(),
             2 => self.inner.unreachable_root_aggregates(),
@@ -270,14 +272,15 @@ impl WasmHeapSnapshot {
             5 => self.inner.retained_by_event_handlers(),
             _ => self.inner.aggregates_with_filter(),
         });
+        self.format_summary()
     }
 
     /// mode: 0 = specific context (uses context_index), 1 = shared, 2 = unattributed
-    pub fn set_summary_filter_context(
+    pub fn get_summary_with_context_filter(
         &mut self,
         mode: u32,
         context_index: u32,
-    ) -> Result<(), JsError> {
+    ) -> Result<String, JsError> {
         self.cached_summary_aggregates = Some(match mode {
             1 => self.inner.aggregates_for_shared_context(),
             2 => self.inner.aggregates_for_unattributed_context(),
@@ -289,10 +292,10 @@ impl WasmHeapSnapshot {
                     .aggregates_for_native_context(NativeContextId(context_index))
             }
         });
-        Ok(())
+        Ok(self.format_summary())
     }
 
-    pub fn get_summary(&self) -> String {
+    fn format_summary(&self) -> String {
         let aggregates = self.cached_summary_aggregates.as_ref().unwrap();
         let mut entries: Vec<JsAggregateEntry> = aggregates
             .iter()

@@ -109,19 +109,24 @@ async function processMessage(msg: WorkerMsg) {
       case 'getStatistics':
         respond(id, JSON.parse(snapshot.get_statistics()));
         break;
-      case 'setSummaryFilter':
-        snapshot.set_summary_filter((msg.mode as number) || 0);
-        respond(id, null);
-        break;
-      case 'setSummaryFilterContext':
-        snapshot.set_summary_filter_context(
-          msg.contextMode as number,
-          msg.contextIndex as number,
+      case 'getSummaryWithFilter':
+        respond(
+          id,
+          JSON.parse(
+            snapshot.get_summary_with_filter((msg.mode as number) || 0),
+          ),
         );
-        respond(id, null);
         break;
-      case 'getSummary':
-        respond(id, JSON.parse(snapshot.get_summary()));
+      case 'getSummaryWithContextFilter':
+        respond(
+          id,
+          JSON.parse(
+            snapshot.get_summary_with_context_filter(
+              msg.contextMode as number,
+              msg.contextIndex as number,
+            ),
+          ),
+        );
         break;
       case 'getSummaryObjects':
         respond(
