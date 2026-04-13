@@ -21,6 +21,7 @@ import {
 } from '../components/TreeTable.tsx';
 import { TreeTablePager } from '../components/TreeTablePager.tsx';
 import { TreeTableLoading } from '../components/TreeTable.tsx';
+import { ContainmentTreeNode } from './ContainmentView.tsx';
 
 const PAGE_SIZE = 100;
 
@@ -123,22 +124,17 @@ function ContextNode(props: {
       <Show when={expanded() && children()}>
         <For each={children()!}>
           {(child) => (
-            <TreeTableRow
-              depth={1}
-              prefix={<span style={{ color: '#888' }}>{child.edgeLabel}</span>}
-              label={<>{child.node.name}</>}
-              linkId={child.node.id}
+            <ContainmentTreeNode
+              edgeLabel={child.edgeLabel}
+              node={child.node}
+              call={props.call}
               onNavigate={props.onNavigate}
               onContextMenu={props.onContextMenu}
-              selection={props.selection()}
+              selection={props.selection}
               onSelect={props.onSelect}
-              detachedness={child.node.detachedness}
-              ctx={child.node.ctx}
-              distance={child.node.distance}
-              selfSize={child.node.self_size}
-              retainedSize={child.node.retained_size}
-              reachableInfo={props.reachableSizes.get(child.node.id)}
-              reachableLoading={props.reachablePending.has(child.node.id)}
+              reachableSizes={props.reachableSizes}
+              reachablePending={props.reachablePending}
+              depth={1}
             />
           )}
         </For>

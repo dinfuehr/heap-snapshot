@@ -239,6 +239,48 @@ test.describe('Heap Snapshot Viewer', () => {
     ).toBeVisible({ timeout: 5000 });
   });
 
+  test('history view can expand children recursively', async ({ page }) => {
+    // Remember an object first — expand a Summary group and right-click
+    const firstGroup = page
+      .locator('table')
+      .first()
+      .locator('tbody tr')
+      .first();
+    await firstGroup.dblclick();
+
+    const objectLink = page
+      .locator('a[href="#"]')
+      .filter({ hasText: '@' })
+      .first();
+    await expect(objectLink).toBeVisible({ timeout: 5000 });
+    await objectLink.click({ button: 'right' });
+    await page.locator('text=Remember object').click();
+
+    // Switch to History tab
+    await page.locator('button:has-text("History")').click();
+    const historyRow = page
+      .locator('tr:visible')
+      .filter({ hasText: '@' })
+      .first();
+    await expect(historyRow).toBeVisible({ timeout: 5000 });
+
+    // Expand the remembered object
+    await historyRow.dblclick();
+
+    // Wait for children with edge labels
+    const childRows = page.locator('tr:visible').filter({ hasText: '::' });
+    await expect(childRows.first()).toBeVisible({ timeout: 5000 });
+
+    // Expand the first child (the new functionality)
+    await childRows.first().dblclick();
+
+    // Grandchildren should appear — more edge-label rows visible
+    const allEdgeRows = page.locator('tr:visible').filter({ hasText: '::' });
+    await expect(allEdgeRows.nth(1)).toBeVisible({ timeout: 5000 });
+    const count = await allEdgeRows.count();
+    expect(count).toBeGreaterThan(1);
+  });
+
   test('context menu closes on click outside', async ({ page }) => {
     const firstGroup = page
       .locator('table')
@@ -1072,6 +1114,33 @@ test.describe('Heap Snapshot Viewer', () => {
         .textContent();
       expect(reachable).toMatch(/\d+(\.\d+)?\s*(B|KB|MB|GB)/);
     }
+  });
+
+  test('contexts view can expand children recursively', async ({ page }) => {
+    await page.locator('button:has-text("Contexts")').click();
+
+    // Wait for context rows to load
+    const contextRows = page
+      .locator('tr:visible')
+      .filter({ has: page.locator('a[href="#"]') });
+    await expect(contextRows.first()).toBeVisible({ timeout: 5000 });
+
+    // Double-click the first context to expand it
+    await contextRows.first().dblclick();
+
+    // Wait for children to appear — they have edge labels with " :: "
+    const childRows = page.locator('tr:visible').filter({ hasText: '::' });
+    await expect(childRows.first()).toBeVisible({ timeout: 5000 });
+
+    // Double-click the first child to expand it (the new functionality)
+    await childRows.first().dblclick();
+
+    // Count visible rows with edge labels — should be more than before
+    // because grandchildren have appeared
+    const allEdgeRows = page.locator('tr:visible').filter({ hasText: '::' });
+    await expect(allEdgeRows.nth(1)).toBeVisible({ timeout: 5000 });
+    const count = await allEdgeRows.count();
+    expect(count).toBeGreaterThan(1);
   });
 
   test('right-click "Show retainers" on a retainer node re-roots the view', async ({

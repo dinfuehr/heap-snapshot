@@ -13,6 +13,7 @@ import type {
   AggregateEntry,
   SummaryExpanded,
   Children,
+  NodeInfo,
   ReachableSizeInfo,
   NativeContext,
 } from '../types.ts';
@@ -128,19 +129,7 @@ function ObjectChildren(props: {
   onLoaded?: () => void;
 }): JSX.Element {
   const [children, setChildren] = createSignal<
-    {
-      edgeLabel: string;
-      node: {
-        id: number;
-        name: string;
-        node_type: string;
-        self_size: number;
-        retained_size: number;
-        distance: number;
-        edge_count: number;
-        detachedness: number;
-      };
-    }[]
+    { edgeLabel: string; node: NodeInfo }[]
   >([]);
   const [loaded, setLoaded] = createSignal(false);
   const [total, setTotal] = createSignal(0);
