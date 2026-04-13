@@ -4,9 +4,19 @@ CLI tool for analyzing V8 `.heapsnapshot` files. Includes an interactive TUI vie
 
 This project was started from Chromium DevTools' `HeapSnapshot.ts` (`front_end/entrypoints/heap_snapshot_worker/HeapSnapshot.ts`), converted to Rust by AI. The original code is Copyright 2011 The Chromium Authors, licensed under a BSD-style license.
 
-## Building
+## Installation
 
-Requires Rust (edition 2024). Install via [rustup](https://rustup.rs/) if needed.
+Install from npm:
+
+```sh
+# Run without installing
+npx @heap-snapshot/tool
+
+# Install globally
+npm install -g @heap-snapshot/tool
+```
+
+Or build from source (requires Rust edition 2024, install via [rustup](https://rustup.rs/)):
 
 ```sh
 cargo build --release
