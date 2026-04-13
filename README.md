@@ -99,7 +99,20 @@ npm run test:e2e     # run Playwright end-to-end tests
 
 ## MCP Server
 
-The binary also implements an MCP server (`heap-snapshot mcp`). To add it to Claude Code, Codex, or Gemini CLI, add this to the respective settings file (`.claude/settings.json`, `codex.json`, or `~/.gemini/settings.json`):
+The binary also implements an MCP server (`heap-snapshot mcp`). Add it from the command line:
+
+```sh
+# Claude Code
+claude mcp add heap-snapshot -- npx -y @heap-snapshot/tool mcp
+
+# Codex
+codex mcp add heap-snapshot -- npx -y @heap-snapshot/tool mcp
+
+# Gemini CLI
+gemini mcp add heap-snapshot npx -- -y @heap-snapshot/tool mcp
+```
+
+Or add this to the respective settings file (`.claude/settings.json`, `codex.json`, or `~/.gemini/settings.json`):
 
 ```json
 {
