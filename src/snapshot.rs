@@ -73,7 +73,7 @@ pub struct TimelineInterval {
 }
 
 pub struct ReachableInfo {
-    pub size: f64,
+    pub size: u64,
     pub native_contexts: Vec<NodeOrdinal>,
 }
 
@@ -107,14 +107,14 @@ pub struct NativeContextData {
     pub ordinal: NodeOrdinal,
     pub kind: NativeContextKind,
     pub is_extension: bool,
-    pub size: f64,
+    pub size: u64,
 }
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct NativeContextAttributableSizes {
     pub native_contexts: Vec<NativeContextData>,
-    pub shared: f64,
-    pub unattributed: f64,
+    pub shared: u64,
+    pub unattributed: u64,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -189,7 +189,7 @@ pub struct HeapSnapshot {
     gc_roots_ordinal: usize,
     first_edge_indexes: Vec<u32>,
     node_distances: Vec<Distance>,
-    retained_sizes: Vec<f64>,
+    retained_sizes: Vec<u64>,
     dominators_tree: Vec<u32>,
     dominated_nodes: Vec<u32>,
     first_dominated_node_index: Vec<u32>,
@@ -224,8 +224,8 @@ pub struct HeapSnapshot {
     native_contexts: Vec<NativeContextData>,
     // Best-effort native context owner for each node.
     node_native_context_buckets: Vec<NativeContextBucket>,
-    shared_attributable_size: f64,
-    unattributed_size: f64,
+    shared_attributable_size: u64,
+    unattributed_size: u64,
     // Edge names common to all NativeContext global_objects
     native_context_global_fields: FxHashSet<String>,
     // Precomputed "Vars" string per NativeContext (joined unique global + script context vars)
@@ -244,7 +244,7 @@ pub struct HeapSnapshot {
     timeline: Vec<TimelineInterval>,       // allocation timeline intervals
 
     // Extra native bytes from snapshot header
-    extra_native_bytes: f64,
+    extra_native_bytes: u64,
 
     // When true, weak edges are treated as reachable during BFS distance
     // computation.  Objects referenced only via weak edges from reachable
@@ -372,7 +372,7 @@ impl HeapSnapshot {
         let node_count = raw.nodes.len() / node_field_count;
         let edge_count = raw.edges.len() / edge_fields_count;
         let root_node_index = raw.snapshot.root_index.unwrap_or(0);
-        let extra_native_bytes = raw.snapshot.extra_native_bytes.unwrap_or(0.0);
+        let extra_native_bytes = raw.snapshot.extra_native_bytes.unwrap_or(0);
 
         let mut snap = HeapSnapshot {
             nodes: raw.nodes,
@@ -418,7 +418,7 @@ impl HeapSnapshot {
             gc_roots_ordinal: root_node_index / node_field_count, // updated after build_edge_indexes
             first_edge_indexes: vec![0u32; node_count + 1],
             node_distances: vec![Distance::NONE; node_count],
-            retained_sizes: vec![0.0; node_count],
+            retained_sizes: vec![0u64; node_count],
             dominators_tree: vec![0u32; node_count],
             dominated_nodes: Vec::new(),
             first_dominated_node_index: vec![0u32; node_count + 1],
@@ -431,8 +431,8 @@ impl HeapSnapshot {
             use_separate_class_index: false,
             native_contexts: Vec::new(),
             node_native_context_buckets: vec![NativeContextBucket::Unattributed; node_count],
-            shared_attributable_size: 0.0,
-            unattributed_size: 0.0,
+            shared_attributable_size: 0,
+            unattributed_size: 0,
             native_context_global_fields: FxHashSet::default(),
             native_context_vars: FxHashMap::default(),
             js_global_objects: Vec::new(),
@@ -453,17 +453,17 @@ impl HeapSnapshot {
             extra_native_bytes,
             weak_is_reachable: options.weak_is_reachable,
             statistics: Statistics {
-                total: 0.0,
-                native_total: 0.0,
-                typed_arrays: 0.0,
-                v8heap_total: 0.0,
-                code: 0.0,
-                js_arrays: 0.0,
-                strings: 0.0,
-                system: 0.0,
-                extra_native_bytes: 0.0,
+                total: 0,
+                native_total: 0,
+                typed_arrays: 0,
+                v8heap_total: 0,
+                code: 0,
+                js_arrays: 0,
+                strings: 0,
+                system: 0,
+                extra_native_bytes: 0,
                 unreachable_count: 0,
-                unreachable_size: 0.0,
+                unreachable_size: 0,
             },
         };
 
@@ -627,7 +627,7 @@ impl HeapSnapshot {
                     is_extension: self
                         .native_context_url(ordinal)
                         .is_some_and(|url| url.starts_with("chrome-extension://")),
-                    size: 0.0,
+                    size: 0,
                 });
             }
         }
@@ -730,12 +730,12 @@ impl HeapSnapshot {
     }
 
     fn compute_native_context_attributable_sizes(&mut self) {
-        let mut native_context_sizes = vec![0.0; self.native_contexts.len()];
-        let mut shared_size = 0.0;
-        let mut unattributed_size = 0.0;
+        let mut native_context_sizes = vec![0u64; self.native_contexts.len()];
+        let mut shared_size = 0u64;
+        let mut unattributed_size = 0u64;
 
         for ordinal in 0..self.node_count {
-            let size = self.node_self_size(NodeOrdinal(ordinal)) as f64;
+            let size = self.node_self_size(NodeOrdinal(ordinal)) as u64;
             match self.node_native_context_buckets[ordinal] {
                 NativeContextBucket::Context(id) => {
                     native_context_sizes[id.0 as usize] += size;
@@ -1861,10 +1861,10 @@ impl HeapSnapshot {
 
         // Build dominator tree and retained sizes
         let mut dominators_tree = vec![0u32; node_count];
-        let mut retained_sizes = vec![0.0f64; node_count];
+        let mut retained_sizes = vec![0u64; node_count];
         for ord in 0..node_count {
             dominators_tree[ord] = dom[ord + 1] - 1;
-            retained_sizes[ord] = self.nodes[ord * nfc + self.node_self_size_offset] as f64;
+            retained_sizes[ord] = self.nodes[ord * nfc + self.node_self_size_offset] as u64;
         }
 
         // Propagate retained sizes up dominator tree
@@ -2678,20 +2678,20 @@ impl HeapSnapshot {
         let _efc = self.edge_fields_count;
 
         let mut size_native = self.extra_native_bytes;
-        let mut size_typed_arrays = 0.0f64;
-        let mut size_code = 0.0f64;
-        let mut size_strings = 0.0f64;
-        let mut size_js_arrays = 0.0f64;
-        let mut size_system = 0.0f64;
+        let mut size_typed_arrays = 0u64;
+        let mut size_code = 0u64;
+        let mut size_strings = 0u64;
+        let mut size_js_arrays = 0u64;
+        let mut size_system = 0u64;
         let mut unreachable_count = 0u32;
-        let mut unreachable_size = 0.0f64;
+        let mut unreachable_size = 0u64;
 
         for ordinal in 0..self.node_count {
             let node_index = ordinal * nfc;
-            let node_size = self.nodes[node_index + sso] as f64;
+            let node_size = self.nodes[node_index + sso] as u64;
             let node_type = self.nodes[node_index + tyo];
 
-            if self.node_distances[ordinal].is_unreachable() && node_size > 0.0 {
+            if self.node_distances[ordinal].is_unreachable() && node_size > 0 {
                 unreachable_count += 1;
                 unreachable_size += node_size;
             }
@@ -2739,10 +2739,10 @@ impl HeapSnapshot {
         };
     }
 
-    fn calculate_array_size(&self, ordinal: NodeOrdinal) -> f64 {
+    fn calculate_array_size(&self, ordinal: NodeOrdinal) -> u64 {
         let nfc = self.node_field_count;
         let node_index = ordinal.0 * nfc;
-        let mut size = self.nodes[node_index + self.node_self_size_offset] as f64;
+        let mut size = self.nodes[node_index + self.node_self_size_offset] as u64;
 
         let first_edge = self.first_edge_indexes[ordinal.0] as usize;
         let last_edge = self.first_edge_indexes[ordinal.0 + 1] as usize;
@@ -2766,7 +2766,7 @@ impl HeapSnapshot {
             let ret_count = self.first_retainer_index[elements_ordinal + 1]
                 - self.first_retainer_index[elements_ordinal];
             if ret_count == 1 {
-                size += self.nodes[elements_node_index + self.node_self_size_offset] as f64;
+                size += self.nodes[elements_node_index + self.node_self_size_offset] as u64;
             }
             break;
         }
@@ -2804,16 +2804,16 @@ impl HeapSnapshot {
         }
     }
 
-    pub fn native_context_attributable_size(&self, ordinal: NodeOrdinal) -> Option<f64> {
+    pub fn native_context_attributable_size(&self, ordinal: NodeOrdinal) -> Option<u64> {
         self.native_context_id(ordinal)
             .map(|id| self.native_context_by_id(id).size)
     }
 
-    pub fn shared_attributable_size(&self) -> f64 {
+    pub fn shared_attributable_size(&self) -> u64 {
         self.shared_attributable_size
     }
 
-    pub fn unattributed_size(&self) -> f64 {
+    pub fn unattributed_size(&self) -> u64 {
         self.unattributed_size
     }
 
@@ -3244,7 +3244,7 @@ impl HeapSnapshot {
         self.nodes[ordinal.0 * self.node_field_count + self.node_self_size_offset]
     }
 
-    pub fn node_retained_size(&self, ordinal: NodeOrdinal) -> f64 {
+    pub fn node_retained_size(&self, ordinal: NodeOrdinal) -> u64 {
         self.retained_sizes[ordinal.0]
     }
 
@@ -3256,13 +3256,13 @@ impl HeapSnapshot {
 
         let mut visited = vec![false; self.node_count];
         let mut queue = std::collections::VecDeque::with_capacity(roots.len());
-        let mut total: f64 = 0.0;
+        let mut total: u64 = 0;
         let mut contexts = Vec::new();
 
         for &root in roots {
             if !visited[root.0] {
                 visited[root.0] = true;
-                total += self.node_self_size(root) as f64;
+                total += self.node_self_size(root) as u64;
                 if self.is_native_context(root) {
                     contexts.push(root);
                 }
@@ -3286,7 +3286,7 @@ impl HeapSnapshot {
                     continue;
                 }
                 visited[child_ordinal] = true;
-                total += self.node_self_size(NodeOrdinal(child_ordinal)) as f64;
+                total += self.node_self_size(NodeOrdinal(child_ordinal)) as u64;
                 if self.is_native_context(NodeOrdinal(child_ordinal)) {
                     contexts.push(NodeOrdinal(child_ordinal));
                 }
@@ -4129,8 +4129,8 @@ impl HeapSnapshot {
 
         for ordinal in 0..self.node_count {
             let node_index = ordinal * nfc;
-            let self_size = self.nodes[node_index + sso] as f64;
-            if self_size == 0.0 {
+            let self_size = self.nodes[node_index + sso] as u64;
+            if self_size == 0 {
                 continue;
             }
             if !filter(ordinal) {
@@ -4161,7 +4161,7 @@ impl HeapSnapshot {
                             count: 1,
                             distance,
                             self_size,
-                            max_ret: 0.0,
+                            max_ret: 0,
                             name: class_name,
                             first_seen: fs,
                             node_ordinals: vec![node_ordinal],
@@ -4258,7 +4258,7 @@ impl HeapSnapshot {
                 continue;
             }
 
-            let self_size = self.nodes[ni + self.node_self_size_offset] as f64;
+            let self_size = self.nodes[ni + self.node_self_size_offset] as u64;
             groups
                 .entry(display_name.clone())
                 .and_modify(|e| {
@@ -4277,8 +4277,7 @@ impl HeapSnapshot {
             groups.into_values().filter(|e| e.count >= 2).collect();
         result.sort_by(|a, b| {
             b.wasted_size()
-                .partial_cmp(&a.wasted_size())
-                .unwrap()
+                .cmp(&a.wasted_size())
                 .then(b.count.cmp(&a.count))
         });
         result

@@ -494,7 +494,7 @@ fn main() {
                         2 => "yes",
                         _ => "?",
                     };
-                    let shallow = snap.node_self_size(ord) as f64;
+                    let shallow = snap.node_self_size(ord) as u64;
                     let retained = snap.node_retained_size(ord);
                     let reachable = snap.reachable_size(&[ord]).size;
                     let vars = snap.native_context_vars(ord);
@@ -527,7 +527,7 @@ fn main() {
             minimum_reachable_size,
         } => {
             let snap = load_snapshot(&snap_args.to_options(), &file);
-            let min_bytes = minimum_reachable_size.unwrap_or(0.0) * 1024.0 * 1024.0;
+            let min_bytes = (minimum_reachable_size.unwrap_or(0.0) * 1024.0 * 1024.0) as u64;
             let gc_roots = snap.gc_roots_ordinal();
             let synthetic_root = snap.synthetic_root_ordinal();
             // Collect stack root containers from (GC roots) or synthetic root
@@ -548,8 +548,8 @@ fn main() {
                 label: String,
                 source: String,
                 det: u8,
-                retained: f64,
-                reachable: f64,
+                retained: u64,
+                reachable: u64,
                 contexts: Vec<NodeOrdinal>,
             }
             let mut entries: Vec<StackEntry> = Vec::new();
@@ -573,7 +573,7 @@ fn main() {
                 }
             }
             // Sort by reachable size descending
-            entries.sort_by(|a, b| b.reachable.partial_cmp(&a.reachable).unwrap());
+            entries.sort_by(|a, b| b.reachable.cmp(&a.reachable));
             entries.retain(|e| e.reachable >= min_bytes);
 
             let max_label = entries

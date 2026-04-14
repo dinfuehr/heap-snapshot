@@ -83,7 +83,7 @@ pub struct SnapshotHeader {
     pub edge_count: usize,
     pub trace_function_count: usize,
     pub root_index: Option<usize>,
-    pub extra_native_bytes: Option<f64>,
+    pub extra_native_bytes: Option<u64>,
 }
 
 pub struct SnapshotMeta {
@@ -98,29 +98,29 @@ pub struct SnapshotMeta {
 }
 
 pub struct Statistics {
-    pub total: f64,
-    pub native_total: f64,
-    pub typed_arrays: f64,
-    pub v8heap_total: f64,
-    pub code: f64,
-    pub js_arrays: f64,
-    pub strings: f64,
-    pub system: f64,
-    pub extra_native_bytes: f64,
+    pub total: u64,
+    pub native_total: u64,
+    pub typed_arrays: u64,
+    pub v8heap_total: u64,
+    pub code: u64,
+    pub js_arrays: u64,
+    pub strings: u64,
+    pub system: u64,
+    pub extra_native_bytes: u64,
     pub unreachable_count: u32,
-    pub unreachable_size: f64,
+    pub unreachable_size: u64,
 }
 
 pub struct DuplicateStringInfo {
     pub value: String,
     pub count: u32,
-    pub instance_size: f64,
-    pub total_size: f64,
+    pub instance_size: u64,
+    pub total_size: u64,
 }
 
 impl DuplicateStringInfo {
     /// Bytes wasted by duplication: total minus one instance.
-    pub fn wasted_size(&self) -> f64 {
+    pub fn wasted_size(&self) -> u64 {
         self.total_size - self.instance_size
     }
 }
@@ -128,8 +128,8 @@ impl DuplicateStringInfo {
 pub struct AggregateInfo {
     pub count: u32,
     pub distance: Distance,
-    pub self_size: f64,
-    pub max_ret: f64,
+    pub self_size: u64,
+    pub max_ret: u64,
     pub name: String,
     pub first_seen: u32,
     pub node_ordinals: Vec<NodeOrdinal>,

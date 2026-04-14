@@ -39,7 +39,7 @@ impl App {
             "  {} intervals, {} live objects, {} total",
             intervals.len(),
             total_count,
-            format_size(total_size as f64),
+            format_size(total_size),
         )));
         lines.push(Line::from(""));
 
@@ -52,7 +52,7 @@ impl App {
             };
 
             let ts_sec = interval.timestamp_us as f64 / 1_000_000.0;
-            let label = format!("{:>6.1}s {:>5} ", ts_sec, format_size(interval.size as f64));
+            let label = format!("{:>6.1}s {:>5} ", ts_sec, format_size(interval.size));
             let bar = "\u{2588}".repeat(w);
 
             let color = if interval.count == 0 {

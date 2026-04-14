@@ -85,8 +85,8 @@ impl App {
                 id,
                 label: format!("+ {} @{node_id}", d.name).into(),
                 distance: ordinal.map(|o| snap.node_distance(o)),
-                shallow_size: *self_size as f64,
-                retained_size: 0.0,
+                shallow_size: *self_size as u64,
+                retained_size: 0,
                 node_ordinal: ordinal,
                 has_children: has_edges,
                 children_key: if has_edges {
@@ -110,8 +110,8 @@ impl App {
                 id,
                 label: format!("\u{2212} {} @{node_id}", d.name).into(),
                 distance: ordinal.and_then(|o| compare_snap.map(|cs| cs.node_distance(o))),
-                shallow_size: 0.0,
-                retained_size: *self_size as f64,
+                shallow_size: 0,
+                retained_size: *self_size as u64,
                 node_ordinal: ordinal,
                 has_children: has_edges,
                 children_key: if has_edges {
@@ -277,7 +277,7 @@ impl App {
                     freed_size,
                 } => {
                     let delta_count = *new_count as i64 - *deleted_count as i64;
-                    let size_delta = *alloc_size - *freed_size;
+                    let size_delta = *alloc_size as i64 - *freed_size as i64;
                     Line::from(vec![
                         Span::styled(name_col, Style::default().fg(Color::White).bg(bg)),
                         Span::styled(

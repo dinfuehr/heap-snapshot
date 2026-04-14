@@ -18,10 +18,10 @@ impl App {
         let total = stats.total;
 
         // Categories with colors — ordered by typical dominance
-        let v8_other =
-            (stats.v8heap_total - stats.code - stats.strings - stats.js_arrays - stats.system)
-                .max(0.0);
-        let categories: Vec<(&str, f64, Color)> = vec![
+        let v8_other = stats
+            .v8heap_total
+            .saturating_sub(stats.code + stats.strings + stats.js_arrays + stats.system);
+        let categories: Vec<(&str, u64, Color)> = vec![
             ("V8 Heap", v8_other, Color::Blue),
             ("Code", stats.code, Color::Yellow),
             ("Strings", stats.strings, Color::Green),
@@ -47,8 +47,8 @@ impl App {
 
         // Individual categories
         for (name, value, color) in &categories {
-            let pct = if total > 0.0 {
-                format!("{:>5.1}%", value / total * 100.0)
+            let pct = if total > 0 {
+                format!("{:>5.1}%", *value as f64 / total as f64 * 100.0)
             } else {
                 " 0.0%".to_string()
             };
@@ -64,8 +64,11 @@ impl App {
 
         // Extra native bytes (sub-category of native)
         {
-            let pct = if total > 0.0 {
-                format!("{:>5.1}%", stats.extra_native_bytes / total * 100.0)
+            let pct = if total > 0 {
+                format!(
+                    "{:>5.1}%",
+                    stats.extra_native_bytes as f64 / total as f64 * 100.0
+                )
             } else {
                 " 0.0%".to_string()
             };
@@ -82,9 +85,9 @@ impl App {
         }
 
         // Typed arrays (sub-category of native)
-        if stats.typed_arrays > 0.0 {
-            let pct = if total > 0.0 {
-                format!("{:>5.1}%", stats.typed_arrays / total * 100.0)
+        if stats.typed_arrays > 0 {
+            let pct = if total > 0 {
+                format!("{:>5.1}%", stats.typed_arrays as f64 / total as f64 * 100.0)
             } else {
                 " 0.0%".to_string()
             };
@@ -119,11 +122,11 @@ impl App {
 
         // Colored proportional bar
         let bar_width = (area.width as usize).saturating_sub(4);
-        if bar_width > 0 && total > 0.0 {
+        if bar_width > 0 && total > 0 {
             let mut bar_spans: Vec<Span<'static>> = vec![Span::raw("  ")];
             let mut used = 0usize;
             for (i, (_name, value, color)) in categories.iter().enumerate() {
-                let frac = value / total;
+                let frac = *value as f64 / total as f64;
                 let w = if i == categories.len() - 1 {
                     // Last segment takes remaining width to avoid rounding gaps
                     bar_width.saturating_sub(used)
@@ -170,8 +173,8 @@ impl App {
             ];
             let shared = snap.shared_attributable_size();
             let unattributed = snap.unattributed_size();
-            let attr_total: f64 =
-                contexts.iter().map(|c| c.size).sum::<f64>() + shared + unattributed;
+            let attr_total: u64 =
+                contexts.iter().map(|c| c.size).sum::<u64>() + shared + unattributed;
 
             lines.push(Line::from(""));
             lines.push(Line::from(""));
@@ -195,8 +198,8 @@ impl App {
             for (i, ctx) in contexts.iter().enumerate() {
                 let label = truncate_str(&snap.native_context_label(ctx.ordinal), label_width);
                 let color = ctx_colors[i % ctx_colors.len()];
-                let pct = if attr_total > 0.0 {
-                    format!("{:>5.1}%", ctx.size / attr_total * 100.0)
+                let pct = if attr_total > 0 {
+                    format!("{:>5.1}%", ctx.size as f64 / attr_total as f64 * 100.0)
                 } else {
                     " 0.0%".to_string()
                 };
@@ -212,8 +215,8 @@ impl App {
 
             // Shared
             {
-                let pct = if attr_total > 0.0 {
-                    format!("{:>5.1}%", shared / attr_total * 100.0)
+                let pct = if attr_total > 0 {
+                    format!("{:>5.1}%", shared as f64 / attr_total as f64 * 100.0)
                 } else {
                     " 0.0%".to_string()
                 };
@@ -229,8 +232,8 @@ impl App {
 
             // Unattributed
             {
-                let pct = if attr_total > 0.0 {
-                    format!("{:>5.1}%", unattributed / attr_total * 100.0)
+                let pct = if attr_total > 0 {
+                    format!("{:>5.1}%", unattributed as f64 / attr_total as f64 * 100.0)
                 } else {
                     " 0.0%".to_string()
                 };
@@ -246,10 +249,10 @@ impl App {
 
             // Colored bar
             lines.push(Line::from(""));
-            if bar_width > 0 && attr_total > 0.0 {
+            if bar_width > 0 && attr_total > 0 {
                 let mut bar_spans: Vec<Span<'static>> = vec![Span::raw("  ")];
                 let mut used = 0usize;
-                let all_segments: Vec<(f64, Color)> = contexts
+                let all_segments: Vec<(u64, Color)> = contexts
                     .iter()
                     .enumerate()
                     .map(|(i, ctx)| (ctx.size, ctx_colors[i % ctx_colors.len()]))
@@ -257,7 +260,7 @@ impl App {
                     .chain(std::iter::once((unattributed, Color::Gray)))
                     .collect();
                 for (i, (value, color)) in all_segments.iter().enumerate() {
-                    let frac = value / attr_total;
+                    let frac = *value as f64 / attr_total as f64;
                     let w = if i == all_segments.len() - 1 {
                         bar_width.saturating_sub(used)
                     } else {

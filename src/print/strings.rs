@@ -14,7 +14,7 @@ pub fn print_duplicate_strings(snap: &HeapSnapshot, min_count: u32) {
         return;
     }
 
-    let total_wasted: f64 = duplicates.iter().map(|d| d.wasted_size()).sum();
+    let total_wasted: u64 = duplicates.iter().map(|d| d.wasted_size()).sum();
     let col_count: usize = 8;
     let col_size: usize = 12;
     let col_wasted: usize = 12;

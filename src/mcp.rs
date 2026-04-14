@@ -712,8 +712,7 @@ impl McpServer {
                 let mut entries: Vec<_> = aggregates.iter().collect();
                 entries.sort_by(|a, b| {
                     b.max_ret
-                        .partial_cmp(&a.max_ret)
-                        .unwrap()
+                        .cmp(&a.max_ret)
                         .then(a.first_seen.cmp(&b.first_seen))
                 });
 
@@ -1035,8 +1034,8 @@ impl McpServer {
                         entry.new_count,
                         entry.deleted_count,
                         format_signed_count(entry.delta_count()),
-                        format_signed_size(entry.alloc_size),
-                        format_signed_size(entry.freed_size),
+                        format_signed_size(entry.alloc_size as i64),
+                        format_signed_size(entry.freed_size as i64),
                         format_signed_size(entry.size_delta()),
                     ));
 
@@ -1085,8 +1084,8 @@ impl McpServer {
                         diff.new_count,
                         diff.deleted_count,
                         format_signed_count(diff.delta_count()),
-                        format_signed_size(diff.alloc_size),
-                        format_signed_size(diff.freed_size),
+                        format_signed_size(diff.alloc_size as i64),
+                        format_signed_size(diff.freed_size as i64),
                         format_signed_size(diff.size_delta()),
                     ));
                 }
@@ -1123,13 +1122,13 @@ impl McpServer {
         tokio::task::spawn_blocking(move || {
             let duplicates = snapshot.duplicate_strings();
             let total = duplicates.len();
-            let total_wasted: f64 = duplicates.iter().map(|d| d.wasted_size()).sum();
+            let total_wasted: u64 = duplicates.iter().map(|d| d.wasted_size()).sum();
             let start = offset.min(total);
             let end = (start + limit).min(total);
 
             let mut lines = Vec::new();
             lines.push(format!(
-                "{total} duplicate string groups, {total_wasted:.0} bytes wasted total"
+                "{total} duplicate string groups, {total_wasted} bytes wasted total"
             ));
             lines.push(format!("Showing entries {start}..{end}:"));
             lines.push(String::new());
@@ -1141,7 +1140,7 @@ impl McpServer {
                     entry.value.clone()
                 };
                 lines.push(format!(
-                    "\"{}\" x{} (instance_size: {:.0}, total: {:.0}, wasted: {:.0})",
+                    "\"{}\" x{} (instance_size: {}, total: {}, wasted: {})",
                     display,
                     entry.count,
                     entry.instance_size,
@@ -1196,8 +1195,7 @@ impl McpServer {
             leaks.sort_by(|a, b| {
                 snapshot
                     .node_retained_size(b.context_ord)
-                    .partial_cmp(&snapshot.node_retained_size(a.context_ord))
-                    .unwrap()
+                    .cmp(&snapshot.node_retained_size(a.context_ord))
             });
 
             let mut lines = Vec::new();
@@ -1288,7 +1286,7 @@ impl McpServer {
                 "Allocation Timeline ({} intervals, {} live objects, {} total):",
                 intervals.len(),
                 total_count,
-                format_size(total_size as f64),
+                format_size(total_size),
             ));
             lines.push(String::new());
 
@@ -1297,7 +1295,7 @@ impl McpServer {
                 lines.push(format!(
                     "  {:>6.1}s  {:>8}  {:>5} obj  ids {}..{}",
                     ts_sec,
-                    format_size(interval.size as f64),
+                    format_size(interval.size),
                     interval.count,
                     interval.id_from,
                     interval.id_to,

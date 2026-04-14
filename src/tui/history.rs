@@ -10,7 +10,7 @@ use crate::types::NodeOrdinal;
 #[derive(serde::Serialize, serde::Deserialize)]
 pub(super) struct PersistedReachable {
     node_id: u64,
-    size: f64,
+    size: u64,
 }
 
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -35,7 +35,7 @@ pub(super) fn file_sha256(path: &Path) -> Option<String> {
 pub(super) fn load_history(
     snap_path: &Path,
     snap: &HeapSnapshot,
-) -> (Vec<NodeOrdinal>, FxHashMap<NodeOrdinal, f64>) {
+) -> (Vec<NodeOrdinal>, FxHashMap<NodeOrdinal, u64>) {
     let empty = (Vec::new(), FxHashMap::default());
     let hist_path = match history_file_path() {
         Some(p) => p,
@@ -78,7 +78,7 @@ pub(super) fn load_history(
 pub(super) fn save_history(
     snap_path: &Path,
     history: &[NodeOrdinal],
-    reachable_sizes: &FxHashMap<NodeOrdinal, f64>,
+    reachable_sizes: &FxHashMap<NodeOrdinal, u64>,
     snap: &HeapSnapshot,
 ) {
     let hist_path = match history_file_path() {

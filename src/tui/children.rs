@@ -27,8 +27,8 @@ fn insert_allocation_stack(
                     id: mint_id(next_id),
                     label: format!("{prefix}{label}").into(),
                     distance: None,
-                    shallow_size: 0.0,
-                    retained_size: 0.0,
+                    shallow_size: 0,
+                    retained_size: 0,
                     node_ordinal: None,
                     has_children: false,
                     children_key: None,
@@ -150,7 +150,7 @@ pub(super) fn compute_class_members(
                     id,
                     label: format!("{name} @{node_id}").into(),
                     distance: Some(snap.node_distance(ordinal)),
-                    shallow_size: snap.node_self_size(ordinal) as f64,
+                    shallow_size: snap.node_self_size(ordinal) as u64,
                     retained_size: snap.node_retained_size(ordinal),
                     node_ordinal: Some(ordinal),
                     has_children,
@@ -175,8 +175,8 @@ pub(super) fn compute_class_members(
                 )
                 .into(),
                 distance: None,
-                shallow_size: 0.0,
-                retained_size: 0.0,
+                shallow_size: 0,
+                retained_size: 0,
                 node_ordinal: None,
                 has_children: false,
                 children_key: None,
@@ -202,7 +202,7 @@ pub(super) fn compute_class_members(
                 id,
                 label: format!("{name} @{node_id}").into(),
                 distance: Some(snap.node_distance(ordinal)),
-                shallow_size: snap.node_self_size(ordinal) as f64,
+                shallow_size: snap.node_self_size(ordinal) as u64,
                 retained_size: snap.node_retained_size(ordinal),
                 node_ordinal: Some(ordinal),
                 has_children,
@@ -228,8 +228,8 @@ pub(super) fn compute_class_members(
             )
             .into(),
             distance: None,
-            shallow_size: 0.0,
-            retained_size: 0.0,
+            shallow_size: 0,
+            retained_size: 0,
             node_ordinal: None,
             has_children: false,
             children_key: None,
@@ -256,7 +256,7 @@ fn edge_to_child_node(
         id,
         label: label.into(),
         distance: Some(snap.node_distance(child_ord)),
-        shallow_size: snap.node_self_size(child_ord) as f64,
+        shallow_size: snap.node_self_size(child_ord) as u64,
         retained_size: snap.node_retained_size(child_ord),
         node_ordinal: Some(child_ord),
         has_children,
@@ -310,8 +310,8 @@ pub(super) fn compute_edges(
                 )
                 .into(),
                 distance: None,
-                shallow_size: 0.0,
-                retained_size: 0.0,
+                shallow_size: 0,
+                retained_size: 0,
                 node_ordinal: None,
                 has_children: false,
                 children_key: None,
@@ -329,8 +329,8 @@ pub(super) fn compute_edges(
                         id: mint_id(next_id),
                         label: label.into(),
                         distance: None,
-                        shallow_size: 0.0,
-                        retained_size: 0.0,
+                        shallow_size: 0,
+                        retained_size: 0,
                         node_ordinal: None,
                         has_children: false,
                         children_key: None,
@@ -406,8 +406,8 @@ pub(super) fn compute_edges(
                     id: mint_id(next_id),
                     label: label.into(),
                     distance: None,
-                    shallow_size: 0.0,
-                    retained_size: 0.0,
+                    shallow_size: 0,
+                    retained_size: 0,
                     node_ordinal: None,
                     has_children: false,
                     children_key: None,
@@ -428,8 +428,8 @@ pub(super) fn compute_edges(
                     id: mint_id(next_id),
                     label: label.into(),
                     distance: None,
-                    shallow_size: 0.0,
-                    retained_size: 0.0,
+                    shallow_size: 0,
+                    retained_size: 0,
                     node_ordinal: None,
                     has_children: false,
                     children_key: None,
@@ -462,8 +462,8 @@ pub(super) fn compute_edges(
             id: mint_id(next_id),
             label: status.into(),
             distance: None,
-            shallow_size: 0.0,
-            retained_size: 0.0,
+            shallow_size: 0,
+            retained_size: 0,
             node_ordinal: None,
             has_children: false,
             children_key: None,
@@ -509,7 +509,7 @@ pub(super) fn make_retainer_child(
         id: mint_id(next_id),
         label: label.into(),
         distance: Some(dist),
-        shallow_size: snap.node_self_size(ret_ord) as f64,
+        shallow_size: snap.node_self_size(ret_ord) as u64,
         retained_size: snap.node_retained_size(ret_ord),
         node_ordinal: Some(ret_ord),
         has_children: expandable,
@@ -571,8 +571,8 @@ pub(super) fn compute_retainers(
                 }
                 .into(),
                 distance: None,
-                shallow_size: 0.0,
-                retained_size: 0.0,
+                shallow_size: 0,
+                retained_size: 0,
                 node_ordinal: None,
                 has_children: false,
                 children_key: None,
@@ -610,8 +610,8 @@ pub(super) fn compute_retainers(
             }
             .into(),
             distance: None,
-            shallow_size: 0.0,
-            retained_size: 0.0,
+            shallow_size: 0,
+            retained_size: 0,
             node_ordinal: None,
             has_children: false,
             children_key: None,
@@ -638,7 +638,7 @@ pub(super) fn compute_dominated_children(
                 id: mint_id(next_id),
                 label: format!("{display_name} @{node_id}").into(),
                 distance: Some(snap.node_distance(child_ord)),
-                shallow_size: snap.node_self_size(child_ord) as f64,
+                shallow_size: snap.node_self_size(child_ord) as u64,
                 retained_size: snap.node_retained_size(child_ord),
                 node_ordinal: Some(child_ord),
                 has_children,
@@ -653,11 +653,7 @@ pub(super) fn compute_dominated_children(
         })
         .collect();
     // Sort by retained size descending
-    children.sort_by(|a, b| {
-        b.retained_size
-            .partial_cmp(&a.retained_size)
-            .unwrap_or(std::cmp::Ordering::Equal)
-    });
+    children.sort_by(|a, b| b.retained_size.cmp(&a.retained_size));
     children
 }
 

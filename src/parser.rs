@@ -730,7 +730,7 @@ fn parse_snapshot_header(data: &[u8]) -> io::Result<SnapshotHeader> {
         .get("root_index")
         .and_then(|v| v.as_u64())
         .map(|n| n as usize);
-    let extra_native_bytes = value.get("extra_native_bytes").and_then(|v| v.as_f64());
+    let extra_native_bytes = value.get("extra_native_bytes").and_then(|v| v.as_u64());
 
     Ok(SnapshotHeader {
         meta,

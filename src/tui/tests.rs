@@ -488,7 +488,7 @@ fn test_reachable_result_invalidates_rows_and_updates_render_data() {
     result_tx
         .send(WorkResult::ReachableSize {
             ordinal: root_ord,
-            size: 1234.0,
+            size: 1234,
         })
         .unwrap();
     assert!(app.drain_results(&snap));
@@ -498,7 +498,7 @@ fn test_reachable_result_invalidates_rows_and_updates_render_data() {
     let root_row = app.cached_rows.first().unwrap();
     match &root_row.render.kind {
         FlatRowKind::HeapNode { reachable_size, .. } => {
-            assert_eq!(*reachable_size, Some(1234.0))
+            assert_eq!(*reachable_size, Some(1234))
         }
         _ => panic!("expected heap node row"),
     }
@@ -1015,7 +1015,7 @@ fn test_reopening_contexts_does_not_requeue_cached_or_pending_reachable_work() {
 
     let cached = expected[0];
     app.reachable_pending.remove(&cached);
-    app.reachable_sizes.insert(cached, 42.0);
+    app.reachable_sizes.insert(cached, 42);
 
     app.set_view(ViewType::Summary, &snap);
     app.set_view(ViewType::Contexts, &snap);
@@ -3709,7 +3709,7 @@ fn test_unreachable_filter_recomputes_group_sizes() {
         FlatRowKind::SummaryGroup { shallow_size, .. } => shallow_size,
         _ => unreachable!(),
     };
-    assert_eq!(full_shallow, 1000.0, "full group shallow = 100+200+300+400");
+    assert_eq!(full_shallow, 1000, "full group shallow = 100+200+300+400");
 
     // With unreachable filter: only nodes 4 (300) and 5 (400) → shallow = 700
     app.set_summary_filter(SummaryFilterMode::Unreachable, &snap);
@@ -3731,7 +3731,7 @@ fn test_unreachable_filter_recomputes_group_sizes() {
         } => (shallow_size, retained_size),
         _ => unreachable!(),
     };
-    assert_eq!(filtered_shallow, 700.0, "unreachable shallow = 300+400");
+    assert_eq!(filtered_shallow, 700, "unreachable shallow = 300+400");
     assert!(
         filtered_shallow < full_shallow,
         "filtered shallow ({filtered_shallow}) should be less than full ({full_shallow})"

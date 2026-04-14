@@ -348,10 +348,10 @@ fn test_node_distance() {
 fn test_node_retained_size() {
     let snap = make_test_snapshot();
     // Dominator tree rooted at (GC roots) ordinal 1
-    assert_eq!(snap.node_retained_size(NodeOrdinal(1)), 350.0); // (GC roots): 0+100+50+200
-    assert_eq!(snap.node_retained_size(NodeOrdinal(2)), 150.0); // Object: 100+50
-    assert_eq!(snap.node_retained_size(NodeOrdinal(3)), 50.0); // hello
-    assert_eq!(snap.node_retained_size(NodeOrdinal(4)), 200.0); // Array
+    assert_eq!(snap.node_retained_size(NodeOrdinal(1)), 350); // (GC roots): 0+100+50+200
+    assert_eq!(snap.node_retained_size(NodeOrdinal(2)), 150); // Object: 100+50
+    assert_eq!(snap.node_retained_size(NodeOrdinal(3)), 50); // hello
+    assert_eq!(snap.node_retained_size(NodeOrdinal(4)), 200); // Array
 }
 
 #[test]
@@ -708,15 +708,15 @@ fn test_node_count() {
 fn test_statistics() {
     let snap = make_test_snapshot();
     let stats = snap.get_statistics();
-    assert_eq!(stats.total, 350.0);
-    assert_eq!(stats.strings, 50.0);
-    assert_eq!(stats.js_arrays, 200.0);
-    assert_eq!(stats.system, 0.0);
-    assert_eq!(stats.code, 0.0);
-    assert_eq!(stats.native_total, 0.0);
-    assert_eq!(stats.typed_arrays, 0.0);
-    assert_eq!(stats.extra_native_bytes, 0.0);
-    assert_eq!(stats.v8heap_total, 350.0);
+    assert_eq!(stats.total, 350);
+    assert_eq!(stats.strings, 50);
+    assert_eq!(stats.js_arrays, 200);
+    assert_eq!(stats.system, 0);
+    assert_eq!(stats.code, 0);
+    assert_eq!(stats.native_total, 0);
+    assert_eq!(stats.typed_arrays, 0);
+    assert_eq!(stats.extra_native_bytes, 0);
+    assert_eq!(stats.v8heap_total, 350);
 }
 
 #[test]
@@ -730,20 +730,20 @@ fn test_aggregates() {
 
     let obj = find_first_agg(&aggs, "Object");
     assert_eq!(obj.count, 1);
-    assert_eq!(obj.self_size, 100.0);
-    assert_eq!(obj.max_ret, 150.0);
+    assert_eq!(obj.self_size, 100);
+    assert_eq!(obj.max_ret, 150);
     assert_eq!(obj.distance, Distance(1));
 
     let str_agg = find_first_agg(&aggs, "(string)");
     assert_eq!(str_agg.count, 1);
-    assert_eq!(str_agg.self_size, 50.0);
-    assert_eq!(str_agg.max_ret, 50.0);
+    assert_eq!(str_agg.self_size, 50);
+    assert_eq!(str_agg.max_ret, 50);
     assert_eq!(str_agg.distance, Distance(2));
 
     let arr_agg = find_first_agg(&aggs, "(array)");
     assert_eq!(arr_agg.count, 1);
-    assert_eq!(arr_agg.self_size, 200.0);
-    assert_eq!(arr_agg.max_ret, 200.0);
+    assert_eq!(arr_agg.self_size, 200);
+    assert_eq!(arr_agg.max_ret, 200);
     assert_eq!(arr_agg.distance, Distance(1));
 }
 
@@ -789,11 +789,11 @@ fn test_retained_size_same_class_dominator_chain() {
     let aggs = snap.aggregates_with_filter();
     let foo = find_first_agg(&aggs, "Foo");
     assert_eq!(foo.count, 2);
-    assert_eq!(foo.self_size, 150.0);
+    assert_eq!(foo.self_size, 150);
     // A dominates B, both are "Foo". The algorithm marks "Foo" as seen
     // after visiting A, so B's retained size is not added again.
     // Group retained = A's retained = 100 + 50 = 150.
-    assert_eq!(foo.max_ret, 150.0);
+    assert_eq!(foo.max_ret, 150);
 }
 
 /// Three classes in a dominator chain:
@@ -838,11 +838,11 @@ fn test_retained_size_chain_different_classes() {
     let aggs = snap.aggregates_with_filter();
 
     // Alpha dominates Beta and Gamma: retained = 100 + 80 + 60 = 240
-    assert_eq!(find_first_agg(&aggs, "Alpha").max_ret, 240.0);
+    assert_eq!(find_first_agg(&aggs, "Alpha").max_ret, 240);
     // Beta dominates Gamma: retained = 80 + 60 = 140
-    assert_eq!(find_first_agg(&aggs, "Beta").max_ret, 140.0);
+    assert_eq!(find_first_agg(&aggs, "Beta").max_ret, 140);
     // Gamma is a leaf: retained = 60
-    assert_eq!(find_first_agg(&aggs, "Gamma").max_ret, 60.0);
+    assert_eq!(find_first_agg(&aggs, "Gamma").max_ret, 60);
 }
 
 /// Diamond dominator structure:
@@ -898,12 +898,12 @@ fn test_retained_size_diamond_dominator() {
     let aggs = snap.aggregates_with_filter();
 
     // Top dominates everything: retained = 100 + 60 + 40 + 30 = 230
-    assert_eq!(find_first_agg(&aggs, "Top").max_ret, 230.0);
+    assert_eq!(find_first_agg(&aggs, "Top").max_ret, 230);
     // Left and Right are leaves in the dominator tree (Bottom is dominated by Top, not them)
-    assert_eq!(find_first_agg(&aggs, "Left").max_ret, 60.0);
-    assert_eq!(find_first_agg(&aggs, "Right").max_ret, 40.0);
+    assert_eq!(find_first_agg(&aggs, "Left").max_ret, 60);
+    assert_eq!(find_first_agg(&aggs, "Right").max_ret, 40);
     // Bottom is a leaf
-    assert_eq!(find_first_agg(&aggs, "Bottom").max_ret, 30.0);
+    assert_eq!(find_first_agg(&aggs, "Bottom").max_ret, 30);
 }
 
 // ====== Shared test helpers ======
@@ -1300,18 +1300,18 @@ fn make_detachedness_snapshot() -> HeapSnapshot {
 fn test_reachable_size_basic() {
     let snap = make_test_snapshot();
     let info = snap.reachable_size(&[NodeOrdinal(2)]);
-    assert_eq!(info.size, 150.0); // Object(100) + hello(50)
+    assert_eq!(info.size, 150); // Object(100) + hello(50)
     assert!(info.native_contexts.is_empty());
 
     let info = snap.reachable_size(&[NodeOrdinal(4)]);
-    assert_eq!(info.size, 200.0); // Array only
+    assert_eq!(info.size, 200); // Array only
 }
 
 #[test]
 fn test_reachable_size_multiple_roots() {
     let snap = make_test_snapshot();
     let info = snap.reachable_size(&[NodeOrdinal(2), NodeOrdinal(4)]);
-    assert_eq!(info.size, 350.0); // Object(100) + hello(50) + Array(200)
+    assert_eq!(info.size, 350); // Object(100) + hello(50) + Array(200)
 }
 
 #[test]
@@ -1319,7 +1319,7 @@ fn test_reachable_size_skips_weak_edges() {
     let snap = make_weak_edge_snapshot();
     let info = snap.reachable_size(&[NodeOrdinal(2)]);
     // Obj(100) + strongTarget(60) = 160, weakTarget(80) skipped
-    assert_eq!(info.size, 160.0);
+    assert_eq!(info.size, 160);
 }
 
 // ====== 3. cons_string_name tests ======
@@ -1803,19 +1803,19 @@ fn test_native_contexts_list() {
                 ordinal: NodeOrdinal(2),
                 kind: NativeContextKind::Main,
                 is_extension: false,
-                size: 201.0,
+                size: 201,
             },
             NativeContextData {
                 ordinal: NodeOrdinal(3),
                 kind: NativeContextKind::Iframe,
                 is_extension: false,
-                size: 200.0,
+                size: 200,
             },
             NativeContextData {
                 ordinal: NodeOrdinal(4),
                 kind: NativeContextKind::Utility,
                 is_extension: false,
-                size: 150.0,
+                size: 150,
             },
         ]
     );
@@ -1847,7 +1847,7 @@ fn test_native_contexts_marks_extension_contexts() {
             ordinal: NodeOrdinal(2),
             kind: NativeContextKind::Utility,
             is_extension: true,
-            size: 100.0,
+            size: 100,
         }]
     );
 }
@@ -2249,9 +2249,9 @@ fn test_aggregates_split_by_location() {
     let a1 = aggs.iter().find(|a| a.name == name_1).unwrap();
     let a2 = aggs.iter().find(|a| a.name == name_2).unwrap();
     assert_eq!(a1.count, 1);
-    assert_eq!(a1.self_size, 100.0);
+    assert_eq!(a1.self_size, 100);
     assert_eq!(a2.count, 1);
-    assert_eq!(a2.self_size, 200.0);
+    assert_eq!(a2.self_size, 200);
 }
 
 #[test]
@@ -2336,9 +2336,9 @@ fn test_ephemeron_table_dominates_value() {
     // Key→value edge is non-essential, table→value is essential.
     // Therefore the table (WeakMap) dominates the value, not the key.
     // table retained = self(30) + value(500) = 530
-    assert_eq!(snap.node_retained_size(NodeOrdinal(3)), 530.0);
+    assert_eq!(snap.node_retained_size(NodeOrdinal(3)), 530);
     // key retained = self(50) only — value is NOT dominated by key
-    assert_eq!(snap.node_retained_size(NodeOrdinal(2)), 50.0);
+    assert_eq!(snap.node_retained_size(NodeOrdinal(2)), 50);
 }
 
 #[test]
@@ -2842,8 +2842,8 @@ fn test_retained_size_two_fields_same_target() {
         ]),
     );
     // Wrapper dominates Inner (only path to Inner goes through Wrapper)
-    assert_eq!(snap.node_retained_size(NodeOrdinal(2)), 300.0); // 100 + 200
-    assert_eq!(snap.node_retained_size(NodeOrdinal(3)), 200.0); // just self
+    assert_eq!(snap.node_retained_size(NodeOrdinal(2)), 300); // 100 + 200
+    assert_eq!(snap.node_retained_size(NodeOrdinal(3)), 200); // just self
 }
 
 /// Two separate GC sub-roots (Root1 and Root2) both point to the same Target.
@@ -2900,11 +2900,11 @@ fn test_retained_size_two_roots_same_target() {
         ]),
     );
     // Neither Root1 nor Root2 dominates Target — (GC roots) does.
-    assert_eq!(snap.node_retained_size(NodeOrdinal(2)), 50.0); // Root1: just self
-    assert_eq!(snap.node_retained_size(NodeOrdinal(3)), 60.0); // Root2: just self
-    assert_eq!(snap.node_retained_size(NodeOrdinal(4)), 400.0); // Target: just self
+    assert_eq!(snap.node_retained_size(NodeOrdinal(2)), 50); // Root1: just self
+    assert_eq!(snap.node_retained_size(NodeOrdinal(3)), 60); // Root2: just self
+    assert_eq!(snap.node_retained_size(NodeOrdinal(4)), 400); // Target: just self
     // (GC roots) retains everything
-    assert_eq!(snap.node_retained_size(NodeOrdinal(1)), 510.0); // 0 + 50 + 60 + 400
+    assert_eq!(snap.node_retained_size(NodeOrdinal(1)), 510); // 0 + 50 + 60 + 400
 }
 
 /// Single GC sub-root with two property edges to the same Target.
@@ -2952,8 +2952,8 @@ fn test_retained_size_single_root_two_edges_same_target() {
             "field2",     // 6
         ]),
     );
-    assert_eq!(snap.node_retained_size(NodeOrdinal(2)), 380.0); // 80 + 300
-    assert_eq!(snap.node_retained_size(NodeOrdinal(3)), 300.0); // just self
+    assert_eq!(snap.node_retained_size(NodeOrdinal(2)), 380); // 80 + 300
+    assert_eq!(snap.node_retained_size(NodeOrdinal(3)), 300); // just self
 }
 
 // ── aggregates: multiple same-class objects ────────────────────────────
@@ -3049,7 +3049,7 @@ fn test_aggregates_multiple_same_class() {
     assert_eq!(foo.count, 3);
 
     // self_size: 100 + 200 + 300
-    assert_eq!(foo.self_size, 600.0);
+    assert_eq!(foo.self_size, 600);
 
     // distance: min of 1, 2, 3
     assert_eq!(foo.distance, Distance(1));
@@ -3058,7 +3058,7 @@ fn test_aggregates_multiple_same_class() {
     assert_eq!(foo.node_ordinals.len(), 3);
 
     // node_ordinals should be sorted by retained size descending
-    let retained: Vec<f64> = foo
+    let retained: Vec<u64> = foo
         .node_ordinals
         .iter()
         .map(|&ord| snap.node_retained_size(ord))
@@ -3125,12 +3125,12 @@ fn test_aggregates_max_ret_dedup() {
     let foo = find_first_agg(&aggs, "Foo");
 
     assert_eq!(foo.count, 3);
-    assert_eq!(foo.self_size, 450.0); // 100 + 200 + 150
+    assert_eq!(foo.self_size, 450); // 100 + 200 + 150
 
     // max_ret: Foo1's retained (300) + Foo3's retained (150) = 450
     // Foo2 is skipped because "Foo" is marked seen while inside Foo1's subtree.
     // Without dedup it would be 300 + 200 + 150 = 650.
-    assert_eq!(foo.max_ret, 450.0);
+    assert_eq!(foo.max_ret, 450);
 }
 
 // ── aggregates: node type → class name mapping ─────────────────────────
@@ -3189,19 +3189,19 @@ fn test_aggregates_class_names_by_node_type() {
 
     let system = find_first_agg(&aggs, "(system)");
     assert_eq!(system.count, 1);
-    assert_eq!(system.self_size, 40.0);
+    assert_eq!(system.self_size, 40);
 
     let code = find_first_agg(&aggs, "(compiled code)");
     assert_eq!(code.count, 1);
-    assert_eq!(code.self_size, 50.0);
+    assert_eq!(code.self_size, 50);
 
     let func = find_first_agg(&aggs, "Function");
     assert_eq!(func.count, 1);
-    assert_eq!(func.self_size, 60.0);
+    assert_eq!(func.self_size, 60);
 
     let re = find_first_agg(&aggs, "RegExp");
     assert_eq!(re.count, 1);
-    assert_eq!(re.self_size, 70.0);
+    assert_eq!(re.self_size, 70);
 }
 
 // ── aggregates: <tag ...> truncation ───────────────────────────────────
@@ -3252,12 +3252,12 @@ fn test_aggregates_angle_bracket_name_truncation() {
     // Both <div ...> objects grouped under "<div>"
     let div = find_first_agg(&aggs, "<div>");
     assert_eq!(div.count, 2);
-    assert_eq!(div.self_size, 300.0); // 100 + 200
+    assert_eq!(div.self_size, 300); // 100 + 200
 
     // <span ...> grouped under "<span>"
     let span = find_first_agg(&aggs, "<span>");
     assert_eq!(span.count, 1);
-    assert_eq!(span.self_size, 150.0);
+    assert_eq!(span.self_size, 150);
 }
 
 // ── statistics: calculate_array_size with internal elements edge ────────
@@ -3300,9 +3300,9 @@ fn test_statistics_array_with_elements() {
 
     let stats = snap.get_statistics();
     // js_arrays = Array self_size (80) + elements self_size (320) = 400
-    assert_eq!(stats.js_arrays, 400.0);
+    assert_eq!(stats.js_arrays, 400);
     // elements_store is hidden → counted in system
-    assert_eq!(stats.system, 320.0);
+    assert_eq!(stats.system, 320);
 }
 
 // ── statistics: native JSArrayBufferData ────────────────────────────────
@@ -3337,9 +3337,9 @@ fn test_statistics_native_array_buffer_data() {
     );
 
     let stats = snap.get_statistics();
-    assert_eq!(stats.native_total, 1000.0);
-    assert_eq!(stats.typed_arrays, 1000.0);
-    assert_eq!(stats.v8heap_total, stats.total - 1000.0);
+    assert_eq!(stats.native_total, 1000);
+    assert_eq!(stats.typed_arrays, 1000);
+    assert_eq!(stats.v8heap_total, stats.total - 1000);
 }
 
 // ── statistics: extra_native_bytes ──────────────────────────────────────
@@ -3364,7 +3364,7 @@ fn test_statistics_extra_native_bytes() {
             edge_count: 2,
             trace_function_count: 0,
             root_index: Some(0),
-            extra_native_bytes: Some(500.0),
+            extra_native_bytes: Some(500),
         },
         nodes: vec![
             9, 0, 1, 0, 1, // node 0: synthetic root
@@ -3390,13 +3390,13 @@ fn test_statistics_extra_native_bytes() {
 
     let stats = snap.get_statistics();
     // total = gc_roots retained (100) + extra_native_bytes (500) = 600
-    assert_eq!(stats.total, 600.0);
+    assert_eq!(stats.total, 600);
     // native_total = extra_native_bytes (500) only (no native nodes)
-    assert_eq!(stats.native_total, 500.0);
+    assert_eq!(stats.native_total, 500);
     // v8heap_total = total - native_total = 100
-    assert_eq!(stats.v8heap_total, 100.0);
+    assert_eq!(stats.v8heap_total, 100);
     // extra_native_bytes = 500
-    assert_eq!(stats.extra_native_bytes, 500.0);
+    assert_eq!(stats.extra_native_bytes, 500);
 }
 
 // ── aggregates: zero self_size excluded ─────────────────────────────────
@@ -3644,12 +3644,12 @@ fn test_unreachable_node_retained_size() {
     let snap = make_unreachable_snapshot();
 
     // Reachable node retains only itself (the weak edge doesn't count for dominance)
-    assert_eq!(snap.node_retained_size(NodeOrdinal(2)), 100.0);
+    assert_eq!(snap.node_retained_size(NodeOrdinal(2)), 100);
 
     // Unreachable nodes still have retained sizes computed via the dominator tree.
     // Node 3 dominates node 4, so retained = 300 (self) + 150 (child) = 450.
-    assert_eq!(snap.node_retained_size(NodeOrdinal(3)), 450.0);
-    assert_eq!(snap.node_retained_size(NodeOrdinal(4)), 150.0);
+    assert_eq!(snap.node_retained_size(NodeOrdinal(3)), 450);
+    assert_eq!(snap.node_retained_size(NodeOrdinal(4)), 150);
 }
 
 #[test]
@@ -3658,15 +3658,15 @@ fn test_unreachable_node_reachable_size() {
 
     // Reachable size from node 2: just itself (weak edge is skipped)
     let info2 = snap.reachable_size(&[NodeOrdinal(2)]);
-    assert_eq!(info2.size, 100.0);
+    assert_eq!(info2.size, 100);
 
     // Reachable size from node 3: itself (300) + child (150) = 450
     let info3 = snap.reachable_size(&[NodeOrdinal(3)]);
-    assert_eq!(info3.size, 450.0);
+    assert_eq!(info3.size, 450);
 
     // Reachable size from node 4: just itself (150)
     let info4 = snap.reachable_size(&[NodeOrdinal(4)]);
-    assert_eq!(info4.size, 150.0);
+    assert_eq!(info4.size, 150);
 }
 
 /// Builds a snapshot where two unreachable objects form a chain with no
@@ -4252,9 +4252,9 @@ fn test_unreachable_aggregates_include_all_unreachable() {
 
     // Both node 3 (Unreachable, 300) and node 4 (Child, 150) are unreachable.
     let total_count: u32 = aggs.iter().map(|a| a.count).sum();
-    let total_size: f64 = aggs.iter().map(|a| a.self_size).sum();
+    let total_size: u64 = aggs.iter().map(|a| a.self_size).sum();
     assert_eq!(total_count, 2);
-    assert_eq!(total_size, 450.0);
+    assert_eq!(total_size, 450);
 }
 
 #[test]
@@ -4284,10 +4284,10 @@ fn test_unreachable_aggregates_retained_sizes() {
     // Node 3 ("Unreachable", self=300) dominates node 4 ("Child", self=150),
     // so "Unreachable" retained = 300 + 150 = 450, "Child" retained = 150.
     let unreachable_agg = aggs.iter().find(|a| a.name == "Unreachable").unwrap();
-    assert_eq!(unreachable_agg.max_ret, 450.0);
+    assert_eq!(unreachable_agg.max_ret, 450);
 
     let child_agg = aggs.iter().find(|a| a.name == "Child").unwrap();
-    assert_eq!(child_agg.max_ret, 150.0);
+    assert_eq!(child_agg.max_ret, 150);
 }
 
 /// Retained sizes with filtered-out nodes in the dominator chain.
@@ -4304,7 +4304,7 @@ fn test_retained_size_with_filtered_out_nodes_in_dominator_chain() {
 
     // Verify the full view has all three groups with retained sizes
     let all = snap.aggregates_with_filter();
-    assert_eq!(find_first_agg(&all, "Reachable").max_ret, 100.0);
+    assert_eq!(find_first_agg(&all, "Reachable").max_ret, 100);
 
     // Now check the filtered view
     let filtered = snap.unreachable_aggregates();
@@ -4315,12 +4315,12 @@ fn test_retained_size_with_filtered_out_nodes_in_dominator_chain() {
     // Unreachable still dominates Child in the full dominator tree
     let unreachable_agg = filtered.iter().find(|a| a.name == "Unreachable").unwrap();
     assert!(
-        unreachable_agg.max_ret > 0.0,
+        unreachable_agg.max_ret > 0,
         "retained size should be computed even when parent nodes are filtered out"
     );
     let child_agg = filtered.iter().find(|a| a.name == "Child").unwrap();
     assert!(
-        child_agg.max_ret > 0.0,
+        child_agg.max_ret > 0,
         "retained size should be computed for leaf nodes in filtered view"
     );
 }
@@ -6045,8 +6045,8 @@ fn test_duplicate_strings_basic() {
     assert_eq!(dupes.len(), 1);
     assert_eq!(dupes[0].value, "hello");
     assert_eq!(dupes[0].count, 2);
-    assert_eq!(dupes[0].total_size, 80.0);
-    assert_eq!(dupes[0].wasted_size(), 40.0);
+    assert_eq!(dupes[0].total_size, 80);
+    assert_eq!(dupes[0].wasted_size(), 40);
 }
 
 #[test]
@@ -6151,9 +6151,9 @@ fn test_duplicate_strings_sorted_by_wasted_size() {
     let dupes = snap.duplicate_strings();
     assert_eq!(dupes.len(), 2);
     assert_eq!(dupes[0].value, "big");
-    assert_eq!(dupes[0].wasted_size(), 100.0);
+    assert_eq!(dupes[0].wasted_size(), 100);
     assert_eq!(dupes[1].value, "small");
-    assert_eq!(dupes[1].wasted_size(), 40.0);
+    assert_eq!(dupes[1].wasted_size(), 40);
 }
 
 #[test]
@@ -6177,9 +6177,9 @@ fn test_duplicate_strings_multiple_copies() {
     let dupes = snap.duplicate_strings();
     assert_eq!(dupes.len(), 1);
     assert_eq!(dupes[0].count, 4);
-    assert_eq!(dupes[0].total_size, 200.0);
-    assert_eq!(dupes[0].instance_size, 50.0);
-    assert_eq!(dupes[0].wasted_size(), 150.0);
+    assert_eq!(dupes[0].total_size, 200);
+    assert_eq!(dupes[0].instance_size, 50);
+    assert_eq!(dupes[0].wasted_size(), 150);
 }
 
 #[test]
@@ -8401,23 +8401,23 @@ fn test_native_context_attributable_sizes_sum_bucketed_self_sizes() {
                     ordinal: CTX_A,
                     kind: NativeContextKind::Utility,
                     is_extension: false,
-                    size: 216.0,
+                    size: 216,
                 },
                 NativeContextData {
                     ordinal: CTX_B,
                     kind: NativeContextKind::Utility,
                     is_extension: false,
-                    size: 144.0,
+                    size: 144,
                 },
             ],
-            shared: 16.0,
-            unattributed: 16.0,
+            shared: 16,
+            unattributed: 16,
         }
     );
-    assert_eq!(snap.native_context_attributable_size(CTX_A), Some(216.0));
-    assert_eq!(snap.native_context_attributable_size(CTX_B), Some(144.0));
-    assert_eq!(snap.shared_attributable_size(), 16.0);
-    assert_eq!(snap.unattributed_size(), 16.0);
+    assert_eq!(snap.native_context_attributable_size(CTX_A), Some(216));
+    assert_eq!(snap.native_context_attributable_size(CTX_B), Some(144));
+    assert_eq!(snap.shared_attributable_size(), 16);
+    assert_eq!(snap.unattributed_size(), 16);
 }
 
 #[test]
@@ -8426,10 +8426,10 @@ fn test_native_context_attributable_sizes_count_mixed_weak_and_strong_shared_byt
     const CTX_A: NodeOrdinal = NodeOrdinal(2);
     const CTX_B: NodeOrdinal = NodeOrdinal(3);
 
-    assert_eq!(snap.native_context_attributable_size(CTX_A), Some(96.0));
-    assert_eq!(snap.native_context_attributable_size(CTX_B), Some(96.0));
-    assert_eq!(snap.shared_attributable_size(), 16.0);
-    assert_eq!(snap.unattributed_size(), 0.0);
+    assert_eq!(snap.native_context_attributable_size(CTX_A), Some(96));
+    assert_eq!(snap.native_context_attributable_size(CTX_B), Some(96));
+    assert_eq!(snap.shared_attributable_size(), 16);
+    assert_eq!(snap.unattributed_size(), 0);
 }
 
 #[test]
@@ -8439,17 +8439,17 @@ fn test_native_context_attributable_sizes_keep_unreachable_direct_and_reachable_
 
     assert_eq!(
         unreachable.native_context_attributable_size(CTX_A),
-        Some(120.0)
+        Some(120)
     );
-    assert_eq!(unreachable.shared_attributable_size(), 0.0);
-    assert_eq!(unreachable.unattributed_size(), 0.0);
+    assert_eq!(unreachable.shared_attributable_size(), 0);
+    assert_eq!(unreachable.unattributed_size(), 0);
 
     let reachable_unattributed = make_native_context_bucket_reachable_unattributed_snapshot();
 
     assert_eq!(
         reachable_unattributed.native_context_attributable_size(CTX_A),
-        Some(80.0)
+        Some(80)
     );
-    assert_eq!(reachable_unattributed.shared_attributable_size(), 0.0);
-    assert_eq!(reachable_unattributed.unattributed_size(), 16.0);
+    assert_eq!(reachable_unattributed.shared_attributable_size(), 0);
+    assert_eq!(reachable_unattributed.unattributed_size(), 16);
 }

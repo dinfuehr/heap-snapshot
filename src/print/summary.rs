@@ -22,10 +22,10 @@ pub enum SummaryFilter {
 fn print_row(
     display: &str,
     dist: Distance,
-    shallow: f64,
-    retained: f64,
-    total_shallow: f64,
-    total_retained: f64,
+    shallow: u64,
+    retained: u64,
+    total_shallow: u64,
+    total_retained: u64,
 ) {
     let dist_str = format_distance(dist);
     let name_col = pad_str(display, COL_NAME_SUMMARY);
@@ -45,7 +45,7 @@ fn print_row(
     );
 }
 
-fn print_row_shallow(display: &str, dist: Distance, shallow: f64, total_shallow: f64) {
+fn print_row_shallow(display: &str, dist: Distance, shallow: u64, total_shallow: u64) {
     let dist_str = format_distance(dist);
     let name_col = pad_str(display, COL_NAME_SUMMARY);
     println!(
@@ -69,8 +69,8 @@ fn walk_edges(
     expand: &ExpandMap,
     visited: &mut FxHashSet<NodeOrdinal>,
     is_filtered: bool,
-    total_shallow: f64,
-    total_retained: f64,
+    total_shallow: u64,
+    total_retained: u64,
 ) {
     let w = expand
         .get(&snap.node_id(node_ordinal))
@@ -109,14 +109,14 @@ fn walk_edges(
             print_row_shallow(
                 &display,
                 snap.node_distance(child_ordinal),
-                snap.node_self_size(child_ordinal) as f64,
+                snap.node_self_size(child_ordinal) as u64,
                 total_shallow,
             );
         } else {
             print_row(
                 &display,
                 snap.node_distance(child_ordinal),
-                snap.node_self_size(child_ordinal) as f64,
+                snap.node_self_size(child_ordinal) as u64,
                 snap.node_retained_size(child_ordinal),
                 total_shallow,
                 total_retained,
@@ -184,7 +184,7 @@ pub fn print_summary(
                 idx,
                 ts_sec,
                 interval.count,
-                format_size(interval.size as f64),
+                format_size(interval.size),
             );
             snap.aggregates_for_id_range(interval.id_from, interval.id_to)
         }
@@ -199,21 +199,19 @@ pub fn print_summary(
     if is_filtered {
         entries.sort_by(|a, b| {
             b.self_size
-                .partial_cmp(&a.self_size)
-                .unwrap()
+                .cmp(&a.self_size)
                 .then(a.first_seen.cmp(&b.first_seen))
         });
     } else {
         entries.sort_by(|a, b| {
             b.max_ret
-                .partial_cmp(&a.max_ret)
-                .unwrap()
+                .cmp(&a.max_ret)
                 .then(a.first_seen.cmp(&b.first_seen))
         });
     }
 
-    let total_shallow: f64 = entries.iter().map(|e| e.self_size).sum();
-    let total_retained: f64 = entries.iter().map(|e| e.max_ret).sum();
+    let total_shallow: u64 = entries.iter().map(|e| e.self_size).sum();
+    let total_retained: u64 = entries.iter().map(|e| e.max_ret).sum();
 
     let tw = if is_filtered {
         COL_NAME_SUMMARY + COL_DIST + COL_SHALLOW + COL_SHALLOW_PCT
@@ -312,14 +310,14 @@ pub fn print_summary(
                     print_row_shallow(
                         &display,
                         snap.node_distance(ordinal),
-                        snap.node_self_size(ordinal) as f64,
+                        snap.node_self_size(ordinal) as u64,
                         total_shallow,
                     );
                 } else {
                     print_row(
                         &display,
                         snap.node_distance(ordinal),
-                        snap.node_self_size(ordinal) as f64,
+                        snap.node_self_size(ordinal) as u64,
                         snap.node_retained_size(ordinal),
                         total_shallow,
                         total_retained,

@@ -30,15 +30,15 @@ impl App {
             let has_children = !agg.node_ordinals.is_empty();
             let (display_count, shallow_size, retained_size, display_distance) = if !group_matches {
                 let mut count = 0u32;
-                let mut shallow = 0.0f64;
-                let mut retained = 0.0f64;
+                let mut shallow = 0u64;
+                let mut retained = 0u64;
                 let mut min_dist = crate::types::Distance::NONE;
                 for ord in &agg.node_ordinals {
                     if !contains_ignore_case(snap.node_raw_name(*ord), filter) {
                         continue;
                     }
                     count += 1;
-                    shallow += snap.node_self_size(*ord) as f64;
+                    shallow += snap.node_self_size(*ord) as u64;
                     retained += snap.node_retained_size(*ord);
                     min_dist = min_dist.min(snap.node_distance(*ord));
                 }

@@ -55,8 +55,8 @@ pub fn print_retainers(
         ret_ordinal: NodeOrdinal,
         depth: usize,
         expanded: bool,
-        total_shallow: f64,
-        total_retained: f64,
+        total_shallow: u64,
+        total_retained: u64,
         col_name_tree: usize,
     ) {
         let indent = "  ".repeat(depth);
@@ -76,7 +76,7 @@ pub fn print_retainers(
         print_data_cols(
             &name_col,
             snap.node_distance(ret_ordinal),
-            snap.node_self_size(ret_ordinal) as f64,
+            snap.node_self_size(ret_ordinal) as u64,
             snap.node_retained_size(ret_ordinal),
             total_shallow,
             total_retained,
@@ -88,8 +88,8 @@ pub fn print_retainers(
         snap: &HeapSnapshot,
         plan_edges: &[RetainerPathEdge],
         depth: usize,
-        total_shallow: f64,
-        total_retained: f64,
+        total_shallow: u64,
+        total_retained: u64,
         col_name_tree: usize,
     ) {
         for pe in plan_edges {

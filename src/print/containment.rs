@@ -40,8 +40,8 @@ pub fn print_containment(
         max_depth: usize,
         visited: &mut FxHashSet<NodeOrdinal>,
         expand: &ExpandMap,
-        total_shallow: f64,
-        total_retained: f64,
+        total_shallow: u64,
+        total_retained: u64,
     ) {
         if depth > max_depth && !expand.contains_key(&snap.node_id(node_ordinal)) {
             return;
@@ -83,7 +83,7 @@ pub fn print_containment(
             print_data_cols(
                 &name_col,
                 snap.node_distance(child_ordinal),
-                snap.node_self_size(child_ordinal) as f64,
+                snap.node_self_size(child_ordinal) as u64,
                 snap.node_retained_size(child_ordinal),
                 total_shallow,
                 total_retained,
@@ -124,7 +124,7 @@ pub fn print_containment(
         print_data_cols(
             &name_col,
             snap.node_distance(node_ordinal),
-            snap.node_self_size(node_ordinal) as f64,
+            snap.node_self_size(node_ordinal) as u64,
             snap.node_retained_size(node_ordinal),
             total_shallow,
             total_retained,

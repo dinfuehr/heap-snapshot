@@ -56,27 +56,27 @@ pub(super) fn mint_id(counter: &Cell<u64>) -> NodeId {
 pub(super) enum FlatRowKind {
     SummaryGroup {
         distance: Option<Distance>,
-        shallow_size: f64,
-        retained_size: f64,
+        shallow_size: u64,
+        retained_size: u64,
     },
     HeapNode {
         node_ordinal: Option<NodeOrdinal>,
         distance: Option<Distance>,
-        shallow_size: f64,
-        retained_size: f64,
-        reachable_size: Option<f64>,
+        shallow_size: u64,
+        retained_size: u64,
+        reachable_size: Option<u64>,
         detachedness: Option<u8>,
     },
     DiffGroup {
         new_count: u32,
         deleted_count: u32,
-        alloc_size: f64,
-        freed_size: f64,
+        alloc_size: u64,
+        freed_size: u64,
     },
     DiffObject {
         node_ordinal: Option<NodeOrdinal>,
         is_new: bool,
-        size: f64,
+        size: u64,
     },
 }
 
@@ -146,9 +146,9 @@ pub(super) struct ChildNode {
     // BFS distance from GC roots (None for paging status rows)
     pub(super) distance: Option<Distance>,
     // own size in bytes
-    pub(super) shallow_size: f64,
+    pub(super) shallow_size: u64,
     // size kept alive exclusively by this node
-    pub(super) retained_size: f64,
+    pub(super) retained_size: u64,
     // index into HeapSnapshot node arrays (None for paging status rows)
     pub(super) node_ordinal: Option<NodeOrdinal>,
     // whether this node can be expanded
@@ -254,7 +254,7 @@ pub(super) enum WorkItem {
 pub(super) enum WorkResult {
     ReachableSize {
         ordinal: NodeOrdinal,
-        size: f64,
+        size: u64,
     },
     RetainerPlan {
         request: PendingRetainerPlan,

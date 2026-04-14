@@ -95,7 +95,7 @@ pub fn print_closures(
         entries.retain(|e| e.native_context_id == Some(nc_id));
     }
 
-    entries.sort_by(|a, b| b.retained.partial_cmp(&a.retained).unwrap());
+    entries.sort_by(|a, b| b.retained.cmp(&a.retained));
 
     let total = entries.len();
     let start = offset.min(total);
@@ -135,7 +135,7 @@ pub fn print_closures(
 struct ClosureEntry {
     name: String,
     id: u64,
-    retained: f64,
+    retained: u64,
     location: Option<String>,
     sfi_id: Option<u64>,
     script_id: Option<u64>,

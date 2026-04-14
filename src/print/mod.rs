@@ -71,11 +71,11 @@ fn total_width(col_name: usize) -> usize {
     col_name + COL_DIST + COL_SHALLOW + COL_SHALLOW_PCT + COL_RETAINED + COL_RETAINED_PCT
 }
 
-pub fn format_size(bytes: f64) -> String {
-    if bytes < 1024.0 {
-        return format!("{} B", bytes as u64);
+pub fn format_size(bytes: u64) -> String {
+    if bytes < 1024 {
+        return format!("{} B", bytes);
     }
-    let kb = bytes / 1024.0;
+    let kb = bytes as f64 / 1024.0;
     if kb < 1024.0 {
         return format!("{} kB", kb.round() as u64);
     }
@@ -124,10 +124,10 @@ fn print_tree_header(col_name: usize) {
 fn print_data_cols(
     name_col: &str,
     dist: Distance,
-    shallow: f64,
-    retained: f64,
-    total_shallow: f64,
-    total_retained: f64,
+    shallow: u64,
+    retained: u64,
+    total_shallow: u64,
+    total_retained: u64,
 ) {
     let dist_str = format_distance(dist);
     let shallow_pct = pct_str(shallow, total_shallow);
@@ -149,9 +149,9 @@ fn print_data_cols(
     );
 }
 
-pub(crate) fn pct_str(val: f64, total: f64) -> String {
-    if total > 0.0 {
-        format!("{}%", (val / total * 100.0).round() as u64)
+pub(crate) fn pct_str(val: u64, total: u64) -> String {
+    if total > 0 {
+        format!("{}%", (val as f64 / total as f64 * 100.0).round() as u64)
     } else {
         "0%".to_string()
     }

@@ -17,7 +17,7 @@ pub fn print_timeline(snap: &HeapSnapshot) {
         "Allocation Timeline ({} intervals, {} live objects, {} total):",
         intervals.len(),
         total_count,
-        format_size(total_size as f64),
+        format_size(total_size),
     );
     println!();
 
@@ -29,7 +29,7 @@ pub fn print_timeline(snap: &HeapSnapshot) {
         println!(
             "  {:>6.1}s  {:>8}  {:>5} obj  {}",
             ts_sec,
-            format_size(interval.size as f64),
+            format_size(interval.size),
             interval.count,
             bar,
         );

@@ -8,8 +8,8 @@ pub struct ClassDiff {
     pub name: String,
     pub new_count: u32,
     pub deleted_count: u32,
-    pub alloc_size: f64,
-    pub freed_size: f64,
+    pub alloc_size: u64,
+    pub freed_size: u64,
     pub new_objects: Vec<(NodeId, u32)>,
     pub deleted_objects: Vec<(NodeId, u32)>,
 }
@@ -19,8 +19,8 @@ impl ClassDiff {
         self.new_count as i64 - self.deleted_count as i64
     }
 
-    pub fn size_delta(&self) -> f64 {
-        self.alloc_size - self.freed_size
+    pub fn size_delta(&self) -> i64 {
+        self.alloc_size as i64 - self.freed_size as i64
     }
 }
 
@@ -56,13 +56,13 @@ pub fn compute_diff(snap1: &HeapSnapshot, snap2: &HeapSnapshot) -> Vec<ClassDiff
                 name: class_name,
                 new_count: 0,
                 deleted_count: 0,
-                alloc_size: 0.0,
-                freed_size: 0.0,
+                alloc_size: 0,
+                freed_size: 0,
                 new_objects: Vec::new(),
                 deleted_objects: Vec::new(),
             });
             entry.new_count += 1;
-            entry.alloc_size += self_size as f64;
+            entry.alloc_size += self_size as u64;
             entry.new_objects.push((node_id, self_size));
         }
     }
@@ -81,24 +81,20 @@ pub fn compute_diff(snap1: &HeapSnapshot, snap2: &HeapSnapshot) -> Vec<ClassDiff
                 name: class_name,
                 new_count: 0,
                 deleted_count: 0,
-                alloc_size: 0.0,
-                freed_size: 0.0,
+                alloc_size: 0,
+                freed_size: 0,
                 new_objects: Vec::new(),
                 deleted_objects: Vec::new(),
             });
             entry.deleted_count += 1;
-            entry.freed_size += self_size as f64;
+            entry.freed_size += self_size as u64;
             entry.deleted_objects.push((node_id, self_size));
         }
     }
 
     // Sort by alloc size descending
     let mut entries: Vec<_> = diffs.into_values().collect();
-    entries.sort_by(|a, b| {
-        b.alloc_size
-            .partial_cmp(&a.alloc_size)
-            .unwrap_or(std::cmp::Ordering::Equal)
-    });
+    entries.sort_by(|a, b| b.alloc_size.cmp(&a.alloc_size));
     entries
 }
 
@@ -279,8 +275,8 @@ mod tests {
         let arr = diffs.iter().find(|d| d.name == "(array)").unwrap();
         assert_eq!(arr.new_count, 1);
         assert_eq!(arr.deleted_count, 0);
-        assert_eq!(arr.alloc_size, 200.0);
-        assert_eq!(arr.freed_size, 0.0);
+        assert_eq!(arr.alloc_size, 200);
+        assert_eq!(arr.freed_size, 0);
         assert_eq!(arr.new_objects.len(), 1);
         assert_eq!(arr.new_objects[0], (NodeId(7), 200));
     }
@@ -295,8 +291,8 @@ mod tests {
         let foo = diffs.iter().find(|d| d.name == "Foo").unwrap();
         assert_eq!(foo.new_count, 0);
         assert_eq!(foo.deleted_count, 1);
-        assert_eq!(foo.alloc_size, 0.0);
-        assert_eq!(foo.freed_size, 150.0);
+        assert_eq!(foo.alloc_size, 0);
+        assert_eq!(foo.freed_size, 150);
         assert_eq!(foo.deleted_objects.len(), 1);
         assert_eq!(foo.deleted_objects[0], (NodeId(9), 150));
     }
@@ -311,8 +307,8 @@ mod tests {
         let s = diffs.iter().find(|d| d.name == "(string)").unwrap();
         assert_eq!(s.new_count, 0);
         assert_eq!(s.deleted_count, 1);
-        assert_eq!(s.alloc_size, 0.0);
-        assert_eq!(s.freed_size, 60.0);
+        assert_eq!(s.alloc_size, 0);
+        assert_eq!(s.freed_size, 60);
     }
 
     #[test]
@@ -350,10 +346,10 @@ mod tests {
         let diffs = compute_diff(&snap1, &snap2);
 
         let foo = diffs.iter().find(|d| d.name == "Foo").unwrap();
-        assert_eq!(foo.size_delta(), -150.0);
+        assert_eq!(foo.size_delta(), -150);
 
         let arr = diffs.iter().find(|d| d.name == "(array)").unwrap();
-        assert_eq!(arr.size_delta(), 200.0);
+        assert_eq!(arr.size_delta(), 200);
     }
 
     #[test]
@@ -362,7 +358,7 @@ mod tests {
         let snap2 = make_snap2();
         let diffs = compute_diff(&snap1, &snap2);
 
-        let alloc_sizes: Vec<f64> = diffs.iter().map(|d| d.alloc_size).collect();
+        let alloc_sizes: Vec<u64> = diffs.iter().map(|d| d.alloc_size).collect();
         for w in alloc_sizes.windows(2) {
             assert!(w[0] >= w[1], "expected descending alloc_size order");
         }

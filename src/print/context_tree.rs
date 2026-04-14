@@ -84,7 +84,7 @@ fn print_node(
 
     println!(
         "{indent}@{id} {name} (self_size: {}, retained: {}){vars_str}{scope_info_str}",
-        format_size(self_size as f64),
+        format_size(self_size as u64),
         format_size(retained),
     );
 

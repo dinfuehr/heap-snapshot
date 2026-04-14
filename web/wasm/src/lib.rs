@@ -171,9 +171,9 @@ struct JsClassDiff {
     new_count: u32,
     deleted_count: u32,
     delta_count: i64,
-    alloc_size: f64,
-    freed_size: f64,
-    size_delta: f64,
+    alloc_size: u64,
+    freed_size: u64,
+    size_delta: i64,
 }
 
 // ---------------------------------------------------------------------------
@@ -203,7 +203,7 @@ impl WasmHeapSnapshot {
             name: snap.node_display_name(ordinal).to_string(),
             node_type: snap.node_type_name(ordinal).to_string(),
             self_size: snap.node_self_size(ordinal),
-            retained_size: snap.node_retained_size(ordinal),
+            retained_size: snap.node_retained_size(ordinal) as f64,
             distance: snap.node_distance(ordinal).0,
             edge_count: snap.node_edge_count(ordinal) as u32,
             detachedness: snap.node_detachedness(ordinal),
@@ -256,25 +256,25 @@ impl WasmHeapSnapshot {
             .iter()
             .map(|ctx| JsContextSize {
                 label: snap.native_context_label(ctx.ordinal),
-                size: ctx.size,
+                size: ctx.size as f64,
             })
             .collect();
         to_json(&JsStatistics {
             node_count: snap.node_count(),
-            total: stats.total,
-            v8heap_total: stats.v8heap_total,
-            native_total: stats.native_total,
-            code: stats.code,
-            strings: stats.strings,
-            js_arrays: stats.js_arrays,
-            typed_arrays: stats.typed_arrays,
-            system: stats.system,
-            extra_native_bytes: stats.extra_native_bytes,
-            unreachable_size: stats.unreachable_size,
+            total: stats.total as f64,
+            v8heap_total: stats.v8heap_total as f64,
+            native_total: stats.native_total as f64,
+            code: stats.code as f64,
+            strings: stats.strings as f64,
+            js_arrays: stats.js_arrays as f64,
+            typed_arrays: stats.typed_arrays as f64,
+            system: stats.system as f64,
+            extra_native_bytes: stats.extra_native_bytes as f64,
+            unreachable_size: stats.unreachable_size as f64,
             unreachable_count: stats.unreachable_count,
             context_sizes,
-            shared_size: snap.shared_attributable_size(),
-            unattributed_size: snap.unattributed_size(),
+            shared_size: snap.shared_attributable_size() as f64,
+            unattributed_size: snap.unattributed_size() as f64,
         })
     }
 
@@ -325,8 +325,8 @@ impl WasmHeapSnapshot {
                 index: i,
                 name: agg.name.clone(),
                 count: agg.count,
-                self_size: agg.self_size,
-                retained_size: agg.max_ret,
+                self_size: agg.self_size as f64,
+                retained_size: agg.max_ret as f64,
             })
             .collect();
         entries.sort_by(|a, b| b.retained_size.partial_cmp(&a.retained_size).unwrap());
@@ -358,7 +358,7 @@ impl WasmHeapSnapshot {
                     id: snap.node_id(ord).0,
                     name: snap.node_display_name(ord).to_string(),
                     self_size: snap.node_self_size(ord),
-                    retained_size: snap.node_retained_size(ord),
+                    retained_size: snap.node_retained_size(ord) as f64,
                     detachedness: snap.node_detachedness(ord),
                     ctx: format_ctx_bucket(snap.node_native_context_bucket(ord)),
                 }
@@ -571,7 +571,7 @@ impl WasmHeapSnapshot {
                         _ => "unknown".to_string(),
                     },
                     self_size: snap.node_self_size(ord),
-                    retained_size: snap.node_retained_size(ord),
+                    retained_size: snap.node_retained_size(ord) as f64,
                     vars: snap.native_context_vars(ord).to_string(),
                 }
             })
@@ -595,7 +595,7 @@ impl WasmHeapSnapshot {
                 name: snap.node_display_name(dom).to_string(),
                 node_type: snap.node_type_name(dom).to_string(),
                 self_size: snap.node_self_size(dom),
-                retained_size: snap.node_retained_size(dom),
+                retained_size: snap.node_retained_size(dom) as f64,
             });
             current = dom;
         }
@@ -613,8 +613,7 @@ impl WasmHeapSnapshot {
         let mut children: Vec<NodeOrdinal> = snap.get_dominated_children(ordinal);
         children.sort_by(|a, b| {
             snap.node_retained_size(*b)
-                .partial_cmp(&snap.node_retained_size(*a))
-                .unwrap()
+                .cmp(&snap.node_retained_size(*a))
         });
 
         let total = children.len();
@@ -655,7 +654,7 @@ impl WasmHeapSnapshot {
 
         #[derive(Serialize)]
         struct JsReachableSize {
-            size: f64,
+            size: u64,
             native_contexts: Vec<JsNativeContext>,
         }
 
@@ -671,7 +670,7 @@ impl WasmHeapSnapshot {
                     _ => "unknown".to_string(),
                 },
                 self_size: snap.node_self_size(ctx_ord),
-                retained_size: snap.node_retained_size(ctx_ord),
+                retained_size: snap.node_retained_size(ctx_ord) as f64,
                 vars: snap.native_context_vars(ctx_ord).to_string(),
             })
             .collect();
@@ -798,8 +797,8 @@ impl WasmHeapSnapshot {
                 index: i,
                 name: agg.name.clone(),
                 count: agg.count,
-                self_size: agg.self_size,
-                retained_size: agg.max_ret,
+                self_size: agg.self_size as f64,
+                retained_size: agg.max_ret as f64,
             })
             .collect();
         entries.sort_by(|a, b| b.retained_size.partial_cmp(&a.retained_size).unwrap());
@@ -834,7 +833,7 @@ impl WasmHeapSnapshot {
                     id: snap.node_id(ord).0,
                     name: snap.node_display_name(ord).to_string(),
                     self_size: snap.node_self_size(ord),
-                    retained_size: snap.node_retained_size(ord),
+                    retained_size: snap.node_retained_size(ord) as f64,
                     detachedness: snap.node_detachedness(ord),
                     ctx: format_ctx_bucket(snap.node_native_context_bucket(ord)),
                 }

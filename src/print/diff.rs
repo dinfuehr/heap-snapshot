@@ -21,11 +21,11 @@ pub fn format_signed_count(n: i64) -> String {
     }
 }
 
-pub fn format_signed_size(bytes: f64) -> String {
-    if bytes > 0.0 {
-        format!("+{}", format_size(bytes))
-    } else if bytes < 0.0 {
-        format!("\u{2212}{}" /* − */, format_size(-bytes))
+pub fn format_signed_size(bytes: i64) -> String {
+    if bytes > 0 {
+        format!("+{}", format_size(bytes as u64))
+    } else if bytes < 0 {
+        format!("\u{2212}{}" /* − */, format_size((-bytes) as u64))
     } else {
         "0 B".to_string()
     }
@@ -108,7 +108,7 @@ pub fn print_diff(snap1: &HeapSnapshot, snap2: &HeapSnapshot, expand_groups: &Gr
                     "\u{2022}", /* • */
                     "",
                     "",
-                    format_size(*self_size as f64),
+                    format_size(*self_size as u64),
                     "",
                     "",
                     w_n = COL_DIFF_NUM,
@@ -124,7 +124,7 @@ pub fn print_diff(snap1: &HeapSnapshot, snap2: &HeapSnapshot, expand_groups: &Gr
                     "\u{2022}", /* • */
                     "",
                     "",
-                    format_size(*self_size as f64),
+                    format_size(*self_size as u64),
                     "",
                     w_n = COL_DIFF_NUM,
                     w_s = COL_DIFF_SIZE,
@@ -156,8 +156,8 @@ mod tests {
 
     #[test]
     fn test_format_signed_size() {
-        assert_eq!(format_signed_size(100.0), "+100 B");
-        assert_eq!(format_signed_size(-200.0), "\u{2212}200 B");
-        assert_eq!(format_signed_size(0.0), "0 B");
+        assert_eq!(format_signed_size(100), "+100 B");
+        assert_eq!(format_signed_size(-200), "\u{2212}200 B");
+        assert_eq!(format_signed_size(0), "0 B");
     }
 }

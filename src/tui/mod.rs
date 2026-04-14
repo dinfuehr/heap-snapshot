@@ -184,10 +184,10 @@ struct App {
     // class aggregates sorted by retained size (drives the Summary view)
     sorted_aggregates: Vec<AggregateInfo>,
     // totals used for percentage columns in Summary
-    summary_total_shallow: f64,
-    summary_total_retained: f64,
+    summary_total_shallow: u64,
+    summary_total_retained: u64,
     // root retained size used for percentage columns in Containment/Retainers
-    heap_total: f64,
+    heap_total: u64,
     // flattened rows for the current frame
     cached_rows: Vec<FlatRow>,
     // whether the flattened row cache needs to be rebuilt
@@ -201,7 +201,7 @@ struct App {
     contexts_ids: Vec<NodeId>,
     contexts_state: TreeState,
     // cached reachable sizes (computed on demand, persisted to disk)
-    reachable_sizes: FxHashMap<NodeOrdinal, f64>,
+    reachable_sizes: FxHashMap<NodeOrdinal, u64>,
     // ordinals currently being computed on background threads
     reachable_pending: FxHashSet<NodeOrdinal>,
     // resolved chrome extension names (extension_id -> name)
@@ -239,8 +239,7 @@ impl App {
         let mut sorted: Vec<AggregateInfo> = snap.aggregates_with_filter();
         sorted.sort_by(|a, b| {
             b.max_ret
-                .partial_cmp(&a.max_ret)
-                .unwrap()
+                .cmp(&a.max_ret)
                 .then(a.first_seen.cmp(&b.first_seen))
         });
         Self::new_with_aggregates(snap, sorted, compare_snapshots, work_tx, result_rx)
@@ -253,8 +252,8 @@ impl App {
         work_tx: mpsc::Sender<WorkItem>,
         result_rx: mpsc::Receiver<WorkResult>,
     ) -> Self {
-        let summary_total_shallow: f64 = sorted.iter().map(|e| e.self_size).sum();
-        let summary_total_retained: f64 = sorted.iter().map(|e| e.max_ret).sum();
+        let summary_total_shallow: u64 = sorted.iter().map(|e| e.self_size).sum();
+        let summary_total_retained: u64 = sorted.iter().map(|e| e.max_ret).sum();
         let heap_total = snap.get_statistics().total;
 
         let next_id = Cell::new(0u64);
@@ -523,8 +522,7 @@ impl App {
         let mut sorted: Vec<AggregateInfo> = aggregates;
         sorted.sort_by(|a, b| {
             b.max_ret
-                .partial_cmp(&a.max_ret)
-                .unwrap()
+                .cmp(&a.max_ret)
                 .then(a.first_seen.cmp(&b.first_seen))
         });
         let next_id = &self.next_id;
