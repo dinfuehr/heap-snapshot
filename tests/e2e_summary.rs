@@ -88,13 +88,29 @@ fn summary_shows_statistics() {
     let output = cmd.output().expect("failed to run heap-snapshot");
     assert!(output.status.success(), "exit code: {}", output.status);
     let stdout = String::from_utf8(output.stdout).expect("invalid utf-8");
-    assert!(stdout.contains("Statistics"), "expected Statistics section");
-    assert!(stdout.contains("V8 Heap:"), "expected V8 Heap stat");
-    assert!(
-        stdout.contains("Extra Native:"),
-        "expected Extra Native stat"
-    );
-    assert!(stdout.contains("Unreachable:"), "expected Unreachable stat");
+    // Skip progress lines (Reading/Initializing)
+    let stats_output: String = stdout
+        .lines()
+        .filter(|l| !l.starts_with("Reading") && !l.starts_with("Initializing"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let expected = "\
+Statistics (total 125 kB):
+  V8 Heap:        105 kB
+    Code:         8 kB
+    Strings:      6 kB
+    JS Arrays:    64 B
+    System:       0 B
+  Native:         20 kB
+    Typed Arrays: 0 B
+    Extra Native: 0 B
+  Unreachable:    0 B (0 objects)
+
+Native Context Attribution:
+  [utility] $0 @7165                       119 kB
+  Shared                                   0 B
+  Unattributed                             7 kB";
+    assert_eq!(stats_output, expected);
 }
 
 #[test]

@@ -547,7 +547,7 @@ impl McpServer {
         let stats = snapshot.get_statistics();
         let node_count = snapshot.node_count();
 
-        let lines = vec![
+        let mut lines = vec![
             format!("{node_count} nodes, {:.0} bytes total", stats.total),
             format!("  V8 heap:      {:.0} bytes", stats.v8heap_total),
             format!("  Native:       {:.0} bytes", stats.native_total),
@@ -562,6 +562,24 @@ impl McpServer {
                 stats.unreachable_size, stats.unreachable_count
             ),
         ];
+
+        let contexts = snapshot.native_contexts();
+        if !contexts.is_empty() {
+            lines.push(String::new());
+            lines.push("Native Context Attribution:".to_string());
+            for ctx in contexts {
+                let label = snapshot.native_context_label(ctx.ordinal);
+                lines.push(format!("  {label}: {:.0} bytes", ctx.size));
+            }
+            lines.push(format!(
+                "  Shared: {:.0} bytes",
+                snapshot.shared_attributable_size()
+            ));
+            lines.push(format!(
+                "  Unattributed: {:.0} bytes",
+                snapshot.unattributed_size()
+            ));
+        }
 
         Ok(CallToolResult::success(vec![Content::text(
             lines.join("\n"),

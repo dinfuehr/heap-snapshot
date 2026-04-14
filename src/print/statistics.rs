@@ -21,4 +21,24 @@ pub fn print_statistics(snap: &HeapSnapshot) {
         format_size(stats.unreachable_size),
         format_count(stats.unreachable_count),
     );
+
+    let contexts = snap.native_contexts();
+    if !contexts.is_empty() {
+        println!();
+        println!("Native Context Attribution:");
+        for ctx in contexts {
+            let label = snap.native_context_label(ctx.ordinal);
+            println!("  {:<40} {}", label, format_size(ctx.size));
+        }
+        println!(
+            "  {:<40} {}",
+            "Shared",
+            format_size(snap.shared_attributable_size())
+        );
+        println!(
+            "  {:<40} {}",
+            "Unattributed",
+            format_size(snap.unattributed_size())
+        );
+    }
 }
