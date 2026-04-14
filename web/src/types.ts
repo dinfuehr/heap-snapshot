@@ -11,6 +11,9 @@ export interface Statistics {
   extra_native_bytes: number;
   unreachable_size: number;
   unreachable_count: number;
+  context_sizes: { label: string; size: number }[];
+  shared_size: number;
+  unattributed_size: number;
 }
 
 export interface AggregateEntry {

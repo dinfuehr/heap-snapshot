@@ -1,4 +1,4 @@
-import { createResource, type JSX } from 'solid-js';
+import { createResource, Show, type JSX } from 'solid-js';
 import type { Statistics } from '../types.ts';
 import type { SnapshotCall } from '../worker/use-snapshot.ts';
 import { formatBytes } from '../components/format.ts';
@@ -24,7 +24,7 @@ export function StatisticsView(props: { call: SnapshotCall }): JSX.Element {
 
   return (
     <div
-      style={{ 'max-width': '600px', 'font-variant-numeric': 'tabular-nums' }}
+      style={{ 'font-variant-numeric': 'tabular-nums', overflow: 'auto', flex: '1', 'min-height': '0', padding: '0 16px' }}
     >
       {!stats() ? (
         <p>Loading...</p>
@@ -61,35 +61,29 @@ export function StatisticsView(props: { call: SnapshotCall }): JSX.Element {
                 </tr>
               ))}
               <tr style={{ 'border-top': '1px solid #ddd' }}>
-                <td style={{ padding: '6px 0', color: '#888' }}>
+                <td style={{ padding: '3px 0', 'padding-left': '16px', color: '#888' }}>
                   Extra Native
                 </td>
-                <td style={{ padding: '6px 12px', 'text-align': 'right' }}>
+                <td style={{ padding: '3px 12px', 'text-align': 'right' }}>
                   {formatBytes(stats()!.extra_native_bytes)}
                 </td>
-                <td style={{ padding: '6px 0', color: '#888' }}>
-                  {pct(stats()!.extra_native_bytes, stats()!.total)}{' '}
-                  <span style={{ 'font-size': '12px' }}>
-                    (subset of Native)
-                  </span>
-                </td>
-              </tr>
-              <tr style={{ 'border-top': '1px solid #ddd' }}>
-                <td style={{ padding: '6px 0', color: '#888' }}>
-                  Typed Arrays
-                </td>
-                <td style={{ padding: '6px 12px', 'text-align': 'right' }}>
-                  {formatBytes(stats()!.typed_arrays)}
-                </td>
-                <td style={{ padding: '6px 0', color: '#888' }}>
-                  {pct(stats()!.typed_arrays, stats()!.total)}{' '}
-                  <span style={{ 'font-size': '12px' }}>
-                    (subset of Native)
-                  </span>
+                <td style={{ padding: '3px 0', color: '#888', 'font-size': '12px' }}>
+                  (subset of Native)
                 </td>
               </tr>
               <tr>
-                <td style={{ padding: '3px 0', color: '#888' }}>Unreachable</td>
+                <td style={{ padding: '3px 0', 'padding-left': '16px', color: '#888' }}>
+                  Typed Arrays
+                </td>
+                <td style={{ padding: '3px 12px', 'text-align': 'right' }}>
+                  {formatBytes(stats()!.typed_arrays)}
+                </td>
+                <td style={{ padding: '3px 0', color: '#888', 'font-size': '12px' }}>
+                  (subset of Native)
+                </td>
+              </tr>
+              <tr style={{ 'border-top': '1px solid #ddd' }}>
+                <td style={{ padding: '6px 0', color: '#888' }}>Unreachable</td>
                 <td style={{ padding: '3px 12px', 'text-align': 'right' }}>
                   {formatBytes(stats()!.unreachable_size)}
                 </td>
@@ -157,8 +151,205 @@ export function StatisticsView(props: { call: SnapshotCall }): JSX.Element {
               </div>
             ))}
           </div>
+          <ContextAttribution stats={stats()!} />
         </>
       )}
     </div>
+  );
+}
+
+const CONTEXT_COLORS = [
+  '#3b82f6',
+  '#ef4444',
+  '#10b981',
+  '#f59e0b',
+  '#8b5cf6',
+  '#ec4899',
+  '#14b8a6',
+  '#f97316',
+  '#6366f1',
+  '#84cc16',
+];
+
+function ContextAttribution(props: { stats: Statistics }): JSX.Element {
+  const ctxSizes = () => props.stats.context_sizes;
+  const attrTotal = () =>
+    ctxSizes().reduce((s, c) => s + c.size, 0) +
+    props.stats.shared_size +
+    props.stats.unattributed_size;
+
+  return (
+    <Show when={ctxSizes().length > 0}>
+      <h3
+        style={{
+          'font-size': '14px',
+          'font-weight': 'bold',
+          'margin-top': '24px',
+          'margin-bottom': '8px',
+        }}
+      >
+        Native Context Attribution
+      </h3>
+      <table
+        style={{
+          'border-collapse': 'collapse',
+          width: '100%',
+          'font-size': '14px',
+        }}
+      >
+        <tbody>
+          {ctxSizes().map(({ label, size }, i) => (
+            <tr>
+              <td
+                style={{
+                  padding: '3px 0',
+                  color: CONTEXT_COLORS[i % CONTEXT_COLORS.length],
+                  'font-weight': '600',
+                  'max-width': '300px',
+                  overflow: 'hidden',
+                  'text-overflow': 'ellipsis',
+                  'white-space': 'nowrap',
+                }}
+                title={label}
+              >
+                {label}
+              </td>
+              <td style={{ padding: '3px 12px', 'text-align': 'right' }}>
+                {formatBytes(size)}
+              </td>
+              <td style={{ padding: '3px 0', color: '#888' }}>
+                {pct(size, attrTotal())}
+              </td>
+            </tr>
+          ))}
+          <tr style={{ 'border-top': '1px solid #ddd' }}>
+            <td style={{ padding: '3px 0', color: '#888' }}>Shared</td>
+            <td style={{ padding: '3px 12px', 'text-align': 'right' }}>
+              {formatBytes(props.stats.shared_size)}
+            </td>
+            <td style={{ padding: '3px 0', color: '#888' }}>
+              {pct(props.stats.shared_size, attrTotal())}
+            </td>
+          </tr>
+          <tr>
+            <td style={{ padding: '3px 0', color: '#888' }}>Unattributed</td>
+            <td style={{ padding: '3px 12px', 'text-align': 'right' }}>
+              {formatBytes(props.stats.unattributed_size)}
+            </td>
+            <td style={{ padding: '3px 0', color: '#888' }}>
+              {pct(props.stats.unattributed_size, attrTotal())}
+            </td>
+          </tr>
+        </tbody>
+      </table>
+      <div
+        style={{
+          display: 'flex',
+          height: '24px',
+          'border-radius': '4px',
+          overflow: 'hidden',
+          'margin-top': '12px',
+        }}
+      >
+        {ctxSizes().map(({ size }, i) => {
+          const w = attrTotal() > 0 ? (size / attrTotal()) * 100 : 0;
+          if (w < 0.3) return null;
+          return (
+            <div
+              style={{
+                width: `${w}%`,
+                'background-color':
+                  CONTEXT_COLORS[i % CONTEXT_COLORS.length],
+                'min-width': '2px',
+              }}
+            />
+          );
+        })}
+        {(() => {
+          const w =
+            attrTotal() > 0
+              ? (props.stats.shared_size / attrTotal()) * 100
+              : 0;
+          if (w < 0.3) return null;
+          return (
+            <div
+              style={{
+                width: `${w}%`,
+                'background-color': '#9ca3af',
+                'min-width': '2px',
+              }}
+            />
+          );
+        })()}
+        {(() => {
+          const w =
+            attrTotal() > 0
+              ? (props.stats.unattributed_size / attrTotal()) * 100
+              : 0;
+          if (w < 0.3) return null;
+          return (
+            <div
+              style={{
+                width: `${w}%`,
+                'background-color': '#d1d5db',
+                'min-width': '2px',
+              }}
+            />
+          );
+        })()}
+      </div>
+      <div
+        style={{
+          display: 'flex',
+          gap: '16px',
+          'margin-top': '8px',
+          'font-size': '12px',
+          'flex-wrap': 'wrap',
+        }}
+      >
+        {ctxSizes().map(({ label }, i) => (
+          <div
+            style={{ display: 'flex', 'align-items': 'center', gap: '4px' }}
+          >
+            <div
+              style={{
+                width: '10px',
+                height: '10px',
+                'background-color':
+                  CONTEXT_COLORS[i % CONTEXT_COLORS.length],
+                'border-radius': '2px',
+              }}
+            />
+            <span>{label}</span>
+          </div>
+        ))}
+        <div
+          style={{ display: 'flex', 'align-items': 'center', gap: '4px' }}
+        >
+          <div
+            style={{
+              width: '10px',
+              height: '10px',
+              'background-color': '#9ca3af',
+              'border-radius': '2px',
+            }}
+          />
+          <span>Shared</span>
+        </div>
+        <div
+          style={{ display: 'flex', 'align-items': 'center', gap: '4px' }}
+        >
+          <div
+            style={{
+              width: '10px',
+              height: '10px',
+              'background-color': '#d1d5db',
+              'border-radius': '2px',
+            }}
+          />
+          <span>Unattributed</span>
+        </div>
+      </div>
+    </Show>
   );
 }

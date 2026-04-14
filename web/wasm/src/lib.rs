@@ -32,6 +32,15 @@ struct JsStatistics {
     extra_native_bytes: f64,
     unreachable_size: f64,
     unreachable_count: u32,
+    context_sizes: Vec<JsContextSize>,
+    shared_size: f64,
+    unattributed_size: f64,
+}
+
+#[derive(Serialize)]
+struct JsContextSize {
+    label: String,
+    size: f64,
 }
 
 #[derive(Serialize)]
@@ -240,9 +249,18 @@ impl WasmHeapSnapshot {
     }
 
     pub fn get_statistics(&self) -> String {
-        let stats = self.inner.get_statistics();
+        let snap = &self.inner;
+        let stats = snap.get_statistics();
+        let context_sizes: Vec<JsContextSize> = snap
+            .native_contexts()
+            .iter()
+            .map(|ctx| JsContextSize {
+                label: snap.native_context_label(ctx.ordinal),
+                size: ctx.size,
+            })
+            .collect();
         to_json(&JsStatistics {
-            node_count: self.inner.node_count(),
+            node_count: snap.node_count(),
             total: stats.total,
             v8heap_total: stats.v8heap_total,
             native_total: stats.native_total,
@@ -254,6 +272,9 @@ impl WasmHeapSnapshot {
             extra_native_bytes: stats.extra_native_bytes,
             unreachable_size: stats.unreachable_size,
             unreachable_count: stats.unreachable_count,
+            context_sizes,
+            shared_size: snap.shared_attributable_size(),
+            unattributed_size: snap.unattributed_size(),
         })
     }
 

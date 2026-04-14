@@ -10,6 +10,8 @@ pub mod snapshot;
 #[cfg(feature = "cli")]
 pub mod tui;
 pub mod types;
+#[cfg(feature = "cli")]
+pub mod utils;
 
 /// Fetch the name of a Chrome extension from the Chrome Web Store.
 #[cfg(feature = "cli")]
