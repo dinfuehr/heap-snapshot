@@ -24,7 +24,13 @@ export function StatisticsView(props: { call: SnapshotCall }): JSX.Element {
 
   return (
     <div
-      style={{ 'font-variant-numeric': 'tabular-nums', overflow: 'auto', flex: '1', 'min-height': '0', padding: '0 16px' }}
+      style={{
+        'font-variant-numeric': 'tabular-nums',
+        overflow: 'auto',
+        flex: '1',
+        'min-height': '0',
+        padding: '0 16px',
+      }}
     >
       {!stats() ? (
         <p>Loading...</p>
@@ -61,24 +67,48 @@ export function StatisticsView(props: { call: SnapshotCall }): JSX.Element {
                 </tr>
               ))}
               <tr style={{ 'border-top': '1px solid #ddd' }}>
-                <td style={{ padding: '3px 0', 'padding-left': '16px', color: '#888' }}>
+                <td
+                  style={{
+                    padding: '3px 0',
+                    'padding-left': '16px',
+                    color: '#888',
+                  }}
+                >
                   Extra Native
                 </td>
                 <td style={{ padding: '3px 12px', 'text-align': 'right' }}>
                   {formatBytes(stats()!.extra_native_bytes)}
                 </td>
-                <td style={{ padding: '3px 0', color: '#888', 'font-size': '12px' }}>
+                <td
+                  style={{
+                    padding: '3px 0',
+                    color: '#888',
+                    'font-size': '12px',
+                  }}
+                >
                   (subset of Native)
                 </td>
               </tr>
               <tr>
-                <td style={{ padding: '3px 0', 'padding-left': '16px', color: '#888' }}>
+                <td
+                  style={{
+                    padding: '3px 0',
+                    'padding-left': '16px',
+                    color: '#888',
+                  }}
+                >
                   Typed Arrays
                 </td>
                 <td style={{ padding: '3px 12px', 'text-align': 'right' }}>
                   {formatBytes(stats()!.typed_arrays)}
                 </td>
-                <td style={{ padding: '3px 0', color: '#888', 'font-size': '12px' }}>
+                <td
+                  style={{
+                    padding: '3px 0',
+                    color: '#888',
+                    'font-size': '12px',
+                  }}
+                >
                   (subset of Native)
                 </td>
               </tr>
@@ -258,8 +288,7 @@ function ContextAttribution(props: { stats: Statistics }): JSX.Element {
             <div
               style={{
                 width: `${w}%`,
-                'background-color':
-                  CONTEXT_COLORS[i % CONTEXT_COLORS.length],
+                'background-color': CONTEXT_COLORS[i % CONTEXT_COLORS.length],
                 'min-width': '2px',
               }}
             />
@@ -267,9 +296,7 @@ function ContextAttribution(props: { stats: Statistics }): JSX.Element {
         })}
         {(() => {
           const w =
-            attrTotal() > 0
-              ? (props.stats.shared_size / attrTotal()) * 100
-              : 0;
+            attrTotal() > 0 ? (props.stats.shared_size / attrTotal()) * 100 : 0;
           if (w < 0.3) return null;
           return (
             <div
@@ -308,24 +335,19 @@ function ContextAttribution(props: { stats: Statistics }): JSX.Element {
         }}
       >
         {ctxSizes().map(({ label }, i) => (
-          <div
-            style={{ display: 'flex', 'align-items': 'center', gap: '4px' }}
-          >
+          <div style={{ display: 'flex', 'align-items': 'center', gap: '4px' }}>
             <div
               style={{
                 width: '10px',
                 height: '10px',
-                'background-color':
-                  CONTEXT_COLORS[i % CONTEXT_COLORS.length],
+                'background-color': CONTEXT_COLORS[i % CONTEXT_COLORS.length],
                 'border-radius': '2px',
               }}
             />
             <span>{label}</span>
           </div>
         ))}
-        <div
-          style={{ display: 'flex', 'align-items': 'center', gap: '4px' }}
-        >
+        <div style={{ display: 'flex', 'align-items': 'center', gap: '4px' }}>
           <div
             style={{
               width: '10px',
@@ -336,9 +358,7 @@ function ContextAttribution(props: { stats: Statistics }): JSX.Element {
           />
           <span>Shared</span>
         </div>
-        <div
-          style={{ display: 'flex', 'align-items': 'center', gap: '4px' }}
-        >
+        <div style={{ display: 'flex', 'align-items': 'center', gap: '4px' }}>
           <div
             style={{
               width: '10px',

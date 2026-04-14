@@ -2,8 +2,8 @@ use ratatui::prelude::*;
 use ratatui::widgets::{Paragraph, Wrap};
 
 use crate::print::format_size;
-use crate::utils::truncate_str;
 use crate::snapshot::HeapSnapshot;
+use crate::utils::truncate_str;
 
 use super::super::App;
 
@@ -282,10 +282,7 @@ impl App {
                     }
                     let color = ctx_colors[i % ctx_colors.len()];
                     let short = truncate_str(&snap.native_context_label(ctx.ordinal), 20);
-                    legend_spans.push(Span::styled(
-                        "\u{2588}",
-                        Style::default().fg(color),
-                    ));
+                    legend_spans.push(Span::styled("\u{2588}", Style::default().fg(color)));
                     legend_spans.push(Span::raw(format!(" {short}")));
                 }
                 legend_spans.push(Span::raw("  "));
@@ -295,10 +292,7 @@ impl App {
                 ));
                 legend_spans.push(Span::raw(" Shared"));
                 legend_spans.push(Span::raw("  "));
-                legend_spans.push(Span::styled(
-                    "\u{2588}",
-                    Style::default().fg(Color::Gray),
-                ));
+                legend_spans.push(Span::styled("\u{2588}", Style::default().fg(Color::Gray)));
                 legend_spans.push(Span::raw(" Unattributed"));
                 lines.push(Line::from(legend_spans));
             }
