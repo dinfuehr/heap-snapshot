@@ -31,6 +31,7 @@ export function TreeTableRow(props: {
   onSelect?: (sel: RowSelection) => void;
   detachedness?: number;
   ctx?: string;
+  ctxLabel?: string;
   distance?: number;
   selfSize: number;
   retainedSize: number;
@@ -165,7 +166,9 @@ export function TreeTableRow(props: {
               ? 'attached'
               : ''}
         </td>
-        <td style={numStyle}>{props.ctx ?? ''}</td>
+        <td style={numStyle} title={props.ctxLabel || undefined}>
+          {props.ctx ?? ''}
+        </td>
       </tr>
       {props.children}
     </>

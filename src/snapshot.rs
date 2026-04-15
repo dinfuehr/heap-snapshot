@@ -3529,7 +3529,7 @@ impl HeapSnapshot {
             .unwrap_or_else(|| self.compute_native_context_kind(ordinal))
             .as_str();
         let ctx_idx = match self.node_native_context_bucket(ordinal) {
-            NativeContextBucket::Context(id) => format!(" ${}", id.0),
+            NativeContextBucket::Context(id) => format!(" #{}", id.0),
             _ => String::new(),
         };
 

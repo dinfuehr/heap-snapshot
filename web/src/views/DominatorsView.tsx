@@ -73,6 +73,7 @@ function DomTreeNode(props: {
       onSelect={props.onSelect}
       detachedness={props.node.detachedness}
       ctx={props.node.ctx}
+      ctxLabel={props.node.ctx_label}
       distance={props.node.distance}
       selfSize={props.node.self_size}
       retainedSize={props.node.retained_size}

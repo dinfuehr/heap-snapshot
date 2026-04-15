@@ -63,6 +63,7 @@ struct JsNodeInfo {
     edge_count: u32,
     detachedness: u8,
     ctx: String,
+    ctx_label: String,
 }
 
 #[derive(Serialize)]
@@ -101,6 +102,7 @@ struct JsSummaryObject {
     retained_size: f64,
     detachedness: u8,
     ctx: String,
+    ctx_label: String,
 }
 
 #[derive(Serialize)]
@@ -189,8 +191,18 @@ pub struct WasmHeapSnapshot {
 
 fn format_ctx_bucket(bucket: NativeContextBucket) -> String {
     match bucket {
-        NativeContextBucket::Context(id) => format!("${}", id.0),
+        NativeContextBucket::Context(id) => format!("#{}", id.0),
         NativeContextBucket::Shared => "S".to_string(),
+        NativeContextBucket::Unattributed => String::new(),
+    }
+}
+
+fn format_ctx_label(snap: &HeapSnapshot, bucket: NativeContextBucket) -> String {
+    match bucket {
+        NativeContextBucket::Context(id) => {
+            snap.native_context_label(snap.native_context_by_id(id).ordinal)
+        }
+        NativeContextBucket::Shared => "Shared (multiple contexts)".to_string(),
         NativeContextBucket::Unattributed => String::new(),
     }
 }
@@ -198,6 +210,7 @@ fn format_ctx_bucket(bucket: NativeContextBucket) -> String {
 impl WasmHeapSnapshot {
     fn node_info(&self, ordinal: NodeOrdinal) -> JsNodeInfo {
         let snap = &self.inner;
+        let bucket = snap.node_native_context_bucket(ordinal);
         JsNodeInfo {
             id: snap.node_id(ordinal).0,
             name: snap.node_display_name(ordinal).to_string(),
@@ -207,7 +220,8 @@ impl WasmHeapSnapshot {
             distance: snap.node_distance(ordinal).0,
             edge_count: snap.node_edge_count(ordinal) as u32,
             detachedness: snap.node_detachedness(ordinal),
-            ctx: format_ctx_bucket(snap.node_native_context_bucket(ordinal)),
+            ctx: format_ctx_bucket(bucket),
+            ctx_label: format_ctx_label(snap, bucket),
         }
     }
 
@@ -354,13 +368,15 @@ impl WasmHeapSnapshot {
             .iter()
             .map(|&ord| {
                 let snap = &self.inner;
+                let bucket = snap.node_native_context_bucket(ord);
                 JsSummaryObject {
                     id: snap.node_id(ord).0,
                     name: snap.node_display_name(ord).to_string(),
                     self_size: snap.node_self_size(ord),
                     retained_size: snap.node_retained_size(ord) as f64,
                     detachedness: snap.node_detachedness(ord),
-                    ctx: format_ctx_bucket(snap.node_native_context_bucket(ord)),
+                    ctx: format_ctx_bucket(bucket),
+                    ctx_label: format_ctx_label(snap, bucket),
                 }
             })
             .collect();
@@ -829,13 +845,15 @@ impl WasmHeapSnapshot {
             .iter()
             .map(|&ord| {
                 let snap = &self.inner;
+                let bucket = snap.node_native_context_bucket(ord);
                 JsSummaryObject {
                     id: snap.node_id(ord).0,
                     name: snap.node_display_name(ord).to_string(),
                     self_size: snap.node_self_size(ord),
                     retained_size: snap.node_retained_size(ord) as f64,
                     detachedness: snap.node_detachedness(ord),
-                    ctx: format_ctx_bucket(snap.node_native_context_bucket(ord)),
+                    ctx: format_ctx_bucket(bucket),
+                    ctx_label: format_ctx_label(snap, bucket),
                 }
             })
             .collect();

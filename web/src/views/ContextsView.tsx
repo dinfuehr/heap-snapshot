@@ -112,7 +112,8 @@ function ContextNode(props: {
             ? 1
             : 0
       }
-      ctx={`$${props.index}`}
+      ctx={`#${props.index}`}
+      ctxLabel={props.ctx.label}
       selfSize={props.ctx.self_size}
       retainedSize={props.ctx.retained_size}
       reachableInfo={props.reachableSizes.get(props.ctx.id)}

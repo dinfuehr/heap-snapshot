@@ -50,6 +50,7 @@ function ExpandableObject(props: {
     retained_size: number;
     detachedness: number;
     ctx: string;
+    ctx_label: string;
   };
   call: SnapshotCall;
   onNavigate: (opts: NavigateOptions) => void;
@@ -90,6 +91,7 @@ function ExpandableObject(props: {
       onSelect={props.onSelect}
       detachedness={props.obj.detachedness}
       ctx={props.obj.ctx}
+      ctxLabel={props.obj.ctx_label}
       selfSize={props.obj.self_size}
       retainedSize={props.obj.retained_size}
       reachableInfo={props.reachableSizes.get(props.obj.id)}

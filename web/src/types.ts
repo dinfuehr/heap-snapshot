@@ -34,6 +34,7 @@ export interface NodeInfo {
   edge_count: number;
   detachedness: number; // 0=unknown, 1=attached, 2=detached
   ctx: string;
+  ctx_label: string;
 }
 
 export interface Edge {
@@ -74,6 +75,7 @@ export interface SummaryObject {
   retained_size: number;
   detachedness: number;
   ctx: string;
+  ctx_label: string;
 }
 
 export interface SummaryExpanded {

@@ -13,7 +13,7 @@ fn get_native_contexts() {
     let text = get_text(&resp);
     assert_eq!(
         text,
-        "1 native contexts:\n@7165 [utility] $0 @7165 (detachedness: unknown, self_size: 1240, retained_size: 23708)"
+        "1 native contexts:\n@7165 [utility] #0 @7165 (detachedness: unknown, self_size: 1240, retained_size: 23708)"
     );
 }
 

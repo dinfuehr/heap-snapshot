@@ -20,7 +20,7 @@ fn get_statistics() {
   Unreachable:  0 bytes (0 objects)
 
 Native Context Attribution:
-  [utility] $0 @7165: 121532 bytes
+  [utility] #0 @7165: 121532 bytes
   Shared: 0 bytes
   Unattributed: 6888 bytes";
     assert_eq!(text, expected);

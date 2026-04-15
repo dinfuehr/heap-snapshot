@@ -16,7 +16,7 @@ fn get_reachable_size() {
         "\
 Reachable size from @1 (): 128420 bytes
 1 native contexts reached:
-  @7165 [utility] $0 @7165"
+  @7165 [utility] #0 @7165"
     );
 }
 
@@ -37,7 +37,7 @@ fn get_reachable_size_reaches_native_context() {
         "\
 Reachable size from @25 ((Handle scope)): 121532 bytes
 1 native contexts reached:
-  @7165 [utility] $0 @7165"
+  @7165 [utility] #0 @7165"
     );
 }
 

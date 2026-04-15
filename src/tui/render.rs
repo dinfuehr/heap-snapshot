@@ -466,7 +466,7 @@ impl App {
                     format!(
                         "{:>w$}",
                         match node_ordinal.map(|o| snap.node_native_context_bucket(o)) {
-                            Some(NativeContextBucket::Context(id)) => format!("${}", id.0),
+                            Some(NativeContextBucket::Context(id)) => format!("#{}", id.0),
                             Some(NativeContextBucket::Shared) => "S".to_string(),
                             Some(NativeContextBucket::Unattributed) | None => String::new(),
                         },

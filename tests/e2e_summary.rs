@@ -107,7 +107,7 @@ Statistics (total 125 kB):
   Unreachable:    0 B (0 objects)
 
 Native Context Attribution:
-  [utility] $0 @7165                       119 kB
+  [utility] #0 @7165                       119 kB
   Shared                                   0 B
   Unattributed                             7 kB";
     assert_eq!(stats_output, expected);

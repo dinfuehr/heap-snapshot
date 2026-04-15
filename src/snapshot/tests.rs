@@ -1767,15 +1767,15 @@ fn test_native_context_label() {
     // Main context: Window global + proxy with ≥10 edges → "main"
     assert_eq!(
         snap.native_context_label(NodeOrdinal(2)),
-        "[main] $0 https://example.com @3"
+        "[main] #0 https://example.com @3"
     );
     // Iframe context: Window global + proxy with <10 edges → "iframe"
     assert_eq!(
         snap.native_context_label(NodeOrdinal(3)),
-        "[iframe] $1 https://iframe.test @5"
+        "[iframe] #1 https://iframe.test @5"
     );
     // Utility context: non-Window global → "utility", no URL
-    assert_eq!(snap.native_context_label(NodeOrdinal(4)), "[utility] $2 @7");
+    assert_eq!(snap.native_context_label(NodeOrdinal(4)), "[utility] #2 @7");
 }
 
 // ====== 12. is_native_context / native_contexts tests ======
