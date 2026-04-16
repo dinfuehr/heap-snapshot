@@ -2326,8 +2326,6 @@ impl HeapSnapshot {
                 }
             };
 
-        let hidden_idx = get_index("(system)", &mut self.strings, &mut string_table);
-        let code_idx = get_index("(compiled code)", &mut self.strings, &mut string_table);
         let function_idx = get_index("Function", &mut self.strings, &mut string_table);
         let regexp_idx = get_index("RegExp", &mut self.strings, &mut string_table);
 
@@ -2336,43 +2334,64 @@ impl HeapSnapshot {
             let raw_type = self.nodes[node_index + self.node_type_offset];
             let raw_name_idx = self.nodes[node_index + self.node_name_offset];
 
-            let class_index = if raw_type == self.node_hidden_type {
-                hidden_idx
-            } else if raw_type == self.node_object_type || raw_type == self.node_native_type {
-                let name = self.strings[raw_name_idx as usize].clone();
-                if let Some(normalized) = Self::normalize_constructor_type(&name) {
-                    get_index(normalized, &mut self.strings, &mut string_table)
-                } else if name.starts_with('<') {
-                    let first_space = name.find(' ');
-                    let short_name = if let Some(pos) = first_space {
-                        format!("{}>", &name[..pos])
+            let class_index =
+                if raw_type == self.node_hidden_type || raw_type == self.node_code_type {
+                    // DevTools groups all hidden nodes into "(system)" and all code
+                    // nodes into "(compiled code)". We split by V8 type name instead
+                    // (e.g. "system / Map", "system / BytecodeArray") so users can
+                    // see which internal types dominate. Names of the form
+                    // "system / Type / instance" are truncated to "system / Type"
+                    // so instances stay in one group.
+                    let name = self.strings[raw_name_idx as usize].clone();
+                    let fallback = if raw_type == self.node_hidden_type {
+                        "(hidden)"
                     } else {
-                        name
+                        "(code)"
                     };
-                    get_index(&short_name, &mut self.strings, &mut string_table)
+                    if name.is_empty() {
+                        get_index(fallback, &mut self.strings, &mut string_table)
+                    } else if name.starts_with("system / ") {
+                        let class_name = match name.match_indices(" / ").nth(1) {
+                            Some((pos, _)) => name[..pos].to_string(),
+                            None => name,
+                        };
+                        get_index(&class_name, &mut self.strings, &mut string_table)
+                    } else {
+                        get_index(&name, &mut self.strings, &mut string_table)
+                    }
+                } else if raw_type == self.node_object_type || raw_type == self.node_native_type {
+                    let name = self.strings[raw_name_idx as usize].clone();
+                    if let Some(normalized) = Self::normalize_constructor_type(&name) {
+                        get_index(normalized, &mut self.strings, &mut string_table)
+                    } else if name.starts_with('<') {
+                        let first_space = name.find(' ');
+                        let short_name = if let Some(pos) = first_space {
+                            format!("{}>", &name[..pos])
+                        } else {
+                            name
+                        };
+                        get_index(&short_name, &mut self.strings, &mut string_table)
+                    } else {
+                        // Use raw name index directly
+                        raw_name_idx
+                    }
+                } else if raw_type == self.node_closure_type {
+                    function_idx
+                } else if raw_type == self.node_regexp_type {
+                    regexp_idx
                 } else {
-                    // Use raw name index directly
-                    raw_name_idx
-                }
-            } else if raw_type == self.node_code_type {
-                code_idx
-            } else if raw_type == self.node_closure_type {
-                function_idx
-            } else if raw_type == self.node_regexp_type {
-                regexp_idx
-            } else {
-                // Other types: "(type_name)"
-                let type_name = if (raw_type as usize) < self.node_types.len() {
-                    self.node_types[raw_type as usize].clone()
-                } else {
-                    format!("unknown_{}", raw_type)
+                    // Other types: "(type_name)"
+                    let type_name = if (raw_type as usize) < self.node_types.len() {
+                        self.node_types[raw_type as usize].clone()
+                    } else {
+                        format!("unknown_{}", raw_type)
+                    };
+                    get_index(
+                        &format!("({})", type_name),
+                        &mut self.strings,
+                        &mut string_table,
+                    )
                 };
-                get_index(
-                    &format!("({})", type_name),
-                    &mut self.strings,
-                    &mut string_table,
-                )
-            };
 
             self.set_class_index(NodeOrdinal(ordinal), class_index);
         }

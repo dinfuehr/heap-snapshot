@@ -1268,7 +1268,7 @@ fn test_reachable_all_deduplicates_duplicate_and_known_children() {
     );
 }
 
-/// Snapshot with 3 code nodes (grouped under "(compiled code)") and 1 object.
+/// Snapshot with 3 code nodes and 1 object.
 /// Code nodes have raw names: "SharedFunctionInfo", "SharedFunctionInfo", "BytecodeArray".
 fn make_summary_filter_snapshot() -> HeapSnapshot {
     let strings: Vec<String> = [
@@ -1323,20 +1323,20 @@ fn test_summary_filter_by_group_name_shows_all_members() {
     let (_result_tx, result_rx) = mpsc::channel();
     let mut app = App::new(&snap, Vec::new(), work_tx, result_rx);
 
-    // Filter by group name "compiled code"
-    app.summary_filter = "compiled code".to_string();
+    // Filter by group name "SharedFunctionInfo"
+    app.summary_filter = "SharedFunctionInfo".to_string();
     app.rebuild_rows(&snap);
 
-    // Only (compiled code) group should be visible (MyObj filtered out)
+    // Only SharedFunctionInfo group should be visible (BytecodeArray, MyObj filtered out)
     let group_rows: Vec<_> = app
         .cached_rows
         .iter()
         .filter(|r| matches!(r.render.kind, FlatRowKind::SummaryGroup { .. }))
         .collect();
     assert_eq!(group_rows.len(), 1);
-    assert!(group_rows[0].render.label.contains("(compiled code)"));
-    // Full count: 3 code nodes
-    assert!(group_rows[0].render.label.contains("\u{00d7}3"));
+    assert!(group_rows[0].render.label.contains("SharedFunctionInfo"));
+    // Full count: 2 SharedFunctionInfo code nodes
+    assert!(group_rows[0].render.label.contains("\u{00d7}2"));
 
     // Expand the group
     let id = group_rows[0].nav.id;
@@ -1344,13 +1344,13 @@ fn test_summary_filter_by_group_name_shows_all_members() {
     app.expand(id, ck, &snap);
     app.rebuild_rows(&snap);
 
-    // All 3 members should be visible (no member filtering)
+    // All 2 members should be visible (no member filtering)
     let member_rows: Vec<_> = app
         .cached_rows
         .iter()
         .filter(|r| matches!(r.render.kind, FlatRowKind::HeapNode { .. }) && r.nav.depth == 1)
         .collect();
-    assert_eq!(member_rows.len(), 3);
+    assert_eq!(member_rows.len(), 2);
 }
 
 #[test]
@@ -1360,22 +1360,23 @@ fn test_summary_filter_by_member_name_filters_members() {
     let (_result_tx, result_rx) = mpsc::channel();
     let mut app = App::new(&snap, Vec::new(), work_tx, result_rx);
 
-    // Filter by member name "sharedfunctioninfo" (lowercase)
-    app.summary_filter = "sharedfunctioninfo".to_string();
+    // Filter by member name "bytecodearray" (lowercase) — matches the
+    // BytecodeArray group by group name, not by member name.
+    app.summary_filter = "bytecodearray".to_string();
     app.rebuild_rows(&snap);
 
-    // (compiled code) group should appear (matched by member)
+    // BytecodeArray group should appear
     let group_rows: Vec<_> = app
         .cached_rows
         .iter()
         .filter(|r| matches!(r.render.kind, FlatRowKind::SummaryGroup { .. }))
         .collect();
     assert_eq!(group_rows.len(), 1);
-    assert!(group_rows[0].render.label.contains("(compiled code)"));
-    // Filtered count: only 2 SharedFunctionInfo nodes, not 3
+    assert!(group_rows[0].render.label.contains("BytecodeArray"));
+    // 1 BytecodeArray node
     assert!(
-        group_rows[0].render.label.contains("\u{00d7}2"),
-        "expected x2 in label: {}",
+        group_rows[0].render.label.contains("\u{00d7}1"),
+        "expected x1 in label: {}",
         group_rows[0].render.label
     );
 
@@ -1385,7 +1386,7 @@ fn test_summary_filter_by_member_name_filters_members() {
     app.expand(id, ck, &snap);
     app.rebuild_rows(&snap);
 
-    // Only the 2 SharedFunctionInfo members should be shown
+    // Only the 1 BytecodeArray member should be shown
     let member_rows: Vec<_> = app
         .cached_rows
         .iter()
@@ -1399,10 +1400,10 @@ fn test_summary_filter_by_member_name_filters_members() {
             ) && r.nav.depth == 1
         })
         .collect();
-    assert_eq!(member_rows.len(), 2);
+    assert_eq!(member_rows.len(), 1);
     for row in &member_rows {
         assert!(
-            row.render.label.contains("SharedFunctionInfo"),
+            row.render.label.contains("BytecodeArray"),
             "unexpected member: {}",
             row.render.label
         );
@@ -1465,7 +1466,7 @@ fn test_summary_filter_member_match_paged() {
     let (_result_tx, result_rx) = mpsc::channel();
     let mut app = App::new(&snap, Vec::new(), work_tx, result_rx);
 
-    // Filter by "targetfunc" — should match ~half the code nodes
+    // Filter by "targetfunc" — matches the TargetFunc group by name
     app.summary_filter = "targetfunc".to_string();
     app.rebuild_rows(&snap);
 
@@ -1482,30 +1483,19 @@ fn test_summary_filter_member_match_paged() {
     app.expand(id, ck, &snap);
     app.rebuild_rows(&snap);
 
+    let total_target = count / 2; // half are TargetFunc
     // Should show at most EDGE_PAGE_SIZE members + 1 status line
     let depth1_rows: Vec<_> = app
         .cached_rows
         .iter()
         .filter(|r| r.nav.depth == 1)
         .collect();
-    // EDGE_PAGE_SIZE matching members + 1 "N of M matching" status row
     assert_eq!(depth1_rows.len(), EDGE_PAGE_SIZE + 1);
-    // Last row is the status line
-    assert!(
-        depth1_rows
-            .last()
-            .unwrap()
-            .render
-            .label
-            .contains("matching"),
-        "expected paging status, got: {}",
-        depth1_rows.last().unwrap().render.label
-    );
 
-    // Status line should show "1–EDGE_PAGE_SIZE of ..."
+    // Status line should show "1–EDGE_PAGE_SIZE of <total>"
     let status = &depth1_rows.last().unwrap().render.label;
     assert!(
-        status.starts_with(&format!("1\u{2013}{EDGE_PAGE_SIZE}")),
+        status.starts_with(&format!("1\u{2013}{EDGE_PAGE_SIZE} of {total_target}")),
         "expected first page range, got: {status}"
     );
 
@@ -1526,7 +1516,7 @@ fn test_summary_filter_member_match_paged() {
         .iter()
         .filter(|r| r.nav.depth == 1)
         .collect();
-    // Second page: remaining matching members + status line
+    // Second page: remaining members + status line
     let status = &depth1_rows.last().unwrap().render.label;
     assert!(
         status.starts_with(&format!("{}\u{2013}", EDGE_PAGE_SIZE + 1)),
@@ -1832,7 +1822,7 @@ fn test_filtered_status_row_node_ordinal_is_none() {
     let (_result_tx, result_rx) = mpsc::channel();
     let mut app = App::new(&snap, Vec::new(), work_tx, result_rx);
 
-    // Apply member-level filter and expand
+    // Apply filter and expand
     app.summary_filter = "targetfunc".to_string();
     app.rebuild_rows(&snap);
     let id = app.cached_rows[0].nav.id;
@@ -1840,12 +1830,12 @@ fn test_filtered_status_row_node_ordinal_is_none() {
     app.expand(id, ck, &snap);
     app.rebuild_rows(&snap);
 
-    // Find the "matching" status row
+    // Find the paging status row (last depth-1 row with "of" in the label)
     let status_idx = app
         .cached_rows
         .iter()
-        .position(|r| r.render.label.contains("matching"))
-        .expect("should have a filtered paging status row");
+        .position(|r| r.nav.depth == 1 && r.render.label.contains(" of "))
+        .expect("should have a paging status row");
 
     // Status row should have None ordinal
     assert_eq!(app.cached_rows[status_idx].node_ordinal(), None);

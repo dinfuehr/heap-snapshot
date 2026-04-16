@@ -20,10 +20,10 @@ fn summary_lists_initial_objects() {
         output.contains("InitialObject"),
         "expected InitialObject in summary"
     );
-    // heap-1 has 3 InitialObjects
+    // heap-1 has 4 InitialObjects
     assert!(
-        output.contains("\u{00d7}3"),
-        "expected ×3 for InitialObject"
+        output.contains("\u{00d7}4"),
+        "expected ×4 for InitialObject"
     );
 }
 
@@ -56,7 +56,7 @@ fn summary_expand_group_shows_members() {
     // Individual members: "▶ InitialObject ... @<id>"
     let re = regex::Regex::new(r"\u{25b6} InitialObject\b.*@\d+").unwrap();
     let member_count = output.lines().filter(|l| re.is_match(l)).count();
-    assert_eq!(member_count, 3, "expected 3 expanded InitialObject members");
+    assert_eq!(member_count, 4, "expected 4 expanded InitialObject members");
 }
 
 #[test]
@@ -64,7 +64,10 @@ fn summary_expand_group_with_window() {
     let output = run_summary("heap-1.heapsnapshot", &["-g", "InitialObject:0:2"]);
     let re = regex::Regex::new(r"\u{25b6} InitialObject\b.*@\d+").unwrap();
     let member_count = output.lines().filter(|l| re.is_match(l)).count();
-    assert_eq!(member_count, 2, "expected 2 members with window :0:2");
+    assert_eq!(
+        member_count, 3,
+        "expected 3 members with window :0:2 (2 from windowed group + 1 from second group)"
+    );
     assert!(
         output.contains("of 3 members"),
         "expected 'of 3 members' status line"

@@ -3136,8 +3136,10 @@ fn test_aggregates_max_ret_dedup() {
 // ── aggregates: node type → class name mapping ─────────────────────────
 
 /// Each node type maps to a specific class name in aggregates:
-///   hidden(0)  → "(system)"
-///   code(4)    → "(compiled code)"
+///   hidden(0)  → raw name (e.g. "system / Map"), or "(hidden)" if empty;
+///                unlike DevTools which groups all hidden nodes into "(system)"
+///   code(4)    → raw name, or "(code)" if empty; unlike DevTools which
+///                groups all code nodes into "(compiled code)"
 ///   closure(5) → "Function"
 ///   regexp(6)  → "RegExp"
 #[test]
@@ -3174,8 +3176,8 @@ fn test_aggregates_class_names_by_node_type() {
         s(&[
             "",           // 0
             "(GC roots)", // 1
-            "stuff",      // 2 (raw name, ignored for hidden)
-            "compile_me", // 3 (raw name, ignored for code)
+            "stuff",      // 2 (raw name, used as class name for hidden)
+            "compile_me", // 3 (raw name, used as class name for code)
             "myFunc",     // 4 (raw name, ignored for closure)
             "myRegexp",   // 5 (raw name, ignored for regexp)
             "h",          // 6
@@ -3187,11 +3189,11 @@ fn test_aggregates_class_names_by_node_type() {
 
     let aggs = snap.aggregates_with_filter();
 
-    let system = find_first_agg(&aggs, "(system)");
-    assert_eq!(system.count, 1);
-    assert_eq!(system.self_size, 40);
+    let hidden = find_first_agg(&aggs, "stuff");
+    assert_eq!(hidden.count, 1);
+    assert_eq!(hidden.self_size, 40);
 
-    let code = find_first_agg(&aggs, "(compiled code)");
+    let code = find_first_agg(&aggs, "compile_me");
     assert_eq!(code.count, 1);
     assert_eq!(code.self_size, 50);
 
@@ -3202,6 +3204,327 @@ fn test_aggregates_class_names_by_node_type() {
     let re = find_first_agg(&aggs, "RegExp");
     assert_eq!(re.count, 1);
     assert_eq!(re.self_size, 70);
+}
+
+/// Hidden nodes with "system / Foo / bar" names are grouped as "system / Foo".
+#[test]
+fn test_aggregates_hidden_name_truncation() {
+    let nfc = 5u32;
+    let n = |ord: u32| ord * nfc;
+    let snap = build_snapshot(
+        standard_node_fields(),
+        vec![
+            9, 0, 1, 0, 1, // node 0: synthetic root
+            9, 1, 2, 0, 3, // node 1: (GC roots)
+            0, 2, 10, 10, 0, // node 2: hidden "system / Map"
+            0, 3, 11, 20, 0, // node 3: hidden "system / Map / transition"
+            0, 4, 12, 30, 0, // node 4: hidden "system / Context"
+        ],
+        vec![
+            1,
+            0,
+            n(1), // root → GC roots
+            2,
+            6,
+            n(2), // GC roots → node 2
+            2,
+            7,
+            n(3), // GC roots → node 3
+            2,
+            8,
+            n(4), // GC roots → node 4
+        ],
+        s(&[
+            "",                          // 0
+            "(GC roots)",                // 1
+            "system / Map",              // 2
+            "system / Map / transition", // 3
+            "system / Context",          // 4
+            "",                          // 5
+            "a",                         // 6
+            "b",                         // 7
+            "c",                         // 8
+        ]),
+    );
+
+    let aggs = snap.aggregates_with_filter();
+
+    // Both "system / Map" and "system / Map / transition" grouped together
+    let map = find_first_agg(&aggs, "system / Map");
+    assert_eq!(map.count, 2);
+    assert_eq!(map.self_size, 30);
+
+    let ctx = find_first_agg(&aggs, "system / Context");
+    assert_eq!(ctx.count, 1);
+    assert_eq!(ctx.self_size, 30);
+}
+
+/// Hidden nodes without the "system / " prefix use their raw name as-is.
+#[test]
+fn test_aggregates_hidden_plain_name() {
+    let nfc = 5u32;
+    let n = |ord: u32| ord * nfc;
+    let snap = build_snapshot(
+        standard_node_fields(),
+        vec![
+            9, 0, 1, 0, 1, // node 0: synthetic root
+            9, 1, 2, 0, 1, // node 1: (GC roots)
+            0, 2, 10, 50, 0, // node 2: hidden "InternalThing"
+        ],
+        vec![
+            1,
+            0,
+            n(1), // root → GC roots
+            2,
+            3,
+            n(2), // GC roots → node 2
+        ],
+        s(&[
+            "",              // 0
+            "(GC roots)",    // 1
+            "InternalThing", // 2
+            "x",             // 3
+        ]),
+    );
+
+    let aggs = snap.aggregates_with_filter();
+    let thing = find_first_agg(&aggs, "InternalThing");
+    assert_eq!(thing.count, 1);
+    assert_eq!(thing.self_size, 50);
+}
+
+/// Third-component truncation only applies to the "system / " prefix.
+/// "foo / Bar / baz" must NOT collapse into "foo / Bar".
+#[test]
+fn test_aggregates_hidden_no_truncation_for_non_system_prefix() {
+    let nfc = 5u32;
+    let n = |ord: u32| ord * nfc;
+    let snap = build_snapshot(
+        standard_node_fields(),
+        vec![
+            9, 0, 1, 0, 1, // node 0: synthetic root
+            9, 1, 2, 0, 2, // node 1: (GC roots)
+            0, 2, 10, 10, 0, // node 2: hidden "foo / Bar"
+            0, 3, 11, 20, 0, // node 3: hidden "foo / Bar / baz"
+        ],
+        vec![
+            1,
+            0,
+            n(1), // root → GC roots
+            2,
+            4,
+            n(2), // GC roots → node 2
+            2,
+            5,
+            n(3), // GC roots → node 3
+        ],
+        s(&[
+            "",                // 0
+            "(GC roots)",      // 1
+            "foo / Bar",       // 2
+            "foo / Bar / baz", // 3
+            "a",               // 4
+            "b",               // 5
+        ]),
+    );
+
+    let aggs = snap.aggregates_with_filter();
+
+    let bar = find_first_agg(&aggs, "foo / Bar");
+    assert_eq!(
+        bar.count, 1,
+        "foo / Bar / baz should not merge into foo / Bar"
+    );
+    assert_eq!(bar.self_size, 10);
+
+    let baz = find_first_agg(&aggs, "foo / Bar / baz");
+    assert_eq!(baz.count, 1);
+    assert_eq!(baz.self_size, 20);
+}
+
+/// Hidden nodes with empty names or bare "system" (no slash) stay as-is.
+#[test]
+fn test_aggregates_hidden_edge_case_names() {
+    let nfc = 5u32;
+    let n = |ord: u32| ord * nfc;
+    let snap = build_snapshot(
+        standard_node_fields(),
+        vec![
+            9, 0, 1, 0, 1, // node 0: synthetic root
+            9, 1, 2, 0, 2, // node 1: (GC roots)
+            0, 2, 10, 10, 0, // node 2: hidden "" (empty name)
+            0, 3, 11, 20, 0, // node 3: hidden "system" (no slash)
+        ],
+        vec![
+            1,
+            0,
+            n(1), // root → GC roots
+            2,
+            4,
+            n(2), // GC roots → node 2
+            2,
+            5,
+            n(3), // GC roots → node 3
+        ],
+        s(&[
+            "",           // 0
+            "(GC roots)", // 1
+            "",           // 2 (empty name)
+            "system",     // 3 (no " / " separator)
+            "a",          // 4
+            "b",          // 5
+        ]),
+    );
+
+    let aggs = snap.aggregates_with_filter();
+
+    let empty = find_first_agg(&aggs, "(hidden)");
+    assert_eq!(empty.count, 1);
+    assert_eq!(empty.self_size, 10);
+
+    let sys = find_first_agg(&aggs, "system");
+    assert_eq!(sys.count, 1);
+    assert_eq!(sys.self_size, 20);
+}
+
+/// Code nodes with empty names fall back to "(code)".
+#[test]
+fn test_aggregates_code_empty_name_fallback() {
+    let nfc = 5u32;
+    let n = |ord: u32| ord * nfc;
+    let snap = build_snapshot(
+        standard_node_fields(),
+        vec![
+            9, 0, 1, 0, 1, // node 0: synthetic root
+            9, 1, 2, 0, 2, // node 1: (GC roots)
+            4, 0, 10, 30, 0, // node 2: code "" (empty name)
+            4, 2, 11, 40, 0, // node 3: code "SharedFunctionInfo"
+        ],
+        vec![
+            1,
+            0,
+            n(1), // root → GC roots
+            2,
+            3,
+            n(2), // GC roots → node 2
+            2,
+            4,
+            n(3), // GC roots → node 3
+        ],
+        s(&[
+            "",                   // 0
+            "(GC roots)",         // 1
+            "SharedFunctionInfo", // 2
+            "a",                  // 3
+            "b",                  // 4
+        ]),
+    );
+
+    let aggs = snap.aggregates_with_filter();
+
+    let code = find_first_agg(&aggs, "(code)");
+    assert_eq!(code.count, 1);
+    assert_eq!(code.self_size, 30);
+
+    let sfi = find_first_agg(&aggs, "SharedFunctionInfo");
+    assert_eq!(sfi.count, 1);
+    assert_eq!(sfi.self_size, 40);
+}
+
+/// Code nodes with "system / Foo / bar" names truncate to "system / Foo".
+#[test]
+fn test_aggregates_code_system_prefix_truncation() {
+    let nfc = 5u32;
+    let n = |ord: u32| ord * nfc;
+    let snap = build_snapshot(
+        standard_node_fields(),
+        vec![
+            9, 0, 1, 0, 1, // node 0: synthetic root
+            9, 1, 2, 0, 3, // node 1: (GC roots)
+            4, 2, 10, 10, 0, // node 2: code "system / BytecodeArray"
+            4, 3, 11, 20, 0, // node 3: code "system / BytecodeArray / foo"
+            4, 4, 12, 30, 0, // node 4: code "system / Code"
+        ],
+        vec![
+            1,
+            0,
+            n(1), // root → GC roots
+            2,
+            5,
+            n(2), // GC roots → node 2
+            2,
+            6,
+            n(3), // GC roots → node 3
+            2,
+            7,
+            n(4), // GC roots → node 4
+        ],
+        s(&[
+            "",                             // 0
+            "(GC roots)",                   // 1
+            "system / BytecodeArray",       // 2
+            "system / BytecodeArray / foo", // 3
+            "system / Code",                // 4
+            "a",                            // 5
+            "b",                            // 6
+            "c",                            // 7
+        ]),
+    );
+
+    let aggs = snap.aggregates_with_filter();
+
+    let ba = find_first_agg(&aggs, "system / BytecodeArray");
+    assert_eq!(ba.count, 2);
+    assert_eq!(ba.self_size, 30);
+
+    let code = find_first_agg(&aggs, "system / Code");
+    assert_eq!(code.count, 1);
+    assert_eq!(code.self_size, 30);
+}
+
+/// Hidden "system / Map" and object "Map" must not collide.
+#[test]
+fn test_aggregates_hidden_does_not_collide_with_object() {
+    let nfc = 5u32;
+    let n = |ord: u32| ord * nfc;
+    let snap = build_snapshot(
+        standard_node_fields(),
+        vec![
+            9, 0, 1, 0, 1, // node 0: synthetic root
+            9, 1, 2, 0, 2, // node 1: (GC roots)
+            0, 2, 10, 10, 0, // node 2: hidden "system / Map"
+            3, 3, 11, 20, 0, // node 3: object "Map"
+        ],
+        vec![
+            1,
+            0,
+            n(1), // root → GC roots
+            2,
+            4,
+            n(2), // GC roots → node 2
+            2,
+            5,
+            n(3), // GC roots → node 3
+        ],
+        s(&[
+            "",             // 0
+            "(GC roots)",   // 1
+            "system / Map", // 2
+            "Map",          // 3
+            "a",            // 4
+            "b",            // 5
+        ]),
+    );
+
+    let aggs = snap.aggregates_with_filter();
+
+    let sys_map = find_first_agg(&aggs, "system / Map");
+    assert_eq!(sys_map.count, 1);
+    assert_eq!(sys_map.self_size, 10);
+
+    let obj_map = find_first_agg(&aggs, "Map");
+    assert_eq!(obj_map.count, 1);
+    assert_eq!(obj_map.self_size, 20);
 }
 
 // ── aggregates: <tag ...> truncation ───────────────────────────────────
