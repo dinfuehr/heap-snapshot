@@ -243,6 +243,13 @@ enum Command {
         /// Object ID of a Script or SharedFunctionInfo (e.g. @3005313 or 3005313)
         object_id: String,
     },
+    /// List system and user roots
+    Roots {
+        #[command(flatten)]
+        snap_args: SnapshotArgs,
+        /// Path to .heapsnapshot file
+        file: String,
+    },
     /// Start the MCP (Model Context Protocol) server
     Mcp,
     /// Compare two heap snapshots
@@ -339,7 +346,7 @@ fn parse_expand_group(groups: &[String]) -> GroupExpandMap {
 }
 
 fn load_snapshot(options: &SnapshotOptions, path: &str) -> HeapSnapshot {
-    println!("Reading and parsing {path}...");
+    eprintln!("Reading and parsing {path}...");
     let file = File::open(path).unwrap_or_else(|e| {
         eprintln!("Error reading file: {e}");
         std::process::exit(1);
@@ -348,7 +355,7 @@ fn load_snapshot(options: &SnapshotOptions, path: &str) -> HeapSnapshot {
         eprintln!("Error parsing snapshot: {e}");
         std::process::exit(1);
     });
-    println!("Initializing snapshot...");
+    eprintln!("Initializing snapshot...");
     HeapSnapshot::new_with_options(raw, options.clone())
 }
 
@@ -722,6 +729,10 @@ fn main() {
                 std::process::exit(1);
             });
             print::scopes::print_scopes(&snap, id);
+        }
+        Command::Roots { snap_args, file } => {
+            let snap = load_snapshot(&snap_args.to_options(), &file);
+            print::roots::print_roots(&snap);
         }
         Command::Mcp => {
             mcp::run().unwrap_or_else(|e| {

@@ -160,7 +160,7 @@ pub fn print_summary(
 ) {
     let is_filtered = !matches!(filter, SummaryFilter::All);
 
-    println!("Computing aggregates...");
+    eprintln!("Computing aggregates...");
     let aggregates = match filter {
         SummaryFilter::All => snap.aggregates_with_filter(),
         SummaryFilter::Unreachable => snap.unreachable_aggregates(),
