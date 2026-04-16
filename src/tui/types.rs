@@ -4,6 +4,7 @@ use std::rc::Rc;
 use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::print::retainers::RetainerAutoExpandPlan;
+use crate::snapshot::Detachedness;
 use crate::types::{Distance, NodeOrdinal};
 
 use super::EDGE_PAGE_SIZE;
@@ -65,7 +66,7 @@ pub(super) enum FlatRowKind {
         shallow_size: u64,
         retained_size: u64,
         reachable_size: Option<u64>,
-        detachedness: Option<u8>,
+        detachedness: Option<Detachedness>,
     },
     DiffGroup {
         new_count: u32,

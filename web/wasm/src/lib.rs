@@ -9,7 +9,7 @@ use heap_snapshot::retaining_path::{
     RetainerAutoExpandLimits, RetainerPathEdge, plan_gc_root_retainer_paths,
 };
 use heap_snapshot::snapshot::{
-    HeapSnapshot, NativeContextBucket, NativeContextId, RootKind, SnapshotOptions,
+    Detachedness, HeapSnapshot, NativeContextBucket, NativeContextId, RootKind, SnapshotOptions,
 };
 use heap_snapshot::types::AggregateInfo;
 use heap_snapshot::types::{NodeId, NodeOrdinal};
@@ -219,7 +219,7 @@ impl WasmHeapSnapshot {
             retained_size: snap.node_retained_size(ordinal) as f64,
             distance: snap.node_distance(ordinal).0,
             edge_count: snap.node_edge_count(ordinal) as u32,
-            detachedness: snap.node_detachedness(ordinal),
+            detachedness: snap.node_detachedness(ordinal) as u8,
             ctx: format_ctx_bucket(bucket),
             ctx_label: format_ctx_label(snap, bucket),
         }
@@ -297,7 +297,7 @@ impl WasmHeapSnapshot {
     /// one call so the cache and UI entries are always in sync.
     /// 0 = all objects, 1 = all unreachable, 2 = unreachable roots only,
     /// 3 = retained by detached DOM, 4 = retained by console,
-    /// 5 = retained by event handlers.
+    /// 5 = retained by event handlers, 6 = attached, 7 = detached.
     pub fn get_summary_with_filter(&mut self, mode: u32) -> String {
         self.cached_summary_aggregates = Some(match mode {
             1 => self.inner.unreachable_aggregates(),
@@ -305,6 +305,8 @@ impl WasmHeapSnapshot {
             3 => self.inner.retained_by_detached_dom(),
             4 => self.inner.retained_by_console(),
             5 => self.inner.retained_by_event_handlers(),
+            6 => self.inner.aggregates_attached(),
+            7 => self.inner.aggregates_detached(),
             _ => self.inner.aggregates_with_filter(),
         });
         self.format_summary()
@@ -374,7 +376,7 @@ impl WasmHeapSnapshot {
                     name: snap.node_display_name(ord).to_string(),
                     self_size: snap.node_self_size(ord),
                     retained_size: snap.node_retained_size(ord) as f64,
-                    detachedness: snap.node_detachedness(ord),
+                    detachedness: snap.node_detachedness(ord) as u8,
                     ctx: format_ctx_bucket(bucket),
                     ctx_label: format_ctx_label(snap, bucket),
                 }
@@ -582,9 +584,9 @@ impl WasmHeapSnapshot {
                     id: snap.node_id(ord).0,
                     label: snap.native_context_label(ord),
                     detachedness: match snap.native_context_detachedness(ord) {
-                        1 => "attached".to_string(),
-                        2 => "detached".to_string(),
-                        _ => "unknown".to_string(),
+                        Detachedness::Attached => "attached".to_string(),
+                        Detachedness::Detached => "detached".to_string(),
+                        Detachedness::Unknown => "unknown".to_string(),
                     },
                     self_size: snap.node_self_size(ord),
                     retained_size: snap.node_retained_size(ord) as f64,
@@ -851,7 +853,7 @@ impl WasmHeapSnapshot {
                     name: snap.node_display_name(ord).to_string(),
                     self_size: snap.node_self_size(ord),
                     retained_size: snap.node_retained_size(ord) as f64,
-                    detachedness: snap.node_detachedness(ord),
+                    detachedness: snap.node_detachedness(ord) as u8,
                     ctx: format_ctx_bucket(bucket),
                     ctx_label: format_ctx_label(snap, bucket),
                 }

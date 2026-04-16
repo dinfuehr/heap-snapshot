@@ -1,6 +1,6 @@
 use std::rc::Rc;
 
-use crate::snapshot::HeapSnapshot;
+use crate::snapshot::{Detachedness, HeapSnapshot};
 use crate::types::NodeOrdinal;
 
 use super::App;
@@ -124,7 +124,7 @@ impl App {
         ordinal: NodeOrdinal,
         label: Rc<str>,
         children_key: Option<ChildrenKey>,
-        detachedness: u8,
+        detachedness: Detachedness,
     ) {
         let has_children = children_key.is_some();
         let is_expanded = state.expanded.contains(&id);

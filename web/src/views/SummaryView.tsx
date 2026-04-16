@@ -626,6 +626,8 @@ export function SummaryView(props: {
           }}
         >
           <option value="0">All objects</option>
+          <option value="6">Attached</option>
+          <option value="7">Detached</option>
           <option value="1">Unreachable (all)</option>
           <option value="2">Unreachable (roots only)</option>
           <option value="3">Retained by detached DOM</option>

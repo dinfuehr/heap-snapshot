@@ -110,6 +110,10 @@ use crate::snapshot::NativeContextId;
 pub(super) enum SummaryFilterMode {
     /// Show all objects (no filter).
     All,
+    /// Show only attached objects (detachedness == 1).
+    Attached,
+    /// Show only detached objects (detachedness == 2).
+    Detached,
     /// Show all unreachable objects (distance >= UNREACHABLE_BASE).
     Unreachable,
     /// Show only fully unreachable roots (distance == UNREACHABLE_BASE).
@@ -132,6 +136,8 @@ impl SummaryFilterMode {
     fn label(self, snap: &HeapSnapshot) -> String {
         match self {
             Self::All => "All objects".to_string(),
+            Self::Attached => "Attached".to_string(),
+            Self::Detached => "Detached".to_string(),
             Self::Unreachable => "Unreachable (all)".to_string(),
             Self::UnreachableRoots => "Unreachable (roots only)".to_string(),
             Self::RetainedByDetachedDom => "Retained by detached DOM".to_string(),
@@ -510,6 +516,8 @@ impl App {
         self.summary_filter_mode = mode;
         let aggregates = match mode {
             SummaryFilterMode::All => snap.aggregates_with_filter(),
+            SummaryFilterMode::Attached => snap.aggregates_attached(),
+            SummaryFilterMode::Detached => snap.aggregates_detached(),
             SummaryFilterMode::Unreachable => snap.unreachable_aggregates(),
             SummaryFilterMode::UnreachableRoots => snap.unreachable_root_aggregates(),
             SummaryFilterMode::RetainedByDetachedDom => snap.retained_by_detached_dom(),
@@ -540,6 +548,8 @@ impl App {
         // Static filter modes
         for mode in [
             SummaryFilterMode::All,
+            SummaryFilterMode::Attached,
+            SummaryFilterMode::Detached,
             SummaryFilterMode::Unreachable,
             SummaryFilterMode::UnreachableRoots,
             SummaryFilterMode::RetainedByDetachedDom,

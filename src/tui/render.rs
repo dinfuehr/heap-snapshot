@@ -2,7 +2,7 @@ use ratatui::prelude::*;
 use ratatui::widgets::Paragraph;
 
 use crate::print::{format_distance, format_size, pct_str};
-use crate::snapshot::{HeapSnapshot, NativeContextBucket};
+use crate::snapshot::{Detachedness, HeapSnapshot, NativeContextBucket};
 
 use super::types::*;
 
@@ -453,10 +453,9 @@ impl App {
                     format!(
                         "{:>w$}",
                         match detachedness {
-                            Some(1) => "no",
-                            Some(2) => "yes",
-                            Some(_) => "?",
-                            None => "\u{2013}",
+                            Some(Detachedness::Attached) => "no",
+                            Some(Detachedness::Detached) => "yes",
+                            Some(Detachedness::Unknown) | None => "",
                         },
                         w = COL_DETACHED
                     ),

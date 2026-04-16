@@ -1365,10 +1365,22 @@ fn test_interface_inference_class_name() {
 #[test]
 fn test_node_detachedness_values() {
     let snap = make_detachedness_snapshot();
-    assert_eq!(snap.node_detachedness(NodeOrdinal(0)), 0); // synthetic
-    assert_eq!(snap.node_detachedness(NodeOrdinal(1)), 0); // GC roots
-    assert_eq!(snap.node_detachedness(NodeOrdinal(2)), 1); // attached native
-    assert_eq!(snap.node_detachedness(NodeOrdinal(3)), 2); // detached native
+    assert_eq!(
+        snap.node_detachedness(NodeOrdinal(0)),
+        Detachedness::Unknown
+    ); // synthetic
+    assert_eq!(
+        snap.node_detachedness(NodeOrdinal(1)),
+        Detachedness::Unknown
+    ); // GC roots
+    assert_eq!(
+        snap.node_detachedness(NodeOrdinal(2)),
+        Detachedness::Attached
+    ); // attached native
+    assert_eq!(
+        snap.node_detachedness(NodeOrdinal(3)),
+        Detachedness::Detached
+    ); // detached native
 }
 
 #[test]
@@ -1376,16 +1388,25 @@ fn test_propagate_dom_state_to_children() {
     let snap = make_detachedness_snapshot();
     // Node 4 (object) is child of attached node 2 (native, det=1)
     // propagate_dom_state should propagate attached state to node 4
-    assert_eq!(snap.node_detachedness(NodeOrdinal(4)), 1);
+    assert_eq!(
+        snap.node_detachedness(NodeOrdinal(4)),
+        Detachedness::Attached
+    );
 }
 
 #[test]
 fn test_detachedness_without_field() {
     // make_test_snapshot has no "detachedness" in node_fields
     let snap = make_test_snapshot();
-    // Should return 0 for all nodes when detachedness field is absent
-    assert_eq!(snap.node_detachedness(NodeOrdinal(0)), 0);
-    assert_eq!(snap.node_detachedness(NodeOrdinal(2)), 0);
+    // Should return Unknown for all nodes when detachedness field is absent
+    assert_eq!(
+        snap.node_detachedness(NodeOrdinal(0)),
+        Detachedness::Unknown
+    );
+    assert_eq!(
+        snap.node_detachedness(NodeOrdinal(2)),
+        Detachedness::Unknown
+    );
 }
 
 // ====== 2. get_dominated_children tests ======
@@ -1752,11 +1773,20 @@ fn test_native_context_url() {
 fn test_native_context_detachedness() {
     let snap = make_native_context_snapshot();
     // Main context: global_object (node 5) is attached (det=1)
-    assert_eq!(snap.native_context_detachedness(NodeOrdinal(2)), 1);
+    assert_eq!(
+        snap.native_context_detachedness(NodeOrdinal(2)),
+        Detachedness::Attached
+    );
     // Iframe context: global_object (node 7) is detached (det=2)
-    assert_eq!(snap.native_context_detachedness(NodeOrdinal(3)), 2);
-    // Utility context: global_object (node 9) has det=0, no proxy → returns 0
-    assert_eq!(snap.native_context_detachedness(NodeOrdinal(4)), 0);
+    assert_eq!(
+        snap.native_context_detachedness(NodeOrdinal(3)),
+        Detachedness::Detached
+    );
+    // Utility context: global_object (node 9) has det=0, no proxy → returns Unknown
+    assert_eq!(
+        snap.native_context_detachedness(NodeOrdinal(4)),
+        Detachedness::Unknown
+    );
 }
 
 // ====== 11. native_context_label tests ======

@@ -399,6 +399,8 @@ fn main() {
                 print::summary::SummaryFilter::Interval(idx)
             } else {
                 match filter.as_deref() {
+                    Some("attached") => print::summary::SummaryFilter::Attached,
+                    Some("detached") => print::summary::SummaryFilter::Detached,
                     Some("unreachable") => print::summary::SummaryFilter::Unreachable,
                     Some("unreachable-roots") => print::summary::SummaryFilter::UnreachableRoots,
                     Some("detached-dom") => print::summary::SummaryFilter::RetainedByDetachedDom,
@@ -409,7 +411,7 @@ fn main() {
                     None => print::summary::SummaryFilter::All,
                     Some(other) => {
                         eprintln!(
-                            "Error: unknown filter '{other}'. Valid filters: unreachable, unreachable-roots, detached-dom, console, event-handlers"
+                            "Error: unknown filter '{other}'. Valid filters: attached, detached, unreachable, unreachable-roots, detached-dom, console, event-handlers"
                         );
                         std::process::exit(1);
                     }
@@ -497,9 +499,9 @@ fn main() {
                     let ord = ctx.ordinal;
                     let label = snap.native_context_label(ord);
                     let det = match snap.native_context_detachedness(ord) {
-                        1 => "no",
-                        2 => "yes",
-                        _ => "?",
+                        snapshot::Detachedness::Attached => "no",
+                        snapshot::Detachedness::Detached => "yes",
+                        snapshot::Detachedness::Unknown => "?",
                     };
                     let shallow = snap.node_self_size(ord) as u64;
                     let retained = snap.node_retained_size(ord);
@@ -554,7 +556,7 @@ fn main() {
             struct StackEntry {
                 label: String,
                 source: String,
-                det: u8,
+                det: snapshot::Detachedness,
                 retained: u64,
                 reachable: u64,
                 contexts: Vec<NodeOrdinal>,
@@ -602,9 +604,9 @@ fn main() {
             println!("{}", "-".repeat(max_label + max_source + 38));
             for entry in &entries {
                 let det_str = match entry.det {
-                    1 => "no",
-                    2 => "yes",
-                    _ => "?",
+                    snapshot::Detachedness::Attached => "no",
+                    snapshot::Detachedness::Detached => "yes",
+                    snapshot::Detachedness::Unknown => "",
                 };
                 println!(
                     "{:<max_label$}  {:<max_source$}  {:>3}  {:>14}  {:>14}",
@@ -620,7 +622,9 @@ fn main() {
                         .iter()
                         .map(|&ctx| {
                             let label = snap.native_context_label(ctx);
-                            if snap.native_context_detachedness(ctx) == 2 {
+                            if snap.native_context_detachedness(ctx)
+                                == snapshot::Detachedness::Detached
+                            {
                                 format!("{label} (Detached)")
                             } else {
                                 label

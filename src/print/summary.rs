@@ -10,6 +10,8 @@ use crate::types::{Distance, NodeOrdinal};
 
 pub enum SummaryFilter {
     All,
+    Attached,
+    Detached,
     Unreachable,
     UnreachableRoots,
     RetainedByDetachedDom,
@@ -163,6 +165,8 @@ pub fn print_summary(
     eprintln!("Computing aggregates...");
     let aggregates = match filter {
         SummaryFilter::All => snap.aggregates_with_filter(),
+        SummaryFilter::Attached => snap.aggregates_attached(),
+        SummaryFilter::Detached => snap.aggregates_detached(),
         SummaryFilter::Unreachable => snap.unreachable_aggregates(),
         SummaryFilter::UnreachableRoots => snap.unreachable_root_aggregates(),
         SummaryFilter::RetainedByDetachedDom => snap.retained_by_detached_dom(),

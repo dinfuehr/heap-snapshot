@@ -18,7 +18,7 @@ use crate::print::format_size;
 use crate::retaining_path::{
     RetainerAutoExpandLimits, RetainerPathEdge, plan_gc_root_retainer_paths,
 };
-use crate::snapshot::{HeapSnapshot, RootKind, SnapshotOptions};
+use crate::snapshot::{Detachedness, HeapSnapshot, RootKind, SnapshotOptions};
 use crate::types::{AggregateMap, NodeId, NodeOrdinal};
 
 // ---------------------------------------------------------------------------
@@ -107,7 +107,7 @@ struct GetSummaryParams {
     offset: Option<usize>,
     /// Maximum number of objects to return when expanding a constructor (default: 20)
     limit: Option<usize>,
-    /// Filter objects: unreachable, unreachable-roots, detached-dom, console, event-handlers
+    /// Filter objects: attached, detached, unreachable, unreachable-roots, detached-dom, console, event-handlers
     filter: Option<String>,
     /// Show only objects allocated in a specific timeline interval (0-based index)
     filter_interval: Option<usize>,
@@ -504,9 +504,9 @@ impl McpServer {
             let id = snapshot.node_id(ord);
             let label = snapshot.native_context_label(ord);
             let det = match snapshot.native_context_detachedness(ord) {
-                1 => "attached",
-                2 => "detached",
-                _ => "unknown",
+                Detachedness::Attached => "attached",
+                Detachedness::Detached => "detached",
+                Detachedness::Unknown => "unknown",
             };
             let shallow = snapshot.node_self_size(ord);
             let retained = snapshot.node_retained_size(ord);
@@ -1332,6 +1332,8 @@ fn resolve_summary_filter(
     }
     match filter {
         None | Some("") => Ok(snapshot.aggregates_with_filter()),
+        Some("attached") => Ok(snapshot.aggregates_attached()),
+        Some("detached") => Ok(snapshot.aggregates_detached()),
         Some("unreachable") => Ok(snapshot.unreachable_aggregates()),
         Some("unreachable-roots") => Ok(snapshot.unreachable_root_aggregates()),
         Some("detached-dom") => Ok(snapshot.retained_by_detached_dom()),
@@ -1339,7 +1341,7 @@ fn resolve_summary_filter(
         Some("event-handlers") => Ok(snapshot.retained_by_event_handlers()),
         Some(other) => Err(McpError::invalid_params(
             format!(
-                "Unknown filter '{other}'. Valid filters: unreachable, unreachable-roots, detached-dom, console, event-handlers"
+                "Unknown filter '{other}'. Valid filters: attached, detached, unreachable, unreachable-roots, detached-dom, console, event-handlers"
             ),
             None,
         )),

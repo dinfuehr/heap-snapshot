@@ -5208,9 +5208,11 @@ fn test_filter_overlay_enter_applies_filter() {
     let mut app = App::new(&snap, Vec::new(), work_tx, result_rx);
 
     app.open_filter_overlay(&snap);
-    // Move down to "Unreachable (all)" (index 1)
-    app.handle_filter_overlay_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE), &snap);
-    assert_eq!(app.filter_overlay_cursor, 1);
+    // Move down to "Unreachable (all)" (index 3, after All/Attached/Detached)
+    for _ in 0..3 {
+        app.handle_filter_overlay_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE), &snap);
+    }
+    assert_eq!(app.filter_overlay_cursor, 3);
 
     app.handle_filter_overlay_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE), &snap);
     assert_eq!(app.input_mode, InputMode::Normal);

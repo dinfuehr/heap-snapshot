@@ -34,6 +34,15 @@ pub enum RootKind {
     UserRoot = 3,
 }
 
+/// DOM link state for a node, as propagated by `propagate_dom_state`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(u8)]
+pub enum Detachedness {
+    Unknown = 0,
+    Attached = 1,
+    Detached = 2,
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct SnapshotOptions {
     /// Treat weak edges as reachable when computing distances.
@@ -3499,34 +3508,36 @@ impl HeapSnapshot {
         self.node_raw_name(value_ord).parse::<i64>().ok()
     }
 
-    /// Returns the detachedness state of a node: 0=unknown, 1=attached, 2=detached.
-    pub fn node_detachedness(&self, ordinal: NodeOrdinal) -> u8 {
+    pub fn node_detachedness(&self, ordinal: NodeOrdinal) -> Detachedness {
         if self.node_detachedness_offset == -1 {
-            return 0;
+            return Detachedness::Unknown;
         }
         let ni = ordinal.0 * self.node_field_count;
-        (self.nodes[ni + self.node_detachedness_offset as usize] & BITMASK_FOR_DOM_LINK_STATE) as u8
+        match self.nodes[ni + self.node_detachedness_offset as usize] & BITMASK_FOR_DOM_LINK_STATE {
+            1 => Detachedness::Attached,
+            2 => Detachedness::Detached,
+            _ => Detachedness::Unknown,
+        }
     }
 
     /// Returns the detachedness of a NativeContext inferred from its global object.
     /// Tries global_object (the Window) first, then global_proxy_object.
-    /// Returns: 0=unknown (utility/no global object), 1=attached, 2=detached.
-    pub fn native_context_detachedness(&self, ordinal: NodeOrdinal) -> u8 {
+    pub fn native_context_detachedness(&self, ordinal: NodeOrdinal) -> Detachedness {
         // Try global_object (the Window itself) — propagate_dom_state sets detachedness on it.
         if let Some(go) = self.find_edge_target(ordinal, "global_object") {
             let d = self.node_detachedness(go);
-            if d != 0 {
+            if d != Detachedness::Unknown {
                 return d;
             }
         }
         // Fall back to global_proxy_object.
         if let Some(gp) = self.find_edge_target(ordinal, "global_proxy_object") {
             let d = self.node_detachedness(gp);
-            if d != 0 {
+            if d != Detachedness::Unknown {
                 return d;
             }
         }
-        0
+        Detachedness::Unknown
     }
 
     /// Returns a display label for a NativeContext: URL plus a local frame-kind
@@ -3958,6 +3969,18 @@ impl HeapSnapshot {
 
     pub fn aggregates_with_filter(&self) -> AggregateMap {
         self.compute_aggregates(|_| true)
+    }
+
+    pub fn aggregates_attached(&self) -> AggregateMap {
+        self.compute_aggregates(|ordinal| {
+            self.node_detachedness(NodeOrdinal(ordinal)) == Detachedness::Attached
+        })
+    }
+
+    pub fn aggregates_detached(&self) -> AggregateMap {
+        self.compute_aggregates(|ordinal| {
+            self.node_detachedness(NodeOrdinal(ordinal)) == Detachedness::Detached
+        })
     }
 
     pub fn aggregates_for_native_context(&self, context_id: NativeContextId) -> AggregateMap {
