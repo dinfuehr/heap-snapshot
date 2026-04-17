@@ -1,6 +1,10 @@
 import type { JSX } from 'solid-js';
 import { formatBytes } from './format.ts';
-import { ObjectLink, type NavigateOptions, type EdgeInfo } from './ObjectLink.tsx';
+import {
+  ObjectLink,
+  type NavigateOptions,
+  type EdgeInfo,
+} from './ObjectLink.tsx';
 import type { ReachableSizeInfo } from '../types.ts';
 
 const numStyle = {

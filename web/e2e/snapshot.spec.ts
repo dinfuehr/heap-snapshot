@@ -1390,9 +1390,15 @@ test.describe('Heap Snapshot Viewer', () => {
 
     // Should show key fields in the dialog
     const inspectDialog = page.locator('div:has(> div:text("Inspect Node"))');
-    await expect(inspectDialog.locator('td', { hasText: /^@\d+$/ })).toBeVisible();
-    await expect(inspectDialog.locator('td', { hasText: /^Self size$/ })).toBeVisible();
-    await expect(inspectDialog.locator('td', { hasText: /^Retained size$/ })).toBeVisible();
+    await expect(
+      inspectDialog.locator('td', { hasText: /^@\d+$/ }),
+    ).toBeVisible();
+    await expect(
+      inspectDialog.locator('td', { hasText: /^Self size$/ }),
+    ).toBeVisible();
+    await expect(
+      inspectDialog.locator('td', { hasText: /^Retained size$/ }),
+    ).toBeVisible();
 
     // Click outside to close the dialog
     await page.mouse.click(10, 10);

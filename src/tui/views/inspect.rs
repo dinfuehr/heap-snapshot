@@ -28,9 +28,7 @@ impl App {
 
         frame.render_widget(Clear, overlay_area);
 
-        let block = Block::default()
-            .borders(Borders::ALL)
-            .title(" Inspect ");
+        let block = Block::default().borders(Borders::ALL).title(" Inspect ");
         let inner = block.inner(overlay_area);
         frame.render_widget(block, overlay_area);
 

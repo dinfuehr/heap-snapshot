@@ -98,7 +98,11 @@ fn show_without_at_prefix() {
 
 #[test]
 fn show_exact_output() {
-    let output = run_show("heap-1.heapsnapshot", "@7165", &["--depth", "0", "--limit", "3"]);
+    let output = run_show(
+        "heap-1.heapsnapshot",
+        "@7165",
+        &["--depth", "0", "--limit", "3"],
+    );
     let expected = "\
 id:           @7165
 ordinal:      3582

@@ -3590,15 +3590,15 @@ impl HeapSnapshot {
 
         if raw_type == self.node_number_type {
             let raw_name = self.node_raw_name(ordinal);
-            if raw_name == "smi number" || raw_name == "heap number" {
-                if let Some(value_ord) = self.find_edge_target(ordinal, "value") {
-                    let prefix = if raw_name == "smi number" {
-                        "smi"
-                    } else {
-                        "double"
-                    };
-                    return format!("{prefix} {}", self.node_raw_name(value_ord));
-                }
+            if let Some(value_ord) = self.find_edge_target(ordinal, "value") {
+                let prefix = if raw_name == "smi number" {
+                    "smi"
+                } else if raw_name == "heap number" {
+                    "double"
+                } else {
+                    raw_name
+                };
+                return format!("{prefix} {}", self.node_raw_name(value_ord));
             }
         }
 

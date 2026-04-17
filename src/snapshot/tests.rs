@@ -562,7 +562,9 @@ fn test_node_display_name_number_types() {
     // Strings:
     // 0: ""           1: "(GC roots)"  2: "smi number"
     // 3: "42"         4: "heap number" 5: "12.75"
-    // 6: "value"
+    // 6: "value"      7: "int"         8: "2064"
+    // 9: "bool"       10: "true"       11: "string"
+    // 12: "hello"
     let strings: Vec<String> = [
         "",
         "(GC roots)",
@@ -571,6 +573,12 @@ fn test_node_display_name_number_types() {
         "heap number",
         "12.75",
         "value",
+        "int",
+        "2064",
+        "bool",
+        "true",
+        "string",
+        "hello",
     ]
     .iter()
     .map(|s| s.to_string())
@@ -585,13 +593,25 @@ fn test_node_display_name_number_types() {
     // Node 3: number, "heap number" -- has internal "value" edge to node 5
     // Node 4: string, "42" (value target for smi)
     // Node 5: string, "12.75" (value target for heap number)
+    // Node 6: number, "int" -- has internal "value" edge to node 8
+    // Node 7: number, "bool" -- has internal "value" edge to node 9
+    // Node 8: string, "2064" (value target for int)
+    // Node 9: string, "true" (value target for bool)
+    // Node 10: number, "string" -- has internal "value" edge to node 11
+    // Node 11: string, "hello" (value target for string)
     let nodes: Vec<u32> = vec![
         9, 0, 1, 0, 1, // node 0: synthetic root
-        9, 1, 2, 0, 2, // node 1: (GC roots), 2 edges to node 2 and 3
+        9, 1, 2, 0, 5, // node 1: (GC roots), 5 edges
         7, 2, 3, 0, 1, // node 2: number, "smi number", 1 edge
         7, 4, 4, 12, 1, // node 3: number, "heap number", 1 edge
         2, 3, 5, 0, 0, // node 4: string, "42"
         2, 5, 6, 0, 0, // node 5: string, "12.75"
+        7, 7, 7, 0, 1, // node 6: number, "int", 1 edge
+        7, 9, 8, 0, 1, // node 7: number, "bool", 1 edge
+        2, 8, 9, 0, 0, // node 8: string, "2064"
+        2, 10, 10, 0, 0, // node 9: string, "true"
+        7, 11, 11, 0, 1, // node 10: number, "string", 1 edge
+        2, 12, 12, 0, 0, // node 11: string, "hello"
     ];
 
     let edges: Vec<u32> = vec![
@@ -606,10 +626,28 @@ fn test_node_display_name_number_types() {
         3 * nfc as u32, // (GC roots) -> node 3 (internal)
         3,
         6,
+        6 * nfc as u32, // (GC roots) -> node 6 (internal)
+        3,
+        6,
+        7 * nfc as u32, // (GC roots) -> node 7 (internal)
+        3,
+        6,
+        10 * nfc as u32, // (GC roots) -> node 10 (internal)
+        3,
+        6,
         4 * nfc as u32, // node 2 -> node 4 (internal "value")
         3,
         6,
         5 * nfc as u32, // node 3 -> node 5 (internal "value")
+        3,
+        6,
+        8 * nfc as u32, // node 6 -> node 8 (internal "value")
+        3,
+        6,
+        9 * nfc as u32, // node 7 -> node 9 (internal "value")
+        3,
+        6,
+        11 * nfc as u32, // node 10 -> node 11 (internal "value")
     ];
 
     let raw = RawHeapSnapshot {
@@ -643,6 +681,9 @@ fn test_node_display_name_number_types() {
     let snap = HeapSnapshot::new(raw);
     assert_eq!(snap.node_display_name(NodeOrdinal(2)), "smi 42");
     assert_eq!(snap.node_display_name(NodeOrdinal(3)), "double 12.75");
+    assert_eq!(snap.node_display_name(NodeOrdinal(6)), "int 2064");
+    assert_eq!(snap.node_display_name(NodeOrdinal(7)), "bool true");
+    assert_eq!(snap.node_display_name(NodeOrdinal(10)), "string hello");
 }
 
 #[test]

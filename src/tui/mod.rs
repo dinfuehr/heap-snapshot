@@ -636,16 +636,23 @@ impl App {
         lines.push(format!("  type:         {node_type}"));
         lines.push(format!("  name:         {name}"));
         lines.push(format!("  class:        {class_name}"));
-        lines.push(format!("  self size:    {} ({self_size})", format_size(self_size as u64)));
-        lines.push(format!("  retained:     {} ({retained})", format_size(retained)));
+        lines.push(format!(
+            "  self size:    {} ({self_size})",
+            format_size(self_size as u64)
+        ));
+        lines.push(format!(
+            "  retained:     {} ({retained})",
+            format_size(retained)
+        ));
         lines.push(format!("  distance:     {distance}"));
         lines.push(format!("  detachedness: {det:?}"));
         lines.push(format!("  edge count:   {edge_count}"));
 
         // Edge info: find how this node is referenced from its parent row
-        let parent_ordinal = row.nav.parent_row.and_then(|pi| {
-            self.cached_rows.get(pi).and_then(|pr| pr.node_ordinal())
-        });
+        let parent_ordinal = row
+            .nav
+            .parent_row
+            .and_then(|pi| self.cached_rows.get(pi).and_then(|pr| pr.node_ordinal()));
         if let Some(parent_ord) = parent_ordinal {
             for (edge_idx, child_ord) in snap.iter_edges(parent_ord) {
                 if child_ord == ordinal {

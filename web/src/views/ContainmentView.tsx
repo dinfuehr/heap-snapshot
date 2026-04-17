@@ -104,7 +104,9 @@ function TreeNode(props: {
       label={<>{props.node.name}</>}
       linkId={props.node.id}
       onNavigate={props.onNavigate}
-      onContextMenu={(e, nodeId) => props.onContextMenu(e, nodeId, props.edgeInfo)}
+      onContextMenu={(e, nodeId) =>
+        props.onContextMenu(e, nodeId, props.edgeInfo)
+      }
       selection={props.selection()}
       onSelect={props.onSelect}
       detachedness={props.node.detachedness}

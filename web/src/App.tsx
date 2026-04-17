@@ -150,7 +150,11 @@ export function App(): JSX.Element {
     }
   };
 
-  const handleContextMenu = (e: MouseEvent, nodeId: number, edgeInfo?: EdgeInfo) => {
+  const handleContextMenu = (
+    e: MouseEvent,
+    nodeId: number,
+    edgeInfo?: EdgeInfo,
+  ) => {
     setMenu({ x: e.clientX, y: e.clientY, nodeId, edgeInfo });
   };
 
@@ -521,59 +525,56 @@ export function App(): JSX.Element {
                 const nodeId = m().nodeId;
                 const edge = m().edgeInfo;
                 return [
-                {
-                  label: 'Show retainers',
-                  action: () =>
-                    navigate({ nodeId, target: 'Retainers' }),
-                },
-                {
-                  label: 'Show in dominators',
-                  action: () =>
-                    navigate({ nodeId, target: 'Dominators' }),
-                },
-                {
-                  label: 'Show in summary',
-                  action: () =>
-                    navigate({ nodeId, target: 'Summary' }),
-                },
-                {
-                  label: 'Expand path to GC roots',
-                  action: () => {
-                    const inst = active();
-                    const [, setTab] = inst.tab;
-                    const [, setRetainersNodeId] = inst.retainersNodeId;
-                    if (inst.tab[0]() !== 'Retainers') {
-                      setRetainersNodeId(nodeId);
-                      setTab('Retainers');
-                      pushHistory(inst, nodeId);
-                    }
-                    setExpandGcTarget(null);
-                    queueMicrotask(() => setExpandGcTarget(nodeId));
+                  {
+                    label: 'Show retainers',
+                    action: () => navigate({ nodeId, target: 'Retainers' }),
                   },
-                },
-                {
-                  label: 'Remember object',
-                  action: () => pushHistory(active(), nodeId),
-                },
-                {
-                  label: 'Compute reachable size',
-                  action: () => computeReachableSize(nodeId),
-                },
-                {
-                  label: 'Compute reachable size w/ children',
-                  action: () => computeReachableSizeWithChildren(nodeId),
-                },
-                {
-                  label: 'Inspect',
-                  action: async () => {
-                    const info = await active().call<NodeInfo>({
-                      type: 'getNodeInfo',
-                      nodeId,
-                    });
-                    setInspectInfo({ node: info, edge });
+                  {
+                    label: 'Show in dominators',
+                    action: () => navigate({ nodeId, target: 'Dominators' }),
                   },
-                },
-              ];
+                  {
+                    label: 'Show in summary',
+                    action: () => navigate({ nodeId, target: 'Summary' }),
+                  },
+                  {
+                    label: 'Expand path to GC roots',
+                    action: () => {
+                      const inst = active();
+                      const [, setTab] = inst.tab;
+                      const [, setRetainersNodeId] = inst.retainersNodeId;
+                      if (inst.tab[0]() !== 'Retainers') {
+                        setRetainersNodeId(nodeId);
+                        setTab('Retainers');
+                        pushHistory(inst, nodeId);
+                      }
+                      setExpandGcTarget(null);
+                      queueMicrotask(() => setExpandGcTarget(nodeId));
+                    },
+                  },
+                  {
+                    label: 'Remember object',
+                    action: () => pushHistory(active(), nodeId),
+                  },
+                  {
+                    label: 'Compute reachable size',
+                    action: () => computeReachableSize(nodeId),
+                  },
+                  {
+                    label: 'Compute reachable size w/ children',
+                    action: () => computeReachableSizeWithChildren(nodeId),
+                  },
+                  {
+                    label: 'Inspect',
+                    action: async () => {
+                      const info = await active().call<NodeInfo>({
+                        type: 'getNodeInfo',
+                        nodeId,
+                      });
+                      setInspectInfo({ node: info, edge });
+                    },
+                  },
+                ];
               })()}
             />
           )}
