@@ -29,6 +29,7 @@ pub(super) enum InputMode {
     Search,
     EdgeFilter,
     FilterOverlay,
+    Inspect,
 }
 
 use super::SummaryFilterMode;

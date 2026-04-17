@@ -55,7 +55,9 @@ struct JsAggregateEntry {
 #[derive(Serialize)]
 struct JsNodeInfo {
     id: u64,
+    ordinal: u32,
     name: String,
+    class_name: String,
     node_type: String,
     self_size: u32,
     retained_size: f64,
@@ -213,7 +215,9 @@ impl WasmHeapSnapshot {
         let bucket = snap.node_native_context_bucket(ordinal);
         JsNodeInfo {
             id: snap.node_id(ordinal).0,
+            ordinal: ordinal.0 as u32,
             name: snap.node_display_name(ordinal).to_string(),
+            class_name: snap.node_class_name(ordinal),
             node_type: snap.node_type_name(ordinal).to_string(),
             self_size: snap.node_self_size(ordinal),
             retained_size: snap.node_retained_size(ordinal) as f64,
@@ -683,9 +687,9 @@ impl WasmHeapSnapshot {
                 id: snap.node_id(ctx_ord).0,
                 label: snap.native_context_label(ctx_ord),
                 detachedness: match snap.native_context_detachedness(ctx_ord) {
-                    1 => "attached".to_string(),
-                    2 => "detached".to_string(),
-                    _ => "unknown".to_string(),
+                    Detachedness::Attached => "attached".to_string(),
+                    Detachedness::Detached => "detached".to_string(),
+                    Detachedness::Unknown => "unknown".to_string(),
                 },
                 self_size: snap.node_self_size(ctx_ord),
                 retained_size: snap.node_retained_size(ctx_ord) as f64,

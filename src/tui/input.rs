@@ -12,6 +12,11 @@ impl App {
             InputMode::Search => self.handle_search_key(key, snap),
             InputMode::EdgeFilter => self.handle_edge_filter_key(key, snap),
             InputMode::FilterOverlay => self.handle_filter_overlay_key(key, snap),
+            InputMode::Inspect => {
+                // Any key closes the inspect overlay
+                self.input_mode = InputMode::Normal;
+                false
+            }
             InputMode::Normal => self.handle_normal_key(key, snap),
         };
         if self.current_view != prev_view {
@@ -439,6 +444,9 @@ impl App {
                         self.push_history(ordinal);
                     }
                 }
+            }
+            KeyCode::Char('i') => {
+                self.open_inspect(snap);
             }
             KeyCode::Char('+') | KeyCode::Char('=') => {
                 self.adjust_edge_count(EDGE_PAGE_SIZE as isize, snap);

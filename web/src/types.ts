@@ -26,7 +26,9 @@ export interface AggregateEntry {
 
 export interface NodeInfo {
   id: number;
+  ordinal: number;
   name: string;
+  class_name: string;
   node_type: string;
   self_size: number;
   retained_size: number;

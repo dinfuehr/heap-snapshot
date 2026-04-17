@@ -5,7 +5,7 @@ import type {
   ReachableSizeInfo,
 } from '../types.ts';
 import type { SnapshotCall } from '../worker/use-snapshot.ts';
-import type { NavigateOptions } from '../components/ObjectLink.tsx';
+import type { NavigateOptions, EdgeInfo } from '../components/ObjectLink.tsx';
 import {
   TreeTableShell,
   TreeTableRow,
@@ -20,7 +20,7 @@ function DomTreeNode(props: {
   node: NodeInfo;
   call: SnapshotCall;
   onNavigate: (opts: NavigateOptions) => void;
-  onContextMenu: (e: MouseEvent, nodeId: number) => void;
+  onContextMenu: (e: MouseEvent, nodeId: number, edgeInfo?: EdgeInfo) => void;
   selection: () => RowSelection | null;
   onSelect: (sel: RowSelection) => void;
   reachableSizes: Map<number, ReachableSizeInfo>;
@@ -117,7 +117,7 @@ function DomTreeNode(props: {
 export function DominatorsView(props: {
   call: SnapshotCall;
   onNavigate: (opts: NavigateOptions) => void;
-  onContextMenu: (e: MouseEvent, nodeId: number) => void;
+  onContextMenu: (e: MouseEvent, nodeId: number, edgeInfo?: EdgeInfo) => void;
   reachableSizes: Map<number, ReachableSizeInfo>;
   reachablePending: Set<number>;
   focusNodeId: number | null;

@@ -4,6 +4,7 @@ mod diff;
 mod dominators;
 mod filter_overlay;
 mod help;
+mod inspect;
 mod history;
 mod retainers;
 mod statistics;

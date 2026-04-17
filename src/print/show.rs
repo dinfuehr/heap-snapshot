@@ -1,3 +1,4 @@
+use super::format_size;
 use crate::snapshot::HeapSnapshot;
 use crate::types::{NodeId, NodeOrdinal};
 
@@ -10,12 +11,18 @@ pub fn print_show(snap: &HeapSnapshot, node_id: NodeId, depth: usize, offset: us
         }
     };
 
-    println!(
-        "Object @{node_id}: {} (type: {}, self_size: {})",
-        snap.node_display_name(ordinal),
-        snap.node_type_name(ordinal),
-        snap.node_self_size(ordinal),
-    );
+    let self_size = snap.node_self_size(ordinal) as u64;
+    let retained = snap.node_retained_size(ordinal);
+    println!("id:           @{node_id}");
+    println!("ordinal:      {}", ordinal.0);
+    println!("type:         {}", snap.node_type_name(ordinal));
+    println!("name:         {}", snap.node_display_name(ordinal));
+    println!("class:        {}", snap.node_class_name(ordinal));
+    println!("self size:    {} ({self_size})", format_size(self_size));
+    println!("retained:     {} ({retained})", format_size(retained));
+    println!("distance:     {}", snap.node_distance(ordinal));
+    println!("detachedness: {:?}", snap.node_detachedness(ordinal));
+    println!("edge count:   {}", snap.node_edge_count(ordinal));
 
     if let Some(stack) = snap.get_allocation_stack(ordinal) {
         println!("  Allocated at:");

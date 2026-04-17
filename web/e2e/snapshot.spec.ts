@@ -158,6 +158,7 @@ test.describe('Heap Snapshot Viewer', () => {
     await expect(page.locator('text=Show in dominators')).toBeVisible();
     await expect(page.locator('text=Show in summary')).toBeVisible();
     await expect(page.locator('text=Remember object')).toBeVisible();
+    await expect(page.locator('text=Inspect')).toBeVisible();
   });
 
   test('right-click "Show retainers" navigates to retainers view', async ({
@@ -1360,5 +1361,68 @@ test.describe('Heap Snapshot Viewer', () => {
     // Start typing — error should clear
     await filterInput.fill('A');
     await expect(page.locator('text=/No object found/')).not.toBeVisible();
+  });
+
+  test('inspect dialog shows node details and closes on click outside', async ({
+    page,
+  }) => {
+    // Expand first constructor group to get an object
+    const firstGroup = page
+      .locator('table')
+      .first()
+      .locator('tbody tr')
+      .first();
+    await firstGroup.dblclick();
+
+    const objectLink = page
+      .locator('a[href="#"]')
+      .filter({ hasText: '@' })
+      .first();
+    await expect(objectLink).toBeVisible({ timeout: 5000 });
+
+    // Right-click and select Inspect
+    await objectLink.click({ button: 'right' });
+    await page.locator('text=Inspect').click();
+
+    // Inspect dialog should appear with node details
+    const dialog = page.locator('text=Inspect Node');
+    await expect(dialog).toBeVisible({ timeout: 5000 });
+
+    // Should show key fields in the dialog
+    const inspectDialog = page.locator('div:has(> div:text("Inspect Node"))');
+    await expect(inspectDialog.locator('td', { hasText: /^@\d+$/ })).toBeVisible();
+    await expect(inspectDialog.locator('td', { hasText: /^Self size$/ })).toBeVisible();
+    await expect(inspectDialog.locator('td', { hasText: /^Retained size$/ })).toBeVisible();
+
+    // Click outside to close the dialog
+    await page.mouse.click(10, 10);
+    await expect(dialog).not.toBeVisible();
+  });
+
+  test('inspect dialog closes on Escape', async ({ page }) => {
+    // Expand first constructor group
+    const firstGroup = page
+      .locator('table')
+      .first()
+      .locator('tbody tr')
+      .first();
+    await firstGroup.dblclick();
+
+    const objectLink = page
+      .locator('a[href="#"]')
+      .filter({ hasText: '@' })
+      .first();
+    await expect(objectLink).toBeVisible({ timeout: 5000 });
+
+    // Right-click and select Inspect
+    await objectLink.click({ button: 'right' });
+    await page.locator('text=Inspect').click();
+
+    const dialog = page.locator('text=Inspect Node');
+    await expect(dialog).toBeVisible({ timeout: 5000 });
+
+    // Press Escape to close
+    await page.keyboard.press('Escape');
+    await expect(dialog).not.toBeVisible();
   });
 });

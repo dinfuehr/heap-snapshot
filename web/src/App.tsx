@@ -10,7 +10,8 @@ import { createSnapshot } from './worker/use-snapshot.ts';
 import { FileLoader } from './components/FileLoader.tsx';
 import { TabNav } from './components/TabNav.tsx';
 import { ContextMenu } from './components/ContextMenu.tsx';
-import type { NavigateOptions } from './components/ObjectLink.tsx';
+import { InspectDialog } from './components/InspectDialog.tsx';
+import type { NavigateOptions, EdgeInfo } from './components/ObjectLink.tsx';
 import type { ReachableSizeInfo, NodeInfo } from './types.ts';
 import { StatisticsView } from './views/StatisticsView.tsx';
 import { SummaryView } from './views/SummaryView.tsx';
@@ -73,6 +74,11 @@ export function App(): JSX.Element {
     x: number;
     y: number;
     nodeId: number;
+    edgeInfo?: EdgeInfo;
+  } | null>(null);
+  const [inspectInfo, setInspectInfo] = createSignal<{
+    node: NodeInfo;
+    edge?: EdgeInfo;
   } | null>(null);
 
   const historyStorageKey = (inst: SnapshotInstance): string | null => {
@@ -144,8 +150,8 @@ export function App(): JSX.Element {
     }
   };
 
-  const handleContextMenu = (e: MouseEvent, nodeId: number) => {
-    setMenu({ x: e.clientX, y: e.clientY, nodeId });
+  const handleContextMenu = (e: MouseEvent, nodeId: number, edgeInfo?: EdgeInfo) => {
+    setMenu({ x: e.clientX, y: e.clientY, nodeId, edgeInfo });
   };
 
   onMount(() => {
@@ -511,21 +517,24 @@ export function App(): JSX.Element {
               x={m().x}
               y={m().y}
               onClose={() => setMenu(null)}
-              items={[
+              items={(() => {
+                const nodeId = m().nodeId;
+                const edge = m().edgeInfo;
+                return [
                 {
                   label: 'Show retainers',
                   action: () =>
-                    navigate({ nodeId: m().nodeId, target: 'Retainers' }),
+                    navigate({ nodeId, target: 'Retainers' }),
                 },
                 {
                   label: 'Show in dominators',
                   action: () =>
-                    navigate({ nodeId: m().nodeId, target: 'Dominators' }),
+                    navigate({ nodeId, target: 'Dominators' }),
                 },
                 {
                   label: 'Show in summary',
                   action: () =>
-                    navigate({ nodeId: m().nodeId, target: 'Summary' }),
+                    navigate({ nodeId, target: 'Summary' }),
                 },
                 {
                   label: 'Expand path to GC roots',
@@ -533,30 +542,48 @@ export function App(): JSX.Element {
                     const inst = active();
                     const [, setTab] = inst.tab;
                     const [, setRetainersNodeId] = inst.retainersNodeId;
-                    // Navigate to retainers if not already there
                     if (inst.tab[0]() !== 'Retainers') {
-                      setRetainersNodeId(m().nodeId);
+                      setRetainersNodeId(nodeId);
                       setTab('Retainers');
-                      pushHistory(inst, m().nodeId);
+                      pushHistory(inst, nodeId);
                     }
-                    // Trigger GC path expansion
-                    setExpandGcTarget(null); // reset first to re-trigger effect
-                    queueMicrotask(() => setExpandGcTarget(m().nodeId));
+                    setExpandGcTarget(null);
+                    queueMicrotask(() => setExpandGcTarget(nodeId));
                   },
                 },
                 {
                   label: 'Remember object',
-                  action: () => pushHistory(active(), m().nodeId),
+                  action: () => pushHistory(active(), nodeId),
                 },
                 {
                   label: 'Compute reachable size',
-                  action: () => computeReachableSize(m().nodeId),
+                  action: () => computeReachableSize(nodeId),
                 },
                 {
                   label: 'Compute reachable size w/ children',
-                  action: () => computeReachableSizeWithChildren(m().nodeId),
+                  action: () => computeReachableSizeWithChildren(nodeId),
                 },
-              ]}
+                {
+                  label: 'Inspect',
+                  action: async () => {
+                    const info = await active().call<NodeInfo>({
+                      type: 'getNodeInfo',
+                      nodeId,
+                    });
+                    setInspectInfo({ node: info, edge });
+                  },
+                },
+              ];
+              })()}
+            />
+          )}
+        </Show>
+        <Show when={inspectInfo()}>
+          {(data) => (
+            <InspectDialog
+              info={data().node}
+              edgeInfo={data().edge}
+              onClose={() => setInspectInfo(null)}
             />
           )}
         </Show>

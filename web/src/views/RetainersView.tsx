@@ -15,7 +15,7 @@ import type {
   ReachableSizeInfo,
 } from '../types.ts';
 import type { SnapshotCall } from '../worker/use-snapshot.ts';
-import type { NavigateOptions } from '../components/ObjectLink.tsx';
+import type { NavigateOptions, EdgeInfo } from '../components/ObjectLink.tsx';
 import {
   TreeTableShell,
   TreeTableRow,
@@ -91,7 +91,7 @@ function RetainerNode(props: {
   depth: number;
   call: SnapshotCall;
   onNavigate: (opts: NavigateOptions) => void;
-  onContextMenu: (e: MouseEvent, nodeId: number) => void;
+  onContextMenu: (e: MouseEvent, nodeId: number, edgeInfo?: EdgeInfo) => void;
   expandGcTarget: Accessor<number | null>;
   selection: () => RowSelection | null;
   onSelect: (sel: RowSelection) => void;
@@ -310,7 +310,7 @@ export function RetainersView(props: {
   call: SnapshotCall;
   nodeId: number | null;
   onNavigate: (opts: NavigateOptions) => void;
-  onContextMenu: (e: MouseEvent, nodeId: number) => void;
+  onContextMenu: (e: MouseEvent, nodeId: number, edgeInfo?: EdgeInfo) => void;
   expandGcTarget: Accessor<number | null>;
   reachableSizes: Map<number, ReachableSizeInfo>;
   reachablePending: Set<number>;

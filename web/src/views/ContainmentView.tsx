@@ -6,7 +6,7 @@ import type {
   ReachableSizeInfo,
 } from '../types.ts';
 import type { SnapshotCall } from '../worker/use-snapshot.ts';
-import type { NavigateOptions } from '../components/ObjectLink.tsx';
+import type { NavigateOptions, EdgeInfo } from '../components/ObjectLink.tsx';
 import {
   TreeTableShell,
   TreeTableRow,
@@ -21,10 +21,11 @@ export { TreeNode as ContainmentTreeNode };
 
 function TreeNode(props: {
   edgeLabel?: string;
+  edgeInfo?: EdgeInfo;
   node: NodeInfo;
   call: SnapshotCall;
   onNavigate: (opts: NavigateOptions) => void;
-  onContextMenu: (e: MouseEvent, nodeId: number) => void;
+  onContextMenu: (e: MouseEvent, nodeId: number, edgeInfo?: EdgeInfo) => void;
   selection: () => RowSelection | null;
   onSelect: (sel: RowSelection) => void;
   reachableSizes: Map<number, ReachableSizeInfo>;
@@ -35,7 +36,7 @@ function TreeNode(props: {
   const [expanded, setExpanded] = createSignal(props.initialExpanded ?? false);
   const [loading, setLoading] = createSignal(false);
   const [children, setChildren] = createSignal<
-    { edgeLabel: string; node: NodeInfo }[] | null
+    { edgeLabel: string; edgeInfo: EdgeInfo; node: NodeInfo }[] | null
   >(null);
   const [total, setTotal] = createSignal(0);
   const [offset, setOffset] = createSignal(0);
@@ -56,6 +57,11 @@ function TreeNode(props: {
           e.edge_type === 'element' || e.edge_type === 'hidden'
             ? `[${e.edge_name}] :: `
             : `${e.edge_name} :: `,
+        edgeInfo: {
+          edgeType: e.edge_type,
+          edgeName: e.edge_name,
+          parentId: props.node.id,
+        },
         node: e.target,
       })),
     );
@@ -98,7 +104,7 @@ function TreeNode(props: {
       label={<>{props.node.name}</>}
       linkId={props.node.id}
       onNavigate={props.onNavigate}
-      onContextMenu={props.onContextMenu}
+      onContextMenu={(e, nodeId) => props.onContextMenu(e, nodeId, props.edgeInfo)}
       selection={props.selection()}
       onSelect={props.onSelect}
       detachedness={props.node.detachedness}
@@ -118,6 +124,7 @@ function TreeNode(props: {
           {(child) => (
             <TreeNode
               edgeLabel={child.edgeLabel}
+              edgeInfo={child.edgeInfo}
               node={child.node}
               call={props.call}
               onNavigate={props.onNavigate}
@@ -148,7 +155,7 @@ function TreeNode(props: {
 export function ContainmentView(props: {
   call: SnapshotCall;
   onNavigate: (opts: NavigateOptions) => void;
-  onContextMenu: (e: MouseEvent, nodeId: number) => void;
+  onContextMenu: (e: MouseEvent, nodeId: number, edgeInfo?: EdgeInfo) => void;
   reachableSizes: Map<number, ReachableSizeInfo>;
   reachablePending: Set<number>;
 }): JSX.Element {
@@ -168,6 +175,11 @@ export function ContainmentView(props: {
                   ? `[${edge.edge_name}] :: `
                   : `${edge.edge_name} :: `
               }
+              edgeInfo={{
+                edgeType: edge.edge_type,
+                edgeName: edge.edge_name,
+                parentId: 0,
+              }}
               node={edge.target}
               call={props.call}
               onNavigate={props.onNavigate}

@@ -15,7 +15,7 @@ use ratatui::prelude::*;
 
 use crate::print::diff;
 use crate::print::retainers::{RetainerAutoExpandLimits, plan_gc_root_retainer_paths};
-use crate::print::{display_width, pad_str, slice_str, truncate_str};
+use crate::print::{display_width, format_size, pad_str, slice_str, truncate_str};
 use crate::snapshot::HeapSnapshot;
 use crate::types::{AggregateInfo, NodeOrdinal};
 
@@ -231,6 +231,8 @@ struct App {
     filter_overlay_items: Vec<FilterOverlayItem>,
     filter_overlay_cursor: usize,
     filter_overlay_scroll: usize,
+    // inspect overlay state
+    inspect_lines: Vec<String>,
 }
 
 // Core App methods used across multiple submodules.
@@ -382,6 +384,7 @@ impl App {
             filter_overlay_items: Vec::new(),
             filter_overlay_cursor: 0,
             filter_overlay_scroll: 0,
+            inspect_lines: Vec::new(),
         }
     }
 
@@ -602,6 +605,64 @@ impl App {
         self.filter_overlay_cursor = current_idx;
         self.filter_overlay_scroll = 0;
         self.input_mode = InputMode::FilterOverlay;
+    }
+
+    fn open_inspect(&mut self, snap: &HeapSnapshot) {
+        let row = match self.current_row() {
+            Some(r) => r,
+            None => return,
+        };
+        let ordinal = match row.node_ordinal() {
+            Some(o) => o,
+            None => return,
+        };
+
+        let mut lines = Vec::new();
+
+        // Node info
+        let node_id = snap.node_id(ordinal);
+        let name = snap.node_display_name(ordinal);
+        let node_type = snap.node_type_name(ordinal);
+        let class_name = snap.node_class_name(ordinal);
+        let det = snap.node_detachedness(ordinal);
+        let self_size = snap.node_self_size(ordinal);
+        let retained = snap.node_retained_size(ordinal);
+        let distance = snap.node_distance(ordinal);
+        let edge_count = snap.node_edge_count(ordinal);
+
+        lines.push("Node".to_string());
+        lines.push(format!("  id:           @{}", node_id.0));
+        lines.push(format!("  ordinal:      {}", ordinal.0));
+        lines.push(format!("  type:         {node_type}"));
+        lines.push(format!("  name:         {name}"));
+        lines.push(format!("  class:        {class_name}"));
+        lines.push(format!("  self size:    {} ({self_size})", format_size(self_size as u64)));
+        lines.push(format!("  retained:     {} ({retained})", format_size(retained)));
+        lines.push(format!("  distance:     {distance}"));
+        lines.push(format!("  detachedness: {det:?}"));
+        lines.push(format!("  edge count:   {edge_count}"));
+
+        // Edge info: find how this node is referenced from its parent row
+        let parent_ordinal = row.nav.parent_row.and_then(|pi| {
+            self.cached_rows.get(pi).and_then(|pr| pr.node_ordinal())
+        });
+        if let Some(parent_ord) = parent_ordinal {
+            for (edge_idx, child_ord) in snap.iter_edges(parent_ord) {
+                if child_ord == ordinal {
+                    let edge_type = snap.edge_type_name(edge_idx);
+                    let edge_name = snap.edge_name(edge_idx);
+                    lines.push(String::new());
+                    lines.push("Edge (from parent)".to_string());
+                    lines.push(format!("  type:         {edge_type}"));
+                    lines.push(format!("  name:         {edge_name}"));
+                    lines.push(format!("  parent:       @{}", snap.node_id(parent_ord).0));
+                    break;
+                }
+            }
+        }
+
+        self.inspect_lines = lines;
+        self.input_mode = InputMode::Inspect;
     }
 
     fn current_row(&self) -> Option<&FlatRow> {

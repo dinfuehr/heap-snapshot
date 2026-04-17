@@ -18,7 +18,7 @@ import type {
   NativeContext,
 } from '../types.ts';
 import type { SnapshotCall } from '../worker/use-snapshot.ts';
-import type { NavigateOptions } from '../components/ObjectLink.tsx';
+import type { NavigateOptions, EdgeInfo } from '../components/ObjectLink.tsx';
 import { formatBytes } from '../components/format.ts';
 import { TreeTablePager } from '../components/TreeTablePager.tsx';
 import {
@@ -54,7 +54,7 @@ function ExpandableObject(props: {
   };
   call: SnapshotCall;
   onNavigate: (opts: NavigateOptions) => void;
-  onContextMenu: (e: MouseEvent, nodeId: number) => void;
+  onContextMenu: (e: MouseEvent, nodeId: number, edgeInfo?: EdgeInfo) => void;
   selection: () => RowSelection | null;
   onSelect: (sel: RowSelection) => void;
   reachableSizes: Map<number, ReachableSizeInfo>;
@@ -122,7 +122,7 @@ function ObjectChildren(props: {
   nodeId: number;
   call: SnapshotCall;
   onNavigate: (opts: NavigateOptions) => void;
-  onContextMenu: (e: MouseEvent, nodeId: number) => void;
+  onContextMenu: (e: MouseEvent, nodeId: number, edgeInfo?: EdgeInfo) => void;
   selection: () => RowSelection | null;
   onSelect: (sel: RowSelection) => void;
   reachableSizes: Map<number, ReachableSizeInfo>;
@@ -131,7 +131,7 @@ function ObjectChildren(props: {
   onLoaded?: () => void;
 }): JSX.Element {
   const [children, setChildren] = createSignal<
-    { edgeLabel: string; node: NodeInfo }[]
+    { edgeLabel: string; edgeInfo: EdgeInfo; node: NodeInfo }[]
   >([]);
   const [loaded, setLoaded] = createSignal(false);
   const [total, setTotal] = createSignal(0);
@@ -152,6 +152,11 @@ function ObjectChildren(props: {
           e.edge_type === 'element' || e.edge_type === 'hidden'
             ? `[${e.edge_name}] :: `
             : `${e.edge_name} :: `,
+        edgeInfo: {
+          edgeType: e.edge_type,
+          edgeName: e.edge_name,
+          parentId: props.nodeId,
+        },
         node: e.target,
       })),
     );
@@ -170,6 +175,7 @@ function ObjectChildren(props: {
         {(child) => (
           <ContainmentTreeNode
             edgeLabel={child.edgeLabel}
+            edgeInfo={child.edgeInfo}
             node={child.node}
             call={props.call}
             onNavigate={props.onNavigate}
@@ -201,7 +207,7 @@ function SummaryGroup(props: {
   call: SnapshotCall;
   objectsMessageType?: string;
   onNavigate: (opts: NavigateOptions) => void;
-  onContextMenu: (e: MouseEvent, nodeId: number) => void;
+  onContextMenu: (e: MouseEvent, nodeId: number, edgeInfo?: EdgeInfo) => void;
   selection: () => RowSelection | null;
   onSelect: (sel: RowSelection) => void;
   reachableSizes: Map<number, ReachableSizeInfo>;
@@ -352,7 +358,7 @@ export function SummaryTable(props: {
   call: SnapshotCall;
   objectsMessageType?: string;
   onNavigate: (opts: NavigateOptions) => void;
-  onContextMenu: (e: MouseEvent, nodeId: number) => void;
+  onContextMenu: (e: MouseEvent, nodeId: number, edgeInfo?: EdgeInfo) => void;
   reachableSizes: Map<number, ReachableSizeInfo>;
   reachablePending: Set<number>;
   focusTarget?: () => FocusTarget | null;
@@ -483,7 +489,7 @@ export function SummaryTable(props: {
 export function SummaryView(props: {
   call: SnapshotCall;
   onNavigate: (opts: NavigateOptions) => void;
-  onContextMenu: (e: MouseEvent, nodeId: number) => void;
+  onContextMenu: (e: MouseEvent, nodeId: number, edgeInfo?: EdgeInfo) => void;
   reachableSizes: Map<number, ReachableSizeInfo>;
   reachablePending: Set<number>;
   highlightNodeId: number | null;

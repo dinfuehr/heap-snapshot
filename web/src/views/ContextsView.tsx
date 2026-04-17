@@ -13,7 +13,7 @@ import type {
   ReachableSizeInfo,
 } from '../types.ts';
 import type { SnapshotCall } from '../worker/use-snapshot.ts';
-import type { NavigateOptions } from '../components/ObjectLink.tsx';
+import type { NavigateOptions, EdgeInfo } from '../components/ObjectLink.tsx';
 import {
   TreeTableShell,
   TreeTableRow,
@@ -30,7 +30,7 @@ function ContextNode(props: {
   index: number;
   call: SnapshotCall;
   onNavigate: (opts: NavigateOptions) => void;
-  onContextMenu: (e: MouseEvent, nodeId: number) => void;
+  onContextMenu: (e: MouseEvent, nodeId: number, edgeInfo?: EdgeInfo) => void;
   selection: () => RowSelection | null;
   onSelect: (sel: RowSelection) => void;
   reachableSizes: Map<number, ReachableSizeInfo>;
@@ -38,7 +38,7 @@ function ContextNode(props: {
 }): JSX.Element {
   const [expanded, setExpanded] = createSignal(false);
   const [children, setChildren] = createSignal<
-    { edgeLabel: string; node: NodeInfo }[] | null
+    { edgeLabel: string; edgeInfo: EdgeInfo; node: NodeInfo }[] | null
   >(null);
   const [total, setTotal] = createSignal(0);
   const [offset, setOffset] = createSignal(0);
@@ -59,6 +59,11 @@ function ContextNode(props: {
           e.edge_type === 'element' || e.edge_type === 'hidden'
             ? `[${e.edge_name}] :: `
             : `${e.edge_name} :: `,
+        edgeInfo: {
+          edgeType: e.edge_type,
+          edgeName: e.edge_name,
+          parentId: props.ctx.id,
+        },
         node: e.target,
       })),
     );
@@ -127,6 +132,7 @@ function ContextNode(props: {
           {(child) => (
             <ContainmentTreeNode
               edgeLabel={child.edgeLabel}
+              edgeInfo={child.edgeInfo}
               node={child.node}
               call={props.call}
               onNavigate={props.onNavigate}
@@ -157,7 +163,7 @@ function ContextNode(props: {
 export function ContextsView(props: {
   call: SnapshotCall;
   onNavigate: (opts: NavigateOptions) => void;
-  onContextMenu: (e: MouseEvent, nodeId: number) => void;
+  onContextMenu: (e: MouseEvent, nodeId: number, edgeInfo?: EdgeInfo) => void;
   reachableSizes: Map<number, ReachableSizeInfo>;
   reachablePending: Set<number>;
   onReachableSize: (nodeId: number, info: ReachableSizeInfo) => void;

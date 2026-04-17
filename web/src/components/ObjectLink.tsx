@@ -5,10 +5,16 @@ export interface NavigateOptions {
   target: 'Retainers' | 'Dominators' | 'Summary';
 }
 
+export interface EdgeInfo {
+  edgeType: string;
+  edgeName: string;
+  parentId: number;
+}
+
 export function ObjectLink(props: {
   nodeId: number;
   onNavigate: (opts: NavigateOptions) => void;
-  onContextMenu: (e: MouseEvent, nodeId: number) => void;
+  onContextMenu: (e: MouseEvent, nodeId: number, edgeInfo?: EdgeInfo) => void;
 }): JSX.Element {
   return (
     <a

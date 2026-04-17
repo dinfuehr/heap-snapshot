@@ -69,6 +69,9 @@ impl App {
         if self.input_mode == InputMode::FilterOverlay {
             self.render_filter_overlay(frame, chunks[1]);
         }
+        if self.input_mode == InputMode::Inspect {
+            self.render_inspect_overlay(frame, chunks[1]);
+        }
     }
 
     fn render_header(&mut self, frame: &mut Frame, area: Rect, snap: &HeapSnapshot) {
@@ -499,6 +502,10 @@ impl App {
             }
             InputMode::FilterOverlay => Line::from(Span::styled(
                 "\u{2191}\u{2193}:navigate  Enter:select  Esc:cancel",
+                Style::default().fg(Color::Yellow),
+            )),
+            InputMode::Inspect => Line::from(Span::styled(
+                "Press any key to close",
                 Style::default().fg(Color::Yellow),
             )),
             InputMode::Normal => {
