@@ -4403,13 +4403,15 @@ impl HeapSnapshot {
                 display_name.clone()
             };
 
+            let node_id = self.node_id(ord);
             groups
                 .entry(key)
                 .and_modify(|e| {
                     e.count += 1;
                     e.total_size += self_size;
+                    e.node_ids.push(node_id);
                 })
-                .or_insert(DuplicateStringInfo {
+                .or_insert_with(|| DuplicateStringInfo {
                     value: display_name,
                     count: 1,
                     instance_size: self_size,
@@ -4417,6 +4419,7 @@ impl HeapSnapshot {
                     length,
                     truncated,
                     two_byte,
+                    node_ids: vec![node_id],
                 });
         }
 

@@ -130,6 +130,8 @@ pub struct DuplicateStringInfo {
     pub truncated: bool,
     /// Whether the string uses two-byte (UTF-16) representation.
     pub two_byte: bool,
+    /// Node IDs of all string objects in this group.
+    pub node_ids: Vec<NodeId>,
 }
 
 impl DuplicateStringInfo {

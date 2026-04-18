@@ -3,7 +3,13 @@ use crate::utils::truncate_str;
 
 use super::{format_count, format_size};
 
-pub fn print_duplicate_strings(snap: &HeapSnapshot, min_count: u32) {
+pub fn print_duplicate_strings(
+    snap: &HeapSnapshot,
+    min_count: u32,
+    offset: usize,
+    limit: usize,
+    show_object_ids: bool,
+) {
     let result = snap.duplicate_strings();
     let duplicates: Vec<_> = result
         .duplicates
@@ -24,11 +30,28 @@ pub fn print_duplicate_strings(snap: &HeapSnapshot, min_count: u32) {
     }
 
     let total_wasted: u64 = duplicates.iter().map(|d| d.wasted_size()).sum();
+    let total = duplicates.len();
+    let start = offset.min(total);
+    let end = (start + limit).min(total);
     let col_count: usize = 8;
     let col_size: usize = 12;
     let col_wasted: usize = 12;
     let col_value: usize = 60;
     let total_width = col_count + col_size + col_wasted + col_value;
+
+    if start >= end {
+        println!(
+            "Offset {offset} is past the end of the list ({total} duplicate groups available)."
+        );
+        if result.skipped_count > 0 {
+            println!(
+                "({} strings ({}) skipped — no length metadata, use a newer V8 snapshot)",
+                format_count(result.skipped_count),
+                format_size(result.skipped_size),
+            );
+        }
+        return;
+    }
 
     println!(
         "{:>w_count$}{:>w_size$}{:>w_wasted$}  {:<w_value$}",
@@ -43,7 +66,7 @@ pub fn print_duplicate_strings(snap: &HeapSnapshot, min_count: u32) {
     );
     println!("{}", "\u{2500}".repeat(total_width + 2));
 
-    for d in &duplicates {
+    for d in &duplicates[start..end] {
         let mut preview = truncate_str(&d.value, col_value)
             .replace('\n', "\\n")
             .replace('\r', "\\r");
@@ -60,18 +83,28 @@ pub fn print_duplicate_strings(snap: &HeapSnapshot, min_count: u32) {
             w_size = col_size,
             w_wasted = col_wasted,
         );
+        if show_object_ids {
+            let ids = d
+                .node_ids
+                .iter()
+                .map(|id| format!("@{}", id.0))
+                .collect::<Vec<_>>()
+                .join(", ");
+            println!(
+                "{:>w_prefix$}  {}",
+                "",
+                ids,
+                w_prefix = col_count + col_size + col_wasted,
+            );
+        }
     }
 
     println!("{}", "\u{2500}".repeat(total_width + 2));
     println!(
-        "{:>w_count$}{:>w_size$}{:>w_wasted$}  {} duplicate groups",
-        "",
-        "",
+        "Showing {}-{} of {total} duplicate groups ({} wasted total)",
+        start + 1,
+        end,
         format_size(total_wasted),
-        duplicates.len(),
-        w_count = col_count,
-        w_size = col_size,
-        w_wasted = col_wasted,
     );
     if result.skipped_count > 0 {
         println!(

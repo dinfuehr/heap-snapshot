@@ -148,8 +148,10 @@ struct GetDuplicateStringsParams {
     snapshot_id: u32,
     /// Number of entries to skip (default: 0)
     offset: Option<usize>,
-    /// Maximum number of entries to return (default: 20)
+    /// Maximum number of entries to return (default: 100)
     limit: Option<usize>,
+    /// Include the object ids of each duplicate group (default: false)
+    show_object_ids: Option<bool>,
 }
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
@@ -1118,7 +1120,8 @@ impl McpServer {
         };
 
         let offset = params.offset.unwrap_or(0);
-        let limit = params.limit.unwrap_or(20);
+        let limit = params.limit.unwrap_or(100);
+        let show_object_ids = params.show_object_ids.unwrap_or(false);
 
         tokio::task::spawn_blocking(move || {
             let result = snapshot.duplicate_strings();
@@ -1154,6 +1157,15 @@ impl McpServer {
                     entry.total_size,
                     entry.wasted_size(),
                 ));
+                if show_object_ids {
+                    let ids = entry
+                        .node_ids
+                        .iter()
+                        .map(|id| format!("@{}", id.0))
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    lines.push(format!("  ids: {ids}"));
+                }
             }
 
             if end < total {

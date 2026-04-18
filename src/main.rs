@@ -88,6 +88,15 @@ enum Command {
         /// Minimum number of duplicates to show
         #[arg(long, default_value = "2")]
         min_count: u32,
+        /// Number of duplicate groups to skip
+        #[arg(long, default_value = "0")]
+        offset: usize,
+        /// Maximum number of duplicate groups to show
+        #[arg(long, default_value = "100")]
+        limit: usize,
+        /// Print the object ids of each duplicate group
+        #[arg(long)]
+        show_object_ids: bool,
     },
     /// Show retainers for an object
     Retainers {
@@ -431,9 +440,18 @@ fn main() {
             snap_args,
             file,
             min_count,
+            offset,
+            limit,
+            show_object_ids,
         } => {
             let snap = load_snapshot(&snap_args.to_options(), &file);
-            print::strings::print_duplicate_strings(&snap, min_count);
+            print::strings::print_duplicate_strings(
+                &snap,
+                min_count,
+                offset,
+                limit,
+                show_object_ids,
+            );
         }
         Command::Retainers {
             snap_args,
