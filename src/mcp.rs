@@ -20,6 +20,7 @@ use crate::retaining_path::{
 };
 use crate::snapshot::{Detachedness, HeapSnapshot, RootKind, SnapshotOptions};
 use crate::types::{AggregateMap, NodeId, NodeOrdinal};
+use crate::utils::truncate_str;
 
 // ---------------------------------------------------------------------------
 // Parameter types
@@ -1120,7 +1121,8 @@ impl McpServer {
         let limit = params.limit.unwrap_or(20);
 
         tokio::task::spawn_blocking(move || {
-            let duplicates = snapshot.duplicate_strings();
+            let result = snapshot.duplicate_strings();
+            let duplicates = &result.duplicates;
             let total = duplicates.len();
             let total_wasted: u64 = duplicates.iter().map(|d| d.wasted_size()).sum();
             let start = offset.min(total);
@@ -1130,15 +1132,20 @@ impl McpServer {
             lines.push(format!(
                 "{total} duplicate string groups, {total_wasted} bytes wasted total"
             ));
+            if result.skipped_count > 0 {
+                lines.push(format!(
+                    "({} strings, {} bytes skipped — no length metadata)",
+                    result.skipped_count, result.skipped_size
+                ));
+            }
             lines.push(format!("Showing entries {start}..{end}:"));
             lines.push(String::new());
 
             for entry in &duplicates[start..end] {
-                let display = if entry.value.len() > 80 {
-                    format!("{}...", &entry.value[..77])
-                } else {
-                    entry.value.clone()
-                };
+                let mut display = truncate_str(&entry.value, 80);
+                if entry.truncated {
+                    display = format!("{display}... (len {})", entry.length);
+                }
                 lines.push(format!(
                     "\"{}\" x{} (instance_size: {}, total: {}, wasted: {})",
                     display,

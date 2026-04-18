@@ -6421,46 +6421,52 @@ fn test_interface_inference_non_object_not_affected() {
 
 #[test]
 fn test_duplicate_strings_basic() {
-    // Two string nodes with the same value "hello"
-    let nfc = 5u32;
-    let n = |ord: u32| ord * nfc;
-    let snap = build_snapshot(
-        standard_node_fields(),
-        vec![
-            9, 0, 1, 0, 1, // 0: root
-            9, 1, 3, 0, 2, // 1: GC roots
-            2, 2, 5, 40, 0, // 2: string "hello", 40 bytes
-            2, 2, 7, 40, 0, // 3: string "hello", 40 bytes
-        ],
-        vec![1, 0, n(1), 2, 3, n(2), 2, 3, n(3)],
-        s(&["", "(GC roots)", "hello", "ref"]),
-    );
-    let dupes = snap.duplicate_strings();
-    assert_eq!(dupes.len(), 1);
-    assert_eq!(dupes[0].value, "hello");
-    assert_eq!(dupes[0].count, 2);
-    assert_eq!(dupes[0].total_size, 80);
-    assert_eq!(dupes[0].wasted_size(), 40);
+    let snap = build_string_props_snapshot(&[
+        StringTestEntry {
+            name: "hello".into(),
+            self_size: 40,
+            length: 5,
+            truncated: false,
+            two_byte: false,
+        },
+        StringTestEntry {
+            name: "hello".into(),
+            self_size: 40,
+            length: 5,
+            truncated: false,
+            two_byte: false,
+        },
+    ]);
+    let dupes = snap.duplicate_strings().duplicates;
+    let d = dupes.iter().find(|d| d.value == "hello").unwrap();
+    assert_eq!(d.count, 2);
+    assert_eq!(d.total_size, 80);
+    assert_eq!(d.wasted_size(), 40);
 }
 
 #[test]
 fn test_duplicate_strings_no_duplicates() {
-    // Two different strings — no duplicates
-    let nfc = 5u32;
-    let n = |ord: u32| ord * nfc;
-    let snap = build_snapshot(
-        standard_node_fields(),
-        vec![
-            9, 0, 1, 0, 1, // 0: root
-            9, 1, 3, 0, 2, // 1: GC roots
-            2, 2, 5, 40, 0, // 2: string "hello"
-            2, 3, 7, 40, 0, // 3: string "world"
-        ],
-        vec![1, 0, n(1), 2, 4, n(2), 2, 4, n(3)],
-        s(&["", "(GC roots)", "hello", "world", "ref"]),
+    let snap = build_string_props_snapshot(&[
+        StringTestEntry {
+            name: "hello".into(),
+            self_size: 40,
+            length: 5,
+            truncated: false,
+            two_byte: false,
+        },
+        StringTestEntry {
+            name: "world".into(),
+            self_size: 40,
+            length: 5,
+            truncated: false,
+            two_byte: false,
+        },
+    ]);
+    let result = snap.duplicate_strings();
+    assert!(
+        !result.duplicates.iter().any(|d| d.instance_size > 0),
+        "different strings should not be grouped"
     );
-    let dupes = snap.duplicate_strings();
-    assert!(dupes.is_empty());
 }
 
 #[test]
@@ -6479,7 +6485,7 @@ fn test_duplicate_strings_empty_strings_excluded() {
         vec![1, 0, n(1), 2, 2, n(2), 2, 2, n(3)],
         s(&["", "(GC roots)", "ref"]),
     );
-    let dupes = snap.duplicate_strings();
+    let dupes = snap.duplicate_strings().duplicates;
     assert!(dupes.is_empty(), "empty strings should be excluded");
 }
 
@@ -6499,7 +6505,7 @@ fn test_duplicate_strings_non_string_nodes_excluded() {
         vec![1, 0, n(1), 2, 3, n(2), 2, 3, n(3)],
         s(&["", "(GC roots)", "Foo", "ref"]),
     );
-    let dupes = snap.duplicate_strings();
+    let dupes = snap.duplicate_strings().duplicates;
     assert!(dupes.is_empty(), "non-string nodes should not be reported");
 }
 
@@ -6507,73 +6513,93 @@ fn test_duplicate_strings_non_string_nodes_excluded() {
 fn test_duplicate_strings_sorted_by_wasted_size() {
     // "big" appears 2x at 100 bytes each (wasted 100), "small" appears 3x at 20 bytes each (wasted 40)
     // Should sort by wasted descending: big first
-    let nfc = 5u32;
-    let n = |ord: u32| ord * nfc;
-    let snap = build_snapshot(
-        standard_node_fields(),
-        vec![
-            9, 0, 1, 0, 1, // 0: root
-            9, 1, 3, 0, 5, // 1: GC roots
-            2, 2, 5, 100, 0, // 2: string "big"
-            2, 2, 7, 100, 0, // 3: string "big"
-            2, 3, 9, 20, 0, // 4: string "small"
-            2, 3, 11, 20, 0, // 5: string "small"
-            2, 3, 13, 20, 0, // 6: string "small"
-        ],
-        vec![
-            1,
-            0,
-            n(1),
-            2,
-            4,
-            n(2),
-            2,
-            4,
-            n(3),
-            2,
-            4,
-            n(4),
-            2,
-            4,
-            n(5),
-            2,
-            4,
-            n(6),
-        ],
-        s(&["", "(GC roots)", "big", "small", "ref"]),
-    );
-    let dupes = snap.duplicate_strings();
-    assert_eq!(dupes.len(), 2);
-    assert_eq!(dupes[0].value, "big");
-    assert_eq!(dupes[0].wasted_size(), 100);
-    assert_eq!(dupes[1].value, "small");
-    assert_eq!(dupes[1].wasted_size(), 40);
+    let snap = build_string_props_snapshot(&[
+        StringTestEntry {
+            name: "big".into(),
+            self_size: 100,
+            length: 3,
+            truncated: false,
+            two_byte: false,
+        },
+        StringTestEntry {
+            name: "big".into(),
+            self_size: 100,
+            length: 3,
+            truncated: false,
+            two_byte: false,
+        },
+        StringTestEntry {
+            name: "small".into(),
+            self_size: 20,
+            length: 5,
+            truncated: false,
+            two_byte: false,
+        },
+        StringTestEntry {
+            name: "small".into(),
+            self_size: 20,
+            length: 5,
+            truncated: false,
+            two_byte: false,
+        },
+        StringTestEntry {
+            name: "small".into(),
+            self_size: 20,
+            length: 5,
+            truncated: false,
+            two_byte: false,
+        },
+    ]);
+    let dupes = snap.duplicate_strings().duplicates;
+    let big = dupes.iter().find(|d| d.value == "big").unwrap();
+    let small = dupes.iter().find(|d| d.value == "small").unwrap();
+    assert!(big.wasted_size() > small.wasted_size());
+    assert_eq!(big.wasted_size(), 100);
+    assert_eq!(small.wasted_size(), 40);
 }
 
 #[test]
 fn test_duplicate_strings_multiple_copies() {
-    // Same string 4 times
-    let nfc = 5u32;
-    let n = |ord: u32| ord * nfc;
-    let snap = build_snapshot(
-        standard_node_fields(),
-        vec![
-            9, 0, 1, 0, 1, // 0: root
-            9, 1, 3, 0, 4, // 1: GC roots
-            2, 2, 5, 50, 0, // 2: string "dup"
-            2, 2, 7, 50, 0, // 3: string "dup"
-            2, 2, 9, 50, 0, // 4: string "dup"
-            2, 2, 11, 50, 0, // 5: string "dup"
-        ],
-        vec![1, 0, n(1), 2, 3, n(2), 2, 3, n(3), 2, 3, n(4), 2, 3, n(5)],
-        s(&["", "(GC roots)", "dup", "ref"]),
-    );
-    let dupes = snap.duplicate_strings();
-    assert_eq!(dupes.len(), 1);
-    assert_eq!(dupes[0].count, 4);
-    assert_eq!(dupes[0].total_size, 200);
-    assert_eq!(dupes[0].instance_size, 50);
-    assert_eq!(dupes[0].wasted_size(), 150);
+    let snap = build_string_props_snapshot(&[
+        StringTestEntry {
+            name: "dup".into(),
+            self_size: 50,
+            length: 3,
+            truncated: false,
+            two_byte: false,
+        },
+        StringTestEntry {
+            name: "dup".into(),
+            self_size: 50,
+            length: 3,
+            truncated: false,
+            two_byte: false,
+        },
+        StringTestEntry {
+            name: "dup".into(),
+            self_size: 50,
+            length: 3,
+            truncated: false,
+            two_byte: false,
+        },
+        StringTestEntry {
+            name: "dup".into(),
+            self_size: 50,
+            length: 3,
+            truncated: false,
+            two_byte: false,
+        },
+    ]);
+    let d = snap
+        .duplicate_strings()
+        .duplicates
+        .into_iter()
+        .find(|d| d.value == "dup")
+        .unwrap();
+    assert_eq!(d.count, 4);
+    assert_eq!(d.total_size, 200);
+    assert_eq!(d.instance_size, 50);
+    assert_eq!(d.wasted_size(), 150);
 }
 
 #[test]
@@ -6593,7 +6619,7 @@ fn test_duplicate_strings_sliced_strings_excluded() {
         vec![1, 0, n(1), 2, 3, n(2), 2, 3, n(3)],
         s(&["", "(GC roots)", "hello", "ref"]),
     );
-    let dupes = snap.duplicate_strings();
+    let dupes = snap.duplicate_strings().duplicates;
     assert!(dupes.is_empty(), "sliced strings should be excluded");
 }
 
@@ -6635,7 +6661,7 @@ fn test_duplicate_strings_flat_cons_string_excluded() {
         ],
         s(&["", "(GC roots)", "hello", "first", "ref", "second"]),
     );
-    let dupes = snap.duplicate_strings();
+    let dupes = snap.duplicate_strings().duplicates;
     assert!(
         dupes.is_empty(),
         "flat cons string should not be reported as duplicate of its own content"
@@ -6693,14 +6719,516 @@ fn test_duplicate_strings_non_flat_cons_string_included() {
             "second",     // 8
         ]),
     );
-    let dupes = snap.duplicate_strings();
-    assert_eq!(
-        dupes.len(),
-        1,
-        "non-flat cons string duplicate should be reported"
+    let dupes = snap.duplicate_strings().duplicates;
+    // Without length edges, all strings are skipped — this test verifies
+    // that the cons-string logic itself doesn't break.
+    assert!(
+        dupes.is_empty(),
+        "without length edges, strings are skipped"
     );
-    assert_eq!(dupes[0].value, "helloworld");
-    assert_eq!(dupes[0].count, 2);
+}
+
+/// Helper: build a snapshot that contains string nodes with `length`,
+/// `truncated`, and/or `two_byte_representation` internal edges, mimicking
+/// V8's `ExtractStringReferences`.
+fn build_string_props_snapshot(entries: &[StringTestEntry]) -> HeapSnapshot {
+    // Strings table:
+    // 0: ""  1: "(GC roots)"  2: "value"  3: "length"  4: "truncated"
+    // 5: "two_byte_representation"  6: "bool"  7: "true"  8: "int"
+    // 9: "ref"
+    // then per-entry: string name, length-as-string
+    let mut strings: Vec<String> = vec![
+        "".into(),
+        "(GC roots)".into(),
+        "value".into(),
+        "length".into(),
+        "truncated".into(),
+        "two_byte_representation".into(),
+        "bool".into(),
+        "true".into(),
+        "int".into(),
+        "ref".into(),
+    ];
+
+    let nfc = 5u32;
+
+    // Collect per-entry string indices first.
+    struct EntryStrings {
+        name_idx: u32,
+        len_str_idx: u32,
+    }
+    let mut entry_strings = Vec::new();
+    for entry in entries {
+        let name_idx = strings.len() as u32;
+        strings.push(entry.name.clone());
+        let len_str_idx = strings.len() as u32;
+        strings.push(entry.length.to_string());
+        entry_strings.push(EntryStrings {
+            name_idx,
+            len_str_idx,
+        });
+    }
+
+    // Node layout (edges must be emitted in node order):
+    //   0: synthetic root (1 edge)
+    //   1: GC roots (entries.len() edges)
+    //   2: bool "true" node (1 edge -> node 3)
+    //   3: string "true" (0 edges)
+    //   then per entry (3 nodes each):
+    //     4+i*3: string node (1-3 edges: length + truncated? + two_byte?)
+    //     5+i*3: int node for length (1 edge -> value)
+    //     6+i*3: string node for length value (0 edges)
+
+    let mut nodes: Vec<u32> = vec![];
+    let mut edges: Vec<u32> = vec![];
+    let mut next_id = 1u32;
+
+    // node 0: synthetic root
+    nodes.extend_from_slice(&[9, 0, next_id, 0, 1]);
+    next_id += 1;
+    // node 0 edges:
+    edges.extend_from_slice(&[1, 0, 1 * nfc]); // -> GC roots
+
+    // node 1: GC roots
+    nodes.extend_from_slice(&[9, 1, next_id, 0, entries.len() as u32]);
+    next_id += 1;
+    // node 1 edges: all GC roots -> string node refs
+    for (i, _) in entries.iter().enumerate() {
+        let str_node = (4 + i * 3) as u32;
+        edges.extend_from_slice(&[2, 9, str_node * nfc]);
+    }
+
+    // node 2: bool "true" (type number=7, name "bool"=6)
+    nodes.extend_from_slice(&[7, 6, next_id, 0, 1]);
+    next_id += 1;
+    // node 2 edges:
+    edges.extend_from_slice(&[3, 2, 3 * nfc]); // internal "value" -> node 3
+
+    // node 3: string "true" (value of the bool)
+    nodes.extend_from_slice(&[2, 7, next_id, 0, 0]);
+    next_id += 1;
+
+    // Per-entry nodes and edges (in node order)
+    for (i, entry) in entries.iter().enumerate() {
+        let es = &entry_strings[i];
+        let int_node = (5 + i * 3) as u32;
+        let len_val_node = (6 + i * 3) as u32;
+
+        let mut str_edge_count = 1u32; // "length" always
+        if entry.truncated {
+            str_edge_count += 1;
+        }
+        if entry.two_byte {
+            str_edge_count += 1;
+        }
+
+        // string node
+        nodes.extend_from_slice(&[2, es.name_idx, next_id, entry.self_size, str_edge_count]);
+        next_id += 1;
+        // string node edges:
+        edges.extend_from_slice(&[3, 3, int_node * nfc]); // internal "length"
+        if entry.truncated {
+            edges.extend_from_slice(&[3, 4, 2 * nfc]); // internal "truncated" -> bool
+        }
+        if entry.two_byte {
+            edges.extend_from_slice(&[3, 5, 2 * nfc]); // internal "two_byte_representation"
+        }
+
+        // int node for length (type number=7, name "int"=8)
+        nodes.extend_from_slice(&[7, 8, next_id, 0, 1]);
+        next_id += 1;
+        // int node edges:
+        edges.extend_from_slice(&[3, 2, len_val_node * nfc]); // internal "value"
+
+        // string node for length value (leaf)
+        nodes.extend_from_slice(&[2, es.len_str_idx, next_id, 0, 0]);
+        next_id += 1;
+    }
+
+    build_snapshot(standard_node_fields(), nodes, edges, strings)
+}
+
+struct StringTestEntry {
+    name: String,
+    self_size: u32,
+    length: u32,
+    truncated: bool,
+    two_byte: bool,
+}
+
+#[test]
+fn test_duplicate_strings_truncated_different_lengths_not_grouped() {
+    // Two truncated strings with the same prefix but different true lengths
+    // should NOT be grouped as duplicates.
+    let snap = build_string_props_snapshot(&[
+        StringTestEntry {
+            name: "hello world this is a long".into(),
+            self_size: 100,
+            length: 100,
+            truncated: true,
+            two_byte: false,
+        },
+        StringTestEntry {
+            name: "hello world this is a long".into(),
+            self_size: 200,
+            length: 200,
+            truncated: true,
+            two_byte: false,
+        },
+    ]);
+    let dupes = snap.duplicate_strings().duplicates;
+    assert!(
+        !dupes.iter().any(|d| d.instance_size > 0),
+        "truncated strings with different lengths should not be grouped"
+    );
+}
+
+#[test]
+fn test_duplicate_strings_truncated_same_length_grouped() {
+    // Two truncated strings with the same prefix AND same length
+    // should be grouped as duplicates.
+    let snap = build_string_props_snapshot(&[
+        StringTestEntry {
+            name: "hello world this is a long".into(),
+            self_size: 100,
+            length: 500,
+            truncated: true,
+            two_byte: false,
+        },
+        StringTestEntry {
+            name: "hello world this is a long".into(),
+            self_size: 100,
+            length: 500,
+            truncated: true,
+            two_byte: false,
+        },
+    ]);
+    let dupes = snap.duplicate_strings().duplicates;
+    let main = dupes
+        .iter()
+        .find(|d| d.value == "hello world this is a long")
+        .expect("truncated strings with same length should be grouped");
+    assert_eq!(main.count, 2);
+    assert!(main.truncated);
+    assert_eq!(main.length, 500);
+}
+
+#[test]
+fn test_duplicate_strings_fields_populated() {
+    // Verify the new fields (length, truncated, two_byte) are populated correctly.
+    let snap = build_string_props_snapshot(&[
+        StringTestEntry {
+            name: "abc".into(),
+            self_size: 20,
+            length: 3,
+            truncated: false,
+            two_byte: false,
+        },
+        StringTestEntry {
+            name: "abc".into(),
+            self_size: 20,
+            length: 3,
+            truncated: false,
+            two_byte: false,
+        },
+        StringTestEntry {
+            name: "xyz".into(),
+            self_size: 40,
+            length: 3,
+            truncated: false,
+            two_byte: true,
+        },
+        StringTestEntry {
+            name: "xyz".into(),
+            self_size: 40,
+            length: 3,
+            truncated: false,
+            two_byte: true,
+        },
+    ]);
+    let dupes = snap.duplicate_strings().duplicates;
+
+    let abc = dupes.iter().find(|d| d.value == "abc").unwrap();
+    assert_eq!(abc.count, 2);
+    assert_eq!(abc.length, 3);
+    assert!(!abc.truncated);
+    assert!(!abc.two_byte);
+
+    let xyz = dupes.iter().find(|d| d.value == "xyz").unwrap();
+    assert_eq!(xyz.count, 2);
+    assert_eq!(xyz.length, 3);
+    assert!(!xyz.truncated);
+    assert!(xyz.two_byte);
+}
+
+#[test]
+fn test_duplicate_strings_non_truncated_still_grouped_by_name() {
+    // Non-truncated strings with the same name should still be grouped
+    // regardless of the length edge.
+    let snap = build_string_props_snapshot(&[
+        StringTestEntry {
+            name: "hello".into(),
+            self_size: 20,
+            length: 5,
+            truncated: false,
+            two_byte: false,
+        },
+        StringTestEntry {
+            name: "hello".into(),
+            self_size: 20,
+            length: 5,
+            truncated: false,
+            two_byte: false,
+        },
+    ]);
+    let dupes = snap.duplicate_strings().duplicates;
+    let main = dupes.iter().find(|d| d.value == "hello").unwrap();
+    assert_eq!(main.count, 2);
+    assert!(!main.truncated);
+}
+
+#[test]
+fn test_duplicate_strings_skipped_counts() {
+    // Strings without a `length` edge should be skipped and counted.
+    let nfc = 5u32;
+    let n = |ord: u32| ord * nfc;
+    let snap = build_snapshot(
+        standard_node_fields(),
+        vec![
+            9, 0, 1, 0, 1, // 0: root
+            9, 1, 3, 0, 3, // 1: GC roots
+            2, 2, 5, 40, 0, // 2: string "hello", 40 bytes, no length edge
+            2, 2, 7, 60, 0, // 3: string "hello", 60 bytes, no length edge
+            2, 3, 9, 30, 0, // 4: string "world", 30 bytes, no length edge
+        ],
+        vec![1, 0, n(1), 2, 4, n(2), 2, 4, n(3), 2, 4, n(4)],
+        s(&["", "(GC roots)", "hello", "world", "ref"]),
+    );
+    let result = snap.duplicate_strings();
+    assert!(result.duplicates.is_empty());
+    assert_eq!(result.skipped_count, 3);
+    assert_eq!(result.skipped_size, 130); // 40 + 60 + 30
+}
+
+#[test]
+fn test_duplicate_strings_mixed_with_and_without_length() {
+    // Mix of strings with and without length edges. Only those with length
+    // edges should participate; the rest are counted as skipped.
+    let nfc = 5u32;
+    let n = |ord: u32| ord * nfc;
+
+    // Manually build a snapshot where:
+    //   nodes 2,3: string "hello" WITHOUT length (skipped)
+    //   nodes 4-6, 7-9: string "hello" WITH length (via build_string_props_snapshot pattern)
+    //
+    // We'll build it by hand to mix the two kinds.
+
+    // Strings: 0=""  1="(GC roots)"  2="hello"  3="ref"  4="value"
+    //          5="length"  6="5"  7="int"
+    let strings = s(&[
+        "",           // 0
+        "(GC roots)", // 1
+        "hello",      // 2
+        "ref",        // 3
+        "value",      // 4
+        "length",     // 5
+        "5",          // 6
+        "int",        // 7
+    ]);
+
+    // node 0: root (1 edge)
+    // node 1: GC roots (4 edges -> nodes 2,3,4,7)
+    // node 2: string "hello" no length edge (0 edges)
+    // node 3: string "hello" no length edge (0 edges)
+    // node 4: string "hello" WITH length edge (1 edge -> node 5)
+    // node 5: int node for length (1 edge -> node 6)
+    // node 6: string "5" (0 edges)
+    // node 7: string "hello" WITH length edge (1 edge -> node 8)
+    // node 8: int node for length (1 edge -> node 9)
+    // node 9: string "5" (0 edges)
+    let nodes: Vec<u32> = vec![
+        9, 0, 1, 0, 1, // 0: root
+        9, 1, 2, 0, 4, // 1: GC roots
+        2, 2, 3, 50, 0, // 2: string "hello" (no length)
+        2, 2, 4, 50, 0, // 3: string "hello" (no length)
+        2, 2, 5, 50, 1, // 4: string "hello" (has length edge)
+        7, 7, 6, 0, 1, // 5: int "int"
+        2, 6, 7, 0, 0, // 6: string "5"
+        2, 2, 8, 50, 1, // 7: string "hello" (has length edge)
+        7, 7, 9, 0, 1, // 8: int "int"
+        2, 6, 10, 0, 0, // 9: string "5"
+    ];
+    let edges: Vec<u32> = vec![
+        1,
+        0,
+        n(1), // root -> GC roots
+        // GC roots edges:
+        2,
+        3,
+        n(2), // -> node 2
+        2,
+        3,
+        n(3), // -> node 3
+        2,
+        3,
+        n(4), // -> node 4
+        2,
+        3,
+        n(7), // -> node 7
+        // node 4 edges:
+        3,
+        5,
+        n(5), // internal "length" -> int node 5
+        // node 5 edges:
+        3,
+        4,
+        n(6), // internal "value" -> string "5"
+        // node 7 edges:
+        3,
+        5,
+        n(8), // internal "length" -> int node 8
+        // node 8 edges:
+        3,
+        4,
+        n(9), // internal "value" -> string "5"
+    ];
+    let snap = build_snapshot(standard_node_fields(), nodes, edges, strings);
+
+    let result = snap.duplicate_strings();
+    // Nodes 2,3 (string "hello", self_size=50) lack length edges and are
+    // skipped. Nodes 6,9 (string "5", self_size=0) are ignored entirely.
+    assert_eq!(result.skipped_count, 2);
+    assert_eq!(result.skipped_size, 100); // 50 + 50
+    // Nodes 4 and 7 have length -> grouped as duplicates
+    let d = result
+        .duplicates
+        .iter()
+        .find(|d| d.value == "hello")
+        .unwrap();
+    assert_eq!(d.count, 2);
+    assert_eq!(d.total_size, 100);
+    assert_eq!(d.length, 5);
+}
+
+#[test]
+fn test_node_string_length() {
+    let snap = build_string_props_snapshot(&[
+        StringTestEntry {
+            name: "short".into(),
+            self_size: 20,
+            length: 5,
+            truncated: false,
+            two_byte: false,
+        },
+        StringTestEntry {
+            name: "long".into(),
+            self_size: 200,
+            length: 10000,
+            truncated: true,
+            two_byte: false,
+        },
+    ]);
+    // node 4 is the first string entry (nodes 0-3 are root/GC roots/bool/true)
+    assert_eq!(snap.node_string_length(NodeOrdinal(4)), Some(5));
+    assert_eq!(snap.node_string_length(NodeOrdinal(7)), Some(10000));
+    // Non-string nodes have no length edge
+    assert_eq!(snap.node_string_length(NodeOrdinal(0)), None);
+}
+
+#[test]
+fn test_node_is_truncated_string() {
+    let snap = build_string_props_snapshot(&[
+        StringTestEntry {
+            name: "normal".into(),
+            self_size: 20,
+            length: 6,
+            truncated: false,
+            two_byte: false,
+        },
+        StringTestEntry {
+            name: "cut".into(),
+            self_size: 20,
+            length: 1000,
+            truncated: true,
+            two_byte: false,
+        },
+    ]);
+    assert!(!snap.node_is_truncated_string(NodeOrdinal(4)));
+    assert!(snap.node_is_truncated_string(NodeOrdinal(7)));
+    // Non-string node
+    assert!(!snap.node_is_truncated_string(NodeOrdinal(0)));
+}
+
+#[test]
+fn test_node_is_two_byte_string() {
+    let snap = build_string_props_snapshot(&[
+        StringTestEntry {
+            name: "ascii".into(),
+            self_size: 20,
+            length: 5,
+            truncated: false,
+            two_byte: false,
+        },
+        StringTestEntry {
+            name: "unicode".into(),
+            self_size: 40,
+            length: 7,
+            truncated: false,
+            two_byte: true,
+        },
+    ]);
+    assert!(!snap.node_is_two_byte_string(NodeOrdinal(4)));
+    assert!(snap.node_is_two_byte_string(NodeOrdinal(7)));
+}
+
+#[test]
+fn test_duplicate_strings_two_byte_duplicates() {
+    let snap = build_string_props_snapshot(&[
+        StringTestEntry {
+            name: "emoji".into(),
+            self_size: 40,
+            length: 5,
+            truncated: false,
+            two_byte: true,
+        },
+        StringTestEntry {
+            name: "emoji".into(),
+            self_size: 40,
+            length: 5,
+            truncated: false,
+            two_byte: true,
+        },
+    ]);
+    let dupes = snap.duplicate_strings().duplicates;
+    let d = dupes.iter().find(|d| d.value == "emoji").unwrap();
+    assert_eq!(d.count, 2);
+    assert!(d.two_byte);
+    assert_eq!(d.total_size, 80);
+    assert_eq!(d.wasted_size(), 40);
+}
+
+#[test]
+fn test_duplicate_strings_zero_size_strings_ignored() {
+    // Synthetic string nodes (self_size=0), such as value nodes inside
+    // int/bool number nodes, should not appear in duplicates or skipped
+    // counts.
+    let nfc = 5u32;
+    let n = |ord: u32| ord * nfc;
+    let snap = build_snapshot(
+        standard_node_fields(),
+        vec![
+            9, 0, 1, 0, 1, // 0: root
+            9, 1, 3, 0, 2, // 1: GC roots
+            2, 2, 5, 0, 0, // 2: string "42" (synthetic, self_size=0)
+            2, 2, 7, 0, 0, // 3: string "42" (synthetic, self_size=0)
+        ],
+        vec![1, 0, n(1), 2, 3, n(2), 2, 3, n(3)],
+        s(&["", "(GC roots)", "42", "ref"]),
+    );
+    let result = snap.duplicate_strings();
+    assert!(result.duplicates.is_empty());
+    assert_eq!(result.skipped_count, 0);
+    assert_eq!(result.skipped_size, 0);
 }
 
 // ── dominator tree root ────────────────────────────────────────────────

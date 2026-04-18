@@ -111,11 +111,25 @@ pub struct Statistics {
     pub unreachable_size: u64,
 }
 
+pub struct DuplicateStringsResult {
+    pub duplicates: Vec<DuplicateStringInfo>,
+    /// Number of strings skipped because they lack a `length` edge.
+    pub skipped_count: u32,
+    /// Total bytes of skipped strings.
+    pub skipped_size: u64,
+}
+
 pub struct DuplicateStringInfo {
     pub value: String,
     pub count: u32,
     pub instance_size: u64,
     pub total_size: u64,
+    /// True character length from the snapshot's `length` edge.
+    pub length: u32,
+    /// Whether the string value was truncated in the snapshot.
+    pub truncated: bool,
+    /// Whether the string uses two-byte (UTF-16) representation.
+    pub two_byte: bool,
 }
 
 impl DuplicateStringInfo {

@@ -12,8 +12,8 @@ use regex::Regex;
 use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::types::{
-    AggregateInfo, AggregateMap, DuplicateStringInfo, NodeId, NodeOrdinal, RawHeapSnapshot,
-    Statistics,
+    AggregateInfo, AggregateMap, DuplicateStringInfo, DuplicateStringsResult, NodeId, NodeOrdinal,
+    RawHeapSnapshot, Statistics,
 };
 
 pub const V8_STACK_ROOTS: &str = "(Stack roots)";
@@ -2978,6 +2978,77 @@ impl HeapSnapshot {
         }
     }
 
+    /// Returns the raw name of a string-typed node, or `None` if the node
+    /// is not of type "string". This is for synthetic string nodes created
+    /// by `AddStringEdge` in V8, where the node name *is* the value.
+    pub fn node_value_as_str(&self, ordinal: NodeOrdinal) -> Option<&str> {
+        let ni = ordinal.0 * self.node_field_count;
+        if self.nodes[ni + self.node_type_offset] != self.node_string_type {
+            return None;
+        }
+        Some(self.node_raw_name(ordinal))
+    }
+
+    /// Interprets a number node named "int" as an integer value by following
+    /// its "value" edge. Returns `None` if the node is not an int-typed
+    /// number node.
+    pub fn node_value_as_int(&self, ordinal: NodeOrdinal) -> Option<i64> {
+        let ni = ordinal.0 * self.node_field_count;
+        if self.nodes[ni + self.node_type_offset] != self.node_number_type {
+            return None;
+        }
+        if self.node_raw_name(ordinal) != "int" {
+            return None;
+        }
+        let val_ord = self.find_edge_target(ordinal, "value")?;
+        self.node_raw_name(val_ord).parse::<i64>().ok()
+    }
+
+    /// Returns the true character length of a string node by following its
+    /// `length` internal edge to an int-typed number node.
+    pub fn node_string_length(&self, ordinal: NodeOrdinal) -> Option<u32> {
+        let len_ord = self.find_edge_target(ordinal, "length")?;
+        let val = self.node_value_as_int(len_ord)?;
+        u32::try_from(val).ok()
+    }
+
+    /// Returns true if this string node has a `truncated` internal edge
+    /// pointing to a bool `true` node, meaning its display name is only a
+    /// prefix of the real content.
+    pub fn node_is_truncated_string(&self, ordinal: NodeOrdinal) -> bool {
+        self.find_edge_target(ordinal, "truncated")
+            .and_then(|t| self.node_value_as_bool(t))
+            == Some(true)
+    }
+
+    /// Returns true if this string node has a `two_byte_representation`
+    /// internal edge pointing to a bool `true` node, meaning it uses
+    /// UTF-16 (2 bytes per char).
+    pub fn node_is_two_byte_string(&self, ordinal: NodeOrdinal) -> bool {
+        self.find_edge_target(ordinal, "two_byte_representation")
+            .and_then(|t| self.node_value_as_bool(t))
+            == Some(true)
+    }
+
+    /// Interprets a number node named "bool" as a boolean value by following
+    /// its "value" edge. Returns `None` if the node is not a bool-typed
+    /// number node.
+    pub fn node_value_as_bool(&self, ordinal: NodeOrdinal) -> Option<bool> {
+        let ni = ordinal.0 * self.node_field_count;
+        if self.nodes[ni + self.node_type_offset] != self.node_number_type {
+            return None;
+        }
+        if self.node_raw_name(ordinal) != "bool" {
+            return None;
+        }
+        let val_ord = self.find_edge_target(ordinal, "value")?;
+        match self.node_raw_name(val_ord) {
+            "true" => Some(true),
+            "false" => Some(false),
+            _ => None,
+        }
+    }
+
     /// Build the script_id -> script name map by scanning nodes with locations
     /// and following edges to Script nodes.
     fn compute_script_names(&mut self) {
@@ -4273,11 +4344,15 @@ impl HeapSnapshot {
         }
     }
 
-    /// Find duplicate strings in the heap. Groups string nodes by their display
-    /// name and returns entries with count >= 2, sorted by wasted bytes descending.
-    pub fn duplicate_strings(&self) -> Vec<DuplicateStringInfo> {
+    /// Find duplicate strings in the heap. Only considers strings that have a
+    /// `length` internal edge (added by newer V8 builds). Groups by display
+    /// name (and, for truncated strings, also by length) and returns entries
+    /// with count >= 2, sorted by wasted bytes descending.
+    pub fn duplicate_strings(&self) -> DuplicateStringsResult {
         let nfc = self.node_field_count;
         let mut groups: FxHashMap<String, DuplicateStringInfo> = FxHashMap::default();
+        let mut skipped_count: u32 = 0;
+        let mut skipped_size: u64 = 0;
 
         for ordinal in 0..self.node_count {
             let ni = ordinal * nfc;
@@ -4295,14 +4370,41 @@ impl HeapSnapshot {
                 continue;
             }
 
-            let display_name = self.node_display_name(NodeOrdinal(ordinal));
+            let self_size = self.nodes[ni + self.node_self_size_offset] as u64;
+            if self_size == 0 {
+                continue;
+            }
+
+            let ord = NodeOrdinal(ordinal);
+            let display_name = self.node_display_name(ord);
             if display_name.is_empty() {
                 continue;
             }
 
-            let self_size = self.nodes[ni + self.node_self_size_offset] as u64;
+            // Only consider strings with a `length` edge.
+            let length = match self.node_string_length(ord) {
+                Some(len) => len,
+                None => {
+                    skipped_count += 1;
+                    skipped_size += self_size;
+                    continue;
+                }
+            };
+
+            let truncated = self.node_is_truncated_string(ord);
+            let two_byte = self.node_is_two_byte_string(ord);
+
+            // For truncated strings, incorporate the true length into the
+            // grouping key so that different strings sharing the same
+            // truncated prefix are not falsely merged.
+            let key = if truncated {
+                format!("{display_name}\0{length}")
+            } else {
+                display_name.clone()
+            };
+
             groups
-                .entry(display_name.clone())
+                .entry(key)
                 .and_modify(|e| {
                     e.count += 1;
                     e.total_size += self_size;
@@ -4312,17 +4414,24 @@ impl HeapSnapshot {
                     count: 1,
                     instance_size: self_size,
                     total_size: self_size,
+                    length,
+                    truncated,
+                    two_byte,
                 });
         }
 
-        let mut result: Vec<DuplicateStringInfo> =
+        let mut duplicates: Vec<DuplicateStringInfo> =
             groups.into_values().filter(|e| e.count >= 2).collect();
-        result.sort_by(|a, b| {
+        duplicates.sort_by(|a, b| {
             b.wasted_size()
                 .cmp(&a.wasted_size())
                 .then(b.count.cmp(&a.count))
         });
-        result
+        DuplicateStringsResult {
+            duplicates,
+            skipped_count,
+            skipped_size,
+        }
     }
 }
 

@@ -1,16 +1,25 @@
 use crate::snapshot::HeapSnapshot;
+use crate::utils::truncate_str;
 
 use super::{format_count, format_size};
 
 pub fn print_duplicate_strings(snap: &HeapSnapshot, min_count: u32) {
-    let duplicates: Vec<_> = snap
-        .duplicate_strings()
+    let result = snap.duplicate_strings();
+    let duplicates: Vec<_> = result
+        .duplicates
         .into_iter()
         .filter(|d| d.count >= min_count)
         .collect();
 
     if duplicates.is_empty() {
         println!("No duplicate strings found.");
+        if result.skipped_count > 0 {
+            println!(
+                "({} strings ({}) skipped — no length metadata, use a newer V8 snapshot)",
+                format_count(result.skipped_count),
+                format_size(result.skipped_size),
+            );
+        }
         return;
     }
 
@@ -35,16 +44,12 @@ pub fn print_duplicate_strings(snap: &HeapSnapshot, min_count: u32) {
     println!("{}", "\u{2500}".repeat(total_width + 2));
 
     for d in &duplicates {
-        let preview = if d.value.len() > col_value {
-            let mut end = col_value - 1;
-            while end > 0 && !d.value.is_char_boundary(end) {
-                end -= 1;
-            }
-            format!("{}\u{2026}", &d.value[..end])
-        } else {
-            d.value.clone()
-        };
-        let preview = preview.replace('\n', "\\n").replace('\r', "\\r");
+        let mut preview = truncate_str(&d.value, col_value)
+            .replace('\n', "\\n")
+            .replace('\r', "\\r");
+        if d.truncated {
+            preview = format!("{preview}\u{2026} (len {})", d.length);
+        }
         println!(
             "{:>w_count$}{:>w_size$}{:>w_wasted$}  {}",
             format!("\u{00d7}{}", format_count(d.count)),
@@ -68,4 +73,11 @@ pub fn print_duplicate_strings(snap: &HeapSnapshot, min_count: u32) {
         w_size = col_size,
         w_wasted = col_wasted,
     );
+    if result.skipped_count > 0 {
+        println!(
+            "({} strings ({}) skipped — no length metadata, use a newer V8 snapshot)",
+            format_count(result.skipped_count),
+            format_size(result.skipped_size),
+        );
+    }
 }
