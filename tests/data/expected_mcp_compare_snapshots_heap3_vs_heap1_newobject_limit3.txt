@@ -1,0 +1,5 @@
+NewObject: # new: 7, # deleted: 0, # delta: +7, alloc size: +196 B, freed size: 0 B, size delta: +196 B
+Showing 1-3 of 7 objects:
+  + @34055 (self_size: 28)
+  + @35193 (self_size: 28)
+  + @42341 (self_size: 28)

@@ -1,0 +1,19 @@
+17 constructors with changes. Showing 1-17:
+Constructor                                           # New  # Deleted  # Delta    Alloc. Size     Freed Size     Size Delta
+(concatenated string)                                    45         43       +2         +900 B         +860 B          +40 B
+(object shape)                                           11          1      +10         +408 B          +20 B         +388 B
+NewObject                                                 2          0       +2         +120 B            0 B         +120 B
+system / BytecodeArray                                    1          0       +1          +92 B            0 B          +92 B
+(string)                                                  4          4        0          +76 B          +72 B           +4 B
+system / ScopeInfo                                        1          0       +1          +44 B            0 B          +44 B
+(constant pool)                                           1          0       +1          +44 B            0 B          +44 B
+Array                                                     2          0       +2          +32 B            0 B          +32 B
+{constructor}                                             1          0       +1          +28 B            0 B          +28 B
+(object elements)                                         1          0       +1          +28 B            0 B          +28 B
+system / FeedbackMetadata                                 1          0       +1          +24 B            0 B          +24 B
+system / ArrayBoilerplateDescription                      1          0       +1          +12 B            0 B          +12 B
+system / BytecodeWrapper                                  1          0       +1           +8 B            0 B           +8 B
+InitialObject                                             0          2       −2            0 B         +120 B         −120 B
+(number)                                                  0          2       −2            0 B          +24 B          −24 B
+system / UncompiledDataWithoutPreparseData                0          1       −1            0 B          +20 B          −20 B
+{createdAt}                                               0          2       −2            0 B          +32 B          −32 B

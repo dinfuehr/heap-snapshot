@@ -6,12 +6,7 @@ fn load_snapshot() {
     let path = format!("{}/heap-1.heapsnapshot", test_dir());
 
     let resp = proc.call_tool(1, "load_snapshot", serde_json::json!({ "path": path }));
-    let text = get_text(&resp);
-    let expected = format!(
-        "Loaded snapshot from {}/heap-1.heapsnapshot with 10653 nodes. snapshot_id: 1",
-        test_dir()
-    );
-    assert_eq!(text, expected);
+    assert_content!(get_text(&resp), "expected_mcp_load_snapshot_1.txt");
 }
 
 #[test]
@@ -20,16 +15,10 @@ fn load_and_close_snapshot() {
     let path = format!("{}/heap-1.heapsnapshot", test_dir());
 
     let resp = proc.call_tool(1, "load_snapshot", serde_json::json!({ "path": path }));
-    let text = get_text(&resp);
-    let expected = format!(
-        "Loaded snapshot from {}/heap-1.heapsnapshot with 10653 nodes. snapshot_id: 1",
-        test_dir()
-    );
-    assert_eq!(text, expected);
+    assert_content!(get_text(&resp), "expected_mcp_load_snapshot_1.txt");
 
     let resp = proc.call_tool(2, "close_snapshot", serde_json::json!({ "snapshot_id": 1 }));
-    let text = get_text(&resp);
-    assert_eq!(text, "Closed snapshot 1");
+    assert_content!(get_text(&resp), "expected_mcp_close_snapshot.txt");
 }
 
 #[test]
@@ -41,8 +30,7 @@ fn close_nonexistent_snapshot() {
         "close_snapshot",
         serde_json::json!({ "snapshot_id": 999 }),
     );
-    let text = get_text(&resp);
-    assert_eq!(text, "No snapshot found with id 999");
+    assert_content!(get_text(&resp), "expected_mcp_close_snapshot_missing.txt");
 }
 
 #[test]
@@ -69,16 +57,6 @@ fn multiple_snapshots_get_different_ids() {
     let resp1 = proc.call_tool(1, "load_snapshot", serde_json::json!({ "path": &path }));
     let resp2 = proc.call_tool(2, "load_snapshot", serde_json::json!({ "path": &path }));
 
-    let text1 = get_text(&resp1);
-    let text2 = get_text(&resp2);
-    let expected1 = format!(
-        "Loaded snapshot from {}/heap-1.heapsnapshot with 10653 nodes. snapshot_id: 1",
-        test_dir()
-    );
-    let expected2 = format!(
-        "Loaded snapshot from {}/heap-1.heapsnapshot with 10653 nodes. snapshot_id: 2",
-        test_dir()
-    );
-    assert_eq!(text1, expected1);
-    assert_eq!(text2, expected2);
+    assert_content!(get_text(&resp1), "expected_mcp_load_snapshot_1.txt");
+    assert_content!(get_text(&resp2), "expected_mcp_load_snapshot_2.txt");
 }

@@ -1,0 +1,19 @@
+17 constructors with changes. Showing 1-17:
+Constructor                                           # New  # Deleted  # Delta    Alloc. Size     Freed Size     Size Delta
+(concatenated string)                                    43         45       −2         +860 B         +900 B          −40 B
+InitialObject                                             2          0       +2         +120 B            0 B         +120 B
+(string)                                                  4          4        0          +72 B          +76 B           −4 B
+{createdAt}                                               2          0       +2          +32 B            0 B          +32 B
+(number)                                                  2          0       +2          +24 B            0 B          +24 B
+(object shape)                                            1         11      −10          +20 B         +408 B         −388 B
+system / UncompiledDataWithoutPreparseData                1          0       +1          +20 B            0 B          +20 B
+system / FeedbackMetadata                                 0          1       −1            0 B          +24 B          −24 B
+system / BytecodeWrapper                                  0          1       −1            0 B           +8 B           −8 B
+system / BytecodeArray                                    0          1       −1            0 B          +92 B          −92 B
+system / ArrayBoilerplateDescription                      0          1       −1            0 B          +12 B          −12 B
+system / ScopeInfo                                        0          1       −1            0 B          +44 B          −44 B
+NewObject                                                 0          2       −2            0 B         +120 B         −120 B
+(constant pool)                                           0          1       −1            0 B          +44 B          −44 B
+{constructor}                                             0          1       −1            0 B          +28 B          −28 B
+(object elements)                                         0          1       −1            0 B          +28 B          −28 B
+Array                                                     0          2       −2            0 B          +32 B          −32 B

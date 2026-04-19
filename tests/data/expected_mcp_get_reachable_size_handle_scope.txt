@@ -1,0 +1,3 @@
+Reachable size from @25 ((Handle scope)): 121280 bytes
+1 native contexts reached:
+  @7271 [utility] #0 @7271

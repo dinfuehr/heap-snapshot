@@ -1,0 +1,128 @@
+Constructor                                           Count   Shallow size  Retained size
+Function                                                846          24280          60460
+(object shape)                                          914          48108          49052
+system / NativeContext                                    1           1244          23724
+(array)                                                  13          14824          18352
+{constructor}                                            67           1876          13216
+system / SharedFunctionInfo                             150           7200          10372
+system / FunctionTemplateInfo                            97           6208           6860
+(string)                                                137           4500           4500
+system / PropertyArray                                  119           4388           4388
+Object                                                    7            192           3548
+system / PropertyCell                                   111           2220           2288
+TypedArray                                               12            336           2288
+system / Context / scope @7285                            1             20           2256
+system / ObjectTemplateInfo                              27            756           2088
+Array                                                     2             32           2072
+Math                                                      1             28           1992
+Error                                                    12            336           1968
+InitialObject [snapshot_diffs.js:3:23]                    3            180           1696
+String                                                    1             16           1612
+system / DoubleStringCache                                1           1544           1544
+(concatenated string)                                    66           1320           1432
+DataView                                                  1             28           1424
+system / ArrayList                                       19           1352           1380
+system / AccessorPair                                   103           1236           1364
+Intl.Locale                                               1             28           1292
+console                                                   1             12           1248
+{file, log, dom, test, promise, debugger, serializer, wasm}        2             56           1208
+global                                                    2             32           1168
+system / BytecodeArray                                    2            480           1048
+Intl                                                      1             28           1048
+system / FunctionTemplateRareData                        15            600            852
+system / WeakFixedArray                                   2            784            784
+Atomics                                                   1             28            784
+AsyncDisposableStack                                      1             28            784
+DisposableStack                                           1             28            760
+Reflect                                                   1             28            620
+(constant pool)                                           3            184            552
+ArrayBuffer                                               1             28            540
+WebAssembly                                               1             12            440
+EventTarget                                               4            112            424
+Set                                                       1             28            404
+SharedArrayBuffer                                         1             28            388
+Intl.NumberFormat                                         1             28            384
+Intl.DateTimeFormat                                       1             28            384
+Map                                                       1             28            376
+Number                                                    1             16            372
+Symbol                                                    1             28            344
+Intl.PluralRules                                          1             28            292
+Intl.RelativeTimeFormat                                   1             28            292
+Intl.ListFormat                                           1             28            292
+Intl.DurationFormat                                       1             28            292
+BigInt                                                    1             28            292
+JSON                                                      1             28            280
+system / Script                                           3            240            276
+global [JSGlobalObject]                                   1             24            276
+Promise                                                   1             28            264
+Generator                                                 1             28            252
+AsyncGenerator                                            1             28            252
+Intl.Collator                                             1             28            244
+WeakMap                                                   1             28            240
+FinalizationRegistry                                      1             28            232
+Intl.DisplayNames                                         1             28            232
+Intl.Segmenter                                            1             28            232
+(number)                                                 19            228            228
+Async-from-Sync Iterator                                  1             28            220
+WeakRef                                                   1             28            192
+{current, owner, global, create, createAllowCrossRealmAccess}        3             36            192
+WebAssembly.Table                                         1             28            192
+WebAssembly.Memory                                        1             28            192
+Boolean                                                   1             16            188
+Array Iterator                                            1             28            180
+Iterator Helper                                           1             28            180
+Map Iterator                                              1             28            180
+Set Iterator                                              1             28            180
+String Iterator                                           1             28            180
+{chdir, setenv, unsetenv, umask, mkdirp, rmdir, name, d8Path}        3             84            180
+Segmenter String Iterator                                 1             28            180
+RegExp String Iterator                                    1             28            180
+AsyncGeneratorFunction                                    1             28            164
+GeneratorFunction                                         1             28            164
+WebAssembly.Exception                                     1             28            160
+AsyncFunction                                             1             28            152
+WebAssembly.Global                                        1             28            148
+WebAssembly.Suspending                                    1             28            148
+WebAssembly.Instance                                      1             28            136
+WebAssembly.Module                                        1             28            112
+WebAssembly.Tag                                           1             28            112
+WeakSet                                                   1             28            104
+system / ScriptContextTable                               1             80            100
+system / ScopeInfo                                        2             84             84
+{serializeModule, deserializeModule}                      3             84             84
+{setOnProfileEndListener, triggerSample}                  3             84             84
+{maxFixedArrayCapacity, maxFastArrayLength}               3             84             84
+{setHooks}                                                3             84             84
+{enable, disable}                                         3             84             84
+{serialize, deserialize}                                  3             84             84
+{now, mark, measure, measureMemory}                       3             84             84
+{EventTarget, Div}                                        3             84             84
+{verifySourcePositions, installConditionalFeatures}        3             84             84
+{read, execute}                                           3             84             84
+{getAndStop}                                              3             84             84
+{createdAt}                                               3             48             84
+system / FeedbackMetadata                                 2             80             80
+system / AccessorInfo                                     3             72             72
+system / ObjectBoilerplateDescription                     2             64             64
+global [JSGlobalProxy]                                    1             16             56
+system / FeedbackCell                                     3             48             48
+system / RegExpMatchInfo                                  1             44             44
+system / WeakFixedArray                                   2             36             36
+Tag                                                       1             24             32
+system / WasmDispatchTable                                1             28             28
+system / WasmSuspenderObject                              1             28             28
+system / WeakArrayList                                    1             24             24
+system / Context / scope @421                             1             20             20
+system / UncompiledDataWithoutPreparseData                1             20             20
+(host-defined options)                                    1             16             16
+system / ClosureFeedbackCellArray                         1             16             16
+system / EmbedderDataArray                                1             16             16
+system / BytecodeWrapper                                  2             16             16
+system / TrustedByteArray                                 1              8              8
+system / TrustedFixedArray                                1              8              8
+system / TrustedWeakFixedArray                            1              8              8
+system / ProtectedFixedArray                              1              8              8
+system / ProtectedWeakFixedArray                          1              8              8
+system / Managed (D8ModuleEmbedderDataTag)                1              8              8
+system / WasmExceptionTag                                 1              8              8
+system / Foreign (MessageListenerTag)                     1              8              8

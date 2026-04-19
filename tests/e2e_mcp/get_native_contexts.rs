@@ -10,11 +10,7 @@ fn get_native_contexts() {
         "get_native_contexts",
         serde_json::json!({ "snapshot_id": 1 }),
     );
-    let text = get_text(&resp);
-    assert_eq!(
-        text,
-        "1 native contexts:\n@7165 [utility] #0 @7165 (detachedness: unknown, self_size: 1240, retained_size: 23708)"
-    );
+    assert_content!(get_text(&resp), "expected_mcp_get_native_contexts.txt");
 }
 
 #[test]

@@ -231,8 +231,12 @@ impl McpServer {
             .await
             .insert(snapshot_id, Arc::new(snapshot));
 
+        let name = std::path::Path::new(&path)
+            .file_name()
+            .map(|s| s.to_string_lossy().into_owned())
+            .unwrap_or(path);
         Ok(CallToolResult::success(vec![Content::text(format!(
-            "Loaded snapshot from {path} with {node_count} nodes. snapshot_id: {snapshot_id}"
+            "Loaded snapshot from {name} with {node_count} nodes. snapshot_id: {snapshot_id}"
         ))]))
     }
 
@@ -1142,7 +1146,9 @@ impl McpServer {
                 ));
             }
             lines.push(format!("Showing entries {start}..{end}:"));
-            lines.push(String::new());
+            if start < end {
+                lines.push(String::new());
+            }
 
             for entry in &duplicates[start..end] {
                 let mut display = truncate_str(&entry.value, 80);

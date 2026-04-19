@@ -10,14 +10,7 @@ fn get_reachable_size() {
         "get_reachable_size",
         serde_json::json!({ "snapshot_id": 1, "object_id": "@1" }),
     );
-    let text = get_text(&resp);
-    assert_eq!(
-        text,
-        "\
-Reachable size from @1 (): 128420 bytes
-1 native contexts reached:
-  @7165 [utility] #0 @7165"
-    );
+    assert_content!(get_text(&resp), "expected_mcp_get_reachable_size_root.txt");
 }
 
 #[test]
@@ -25,19 +18,15 @@ fn get_reachable_size_reaches_native_context() {
     let mut proc = McpProcess::start();
     load_heap1(&mut proc);
 
-    // @25 is (Handle scope) which reaches native context @7165
+    // @25 is the stable (Handle scope) id — reaches the utility native context.
     let resp = proc.call_tool(
         2,
         "get_reachable_size",
         serde_json::json!({ "snapshot_id": 1, "object_id": "@25" }),
     );
-    let text = get_text(&resp);
-    assert_eq!(
-        text,
-        "\
-Reachable size from @25 ((Handle scope)): 121532 bytes
-1 native contexts reached:
-  @7165 [utility] #0 @7165"
+    assert_content!(
+        get_text(&resp),
+        "expected_mcp_get_reachable_size_handle_scope.txt"
     );
 }
 

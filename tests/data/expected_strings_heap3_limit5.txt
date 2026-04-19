@@ -1,0 +1,9 @@
+   Count        Size      Wasted  Value                                                       
+──────────────────────────────────────────────────────────────────────────────────────────────
+     ×88        2 kB        2 kB  yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy…
+     ×13       260 B       240 B  xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx…
+      ×7       140 B       120 B  yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy
+      ×7       140 B       120 B  yyyyyyyy
+      ×7       140 B       120 B  yyyyyyyyyyyyyyyy
+──────────────────────────────────────────────────────────────────────────────────────────────
+Showing 1-5 of 14 duplicate groups (3 kB wasted total)

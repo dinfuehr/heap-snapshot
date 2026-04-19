@@ -44,54 +44,17 @@ fn retainers_shows_header() {
 
 #[test]
 fn retainers_shows_retainer_chain() {
-    let id = find_initial_object_id("heap-1.heapsnapshot");
-    let output = run_retainers("heap-1.heapsnapshot", &id, &["--depth", "3"]);
-    // The InitialObject is retained via "a in {a, b, keep}" or similar
-    // and eventually reaches a GC root holder (e.g. Handle scope, Stack roots).
-    let reaches_root_holder = output.contains("(Handle scope)")
-        || output.contains("(Stack roots)")
-        || output.contains("(Global handles)")
-        || output.contains("(Strong root list)");
-    assert!(
-        reaches_root_holder,
-        "expected retainer chain to reach a GC root holder"
-    );
+    // @27945 is the `keep` InitialObject (largest retained size of the three
+    // InitialObjects produced by snapshot_diffs.js).
+    let output = run_retainers("heap-1.heapsnapshot", "@27945", &["--depth", "3"]);
+    assert_content!(output, "expected_retainers_heap1_keep.txt");
 }
 
 #[test]
-fn retainers_weakrefs_7207_full_output() {
-    let output = run_retainers("weakrefs.heapsnapshot", "@7207", &[]);
-    let expected = include_str!("data/expected_retainers_7207.txt");
-
-    // Strip status lines ("Reading …", "Initializing …", blank line) from
-    // the beginning of the actual output, then compare line-by-line with
-    // trailing whitespace stripped.
-    let actual_lines: Vec<&str> = output
-        .lines()
-        .skip_while(|l| !l.starts_with("Retainers for"))
-        .map(|l| l.trim_end())
-        .collect();
-    let expected_lines: Vec<&str> = expected.lines().map(|l| l.trim_end()).collect();
-
-    if actual_lines != expected_lines {
-        // Build a readable diff.
-        let max = actual_lines.len().max(expected_lines.len());
-        let mut diffs = Vec::new();
-        for i in 0..max {
-            let a = actual_lines.get(i).copied().unwrap_or("<missing>");
-            let e = expected_lines.get(i).copied().unwrap_or("<missing>");
-            if a != e {
-                diffs.push(format!("line {i}:\n  expected: {e:?}\n  actual:   {a:?}"));
-            }
-        }
-        panic!(
-            "retainers output mismatch ({} lines differ, {} actual vs {} expected):\n{}",
-            diffs.len(),
-            actual_lines.len(),
-            expected_lines.len(),
-            diffs.join("\n"),
-        );
-    }
+fn retainers_weakrefs_full_output() {
+    // @7279 is the WeakTarget instance created in snapshot_weakrefs.js.
+    let output = run_retainers("weakrefs.heapsnapshot", "@7279", &[]);
+    assert_content!(output, "expected_retainers_weakrefs.txt");
 }
 
 #[test]

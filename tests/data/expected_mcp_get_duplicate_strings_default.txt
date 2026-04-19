@@ -1,0 +1,17 @@
+14 duplicate string groups, 2948 bytes wasted total
+Showing entries 0..14:
+
+"yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy…" x88 (instance_size: 20, total: 1760, wasted: 1740)
+"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx…" x13 (instance_size: 20, total: 260, wasted: 240)
+"yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy" x7 (instance_size: 20, total: 140, wasted: 120)
+"yyyyyyyy" x7 (instance_size: 20, total: 140, wasted: 120)
+"yyyyyyyyyyyyyyyy" x7 (instance_size: 20, total: 140, wasted: 120)
+"yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy" x7 (instance_size: 20, total: 140, wasted: 120)
+"yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy…" x7 (instance_size: 20, total: 140, wasted: 120)
+"yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy…" x7 (instance_size: 20, total: 140, wasted: 120)
+"yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy…" x7 (instance_size: 20, total: 140, wasted: 120)
+"yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy" x3 (instance_size: 20, total: 60, wasted: 40)
+"get disposed" x2 (instance_size: 24, total: 48, wasted: 24)
+"WebAssembly" x2 (instance_size: 24, total: 48, wasted: 24)
+"Worker" x2 (instance_size: 20, total: 40, wasted: 20)
+"yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy…" x2 (instance_size: 20, total: 40, wasted: 20)

@@ -1,0 +1,9 @@
+   Count        Size      Wasted  Value                                                       
+──────────────────────────────────────────────────────────────────────────────────────────────
+      ×7       140 B       120 B  yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy
+      ×7       140 B       120 B  yyyyyyyy
+      ×7       140 B       120 B  yyyyyyyyyyyyyyyy
+      ×7       140 B       120 B  yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy…
+      ×7       140 B       120 B  yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy…
+──────────────────────────────────────────────────────────────────────────────────────────────
+Showing 3-7 of 14 duplicate groups (3 kB wasted total)

@@ -100,23 +100,23 @@ fn show_without_at_prefix() {
 fn show_exact_output() {
     let output = run_show(
         "heap-1.heapsnapshot",
-        "@7165",
+        "@7271",
         &["--depth", "0", "--limit", "3"],
     );
     let expected = "\
-id:           @7165
-ordinal:      3582
+id:           @7271
+ordinal:      3635
 type:         native
 name:         system / NativeContext
 class:        system / NativeContext
-self size:    1 kB (1240)
-retained:     23 kB (23708)
+self size:    1 kB (1244)
+retained:     23 kB (23724)
 distance:     2
 detachedness: Unknown
 edge count:   265
-  --[internal \"scope_info\"]--> @413 system / ScopeInfo (type: code, self_size: 0)
-  --[internal \"global_object\"]--> @7531 global [JSGlobalObject] (type: object, self_size: 24)
-  --[internal \"global_proxy_object\"]--> @7181 global [JSGlobalProxy] (type: object, self_size: 16)
+  --[internal \"scope_info\"]--> @425 system / ScopeInfo (type: code, self_size: 0)
+  --[internal \"global_object\"]--> @7637 global [JSGlobalObject] (type: object, self_size: 24)
+  --[internal \"global_proxy_object\"]--> @7289 global [JSGlobalProxy] (type: object, self_size: 16)
   (1-3 of 265 children shown)
 ";
     assert_eq!(output, expected);

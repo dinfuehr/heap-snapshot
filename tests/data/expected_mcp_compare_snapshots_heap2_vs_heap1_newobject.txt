@@ -1,0 +1,4 @@
+NewObject: # new: 2, # deleted: 0, # delta: +2, alloc size: +120 B, freed size: 0 B, size delta: +120 B
+Showing 1-2 of 2 objects:
+  + @34055 (self_size: 60)
+  + @35193 (self_size: 60)

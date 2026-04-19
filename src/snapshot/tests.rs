@@ -6914,6 +6914,57 @@ fn test_duplicate_strings_truncated_same_length_grouped() {
 }
 
 #[test]
+fn test_duplicate_strings_node_ids_populated() {
+    // 3x "foo" + 2x "bar" + 1x "baz"; "foo" and "bar" become duplicate groups.
+    let entries: Vec<StringTestEntry> = [
+        ("foo", 20, 3),
+        ("foo", 20, 3),
+        ("foo", 20, 3),
+        ("bar", 40, 3),
+        ("bar", 40, 3),
+        ("baz", 60, 3),
+    ]
+    .into_iter()
+    .map(|(name, self_size, length)| StringTestEntry {
+        name: name.into(),
+        self_size,
+        length,
+        truncated: false,
+        two_byte: false,
+    })
+    .collect();
+    let snap = build_string_props_snapshot(&entries);
+
+    let dupes = snap.duplicate_strings().duplicates;
+    let foo = dupes.iter().find(|d| d.value == "foo").unwrap();
+    let bar = dupes.iter().find(|d| d.value == "bar").unwrap();
+
+    assert_eq!(foo.node_ids.len(), foo.count as usize);
+    assert_eq!(bar.node_ids.len(), bar.count as usize);
+
+    // Every captured id must resolve to a string node with the expected name.
+    for id in foo.node_ids.iter().chain(bar.node_ids.iter()) {
+        let ord = snap
+            .node_for_snapshot_object_id(*id)
+            .unwrap_or_else(|| panic!("id {id:?} should exist in snapshot"));
+        let name = snap.node_display_name(ord);
+        assert!(
+            name == "foo" || name == "bar",
+            "expected foo/bar, got {name:?}"
+        );
+    }
+
+    // Ids within one group must be distinct.
+    let mut sorted = foo.node_ids.clone();
+    sorted.sort_by_key(|id| id.0);
+    sorted.dedup();
+    assert_eq!(sorted.len(), foo.node_ids.len(), "ids must be distinct");
+
+    // "baz" has count 1 → not a duplicate group, so not returned.
+    assert!(dupes.iter().all(|d| d.value != "baz"));
+}
+
+#[test]
 fn test_duplicate_strings_fields_populated() {
     // Verify the new fields (length, truncated, two_byte) are populated correctly.
     let snap = build_string_props_snapshot(&[

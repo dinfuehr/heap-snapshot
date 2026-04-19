@@ -1,0 +1,5 @@
+Function: 846 objects, 24280 shallow bytes, 60460 retained bytes
+Showing 1-3 of 846:
+  @22159 Date (self_size: 32, retained_size: 2576)
+  @22361 RegExp (self_size: 32, retained_size: 1892)
+  @22231 Locale (self_size: 32, retained_size: 1492)

@@ -1,0 +1,7 @@
+14 duplicate string groups, 2948 bytes wasted total
+Showing entries 0..2:
+
+"yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy…" x88 (instance_size: 20, total: 1760, wasted: 1740)
+"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx…" x13 (instance_size: 20, total: 260, wasted: 240)
+
+Use offset=2 to see more entries (12 remaining).

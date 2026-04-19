@@ -1,0 +1,14 @@
+@28197 (retained: 168 B)  vars: [innerOnly]
+  (incomplete: script @7649 source is missing or could not be parsed)
+@28193 (retained: 148 B)  vars: [shared]
+  (incomplete: script @7649 source is missing or could not be parsed)
+@7291 (retained: 68 B)  vars: [Emitter, counter, emitter, fns, greeter, nested, secret]
+  (incomplete: script @7649 source is missing or could not be parsed)
+@28187 (retained: 44 B)  vars: [count]
+  (incomplete: script @7649 source is missing or could not be parsed)
+@28191 (retained: 28 B)  vars: [greeting, prefix, punctuation]
+  (incomplete: script @7649 source is missing or could not be parsed)
+@28213 (retained: 20 B)  vars: [hidden]
+  (incomplete: script @7649 source is missing or could not be parsed)
+
+6 contexts with unused variables

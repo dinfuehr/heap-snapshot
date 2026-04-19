@@ -3225,14 +3225,15 @@ fn test_plan_reached_gc_roots_for_root_holder_start() {
     );
 }
 
-fn setup_weakrefs_7207_tui() -> (HeapSnapshot, App) {
+fn setup_weakrefs_tui() -> (HeapSnapshot, App) {
     let snap = load_test_snapshot(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/tests/data/weakrefs.heapsnapshot"
     ));
+    // @7279 is the WeakTarget instance created by snapshot_weakrefs.js.
     let ordinal = snap
-        .node_for_snapshot_object_id(crate::types::NodeId(7207))
-        .expect("@7207 should exist");
+        .node_for_snapshot_object_id(crate::types::NodeId(7279))
+        .expect("@7279 (WeakTarget) should exist");
 
     let (work_tx, _work_rx) = mpsc::channel();
     let (_result_tx, result_rx) = mpsc::channel();
@@ -3253,62 +3254,43 @@ fn setup_weakrefs_7207_tui() -> (HeapSnapshot, App) {
 }
 
 #[test]
-fn test_weakrefs_7207_tui_direct_retainers() {
-    let (_snap, app) = setup_weakrefs_7207_tui();
+fn test_weakrefs_tui_direct_retainers() {
+    let (_snap, app) = setup_weakrefs_tui();
 
-    // Collect depth-0 rows (direct retainers of @7207).
+    // Collect depth-0 rows (direct retainers of WeakTarget).
     let root_rows: Vec<_> = app
         .cached_rows
         .iter()
         .filter(|r| r.nav.depth == 0)
         .collect();
+    let labels: Vec<&str> = root_rows.iter().map(|r| r.render.label.as_ref()).collect();
 
-    // Expected direct retainers at root level (labels contain these):
-    let expected_labels = [
-        "@43 (Stack roots)",
-        "@7571 global [JSGlobalObject]",
-        "@7217 system / Context",
-        "@2327",
-        "@21325 system / WeakCell",
-        "@21255 system / PropertyCell",
-        "@21195 WeakRef",
-    ];
-
-    for expected in &expected_labels {
+    // Stable parts of expected direct retainer labels (V8-version-independent).
+    for expected in [
+        "(Stack roots)",
+        "global [JSGlobalObject]",
+        "system / Context",
+        "system / WeakCell",
+        "system / PropertyCell",
+        "WeakRef",
+    ] {
         assert!(
-            root_rows.iter().any(|r| r.render.label.contains(expected)),
-            "Expected direct retainer containing {expected:?} but not found. \
-                 Root labels: {:?}",
-            root_rows
-                .iter()
-                .map(|r| r.render.label.as_ref())
-                .collect::<Vec<_>>()
+            labels.iter().any(|l| l.contains(expected)),
+            "Expected direct retainer containing {expected:?}, got: {labels:?}"
         );
     }
-
-    assert_eq!(
-        root_rows.len(),
-        expected_labels.len(),
-        "Expected {} direct retainers, got {}. Labels: {:?}",
-        expected_labels.len(),
-        root_rows.len(),
-        root_rows
-            .iter()
-            .map(|r| r.render.label.as_ref())
-            .collect::<Vec<_>>()
-    );
 }
 
 #[test]
-fn test_weakrefs_7207_tui_root_holders_marked() {
-    let (_snap, app) = setup_weakrefs_7207_tui();
+fn test_weakrefs_tui_root_holders_marked() {
+    let (_snap, app) = setup_weakrefs_tui();
 
     // (Stack roots) @43 is a root holder — it should be marked.
     let stack_roots = app
         .cached_rows
         .iter()
-        .find(|r| r.render.label.contains("@43 (Stack roots)"))
-        .expect("@43 (Stack roots) should be visible");
+        .find(|r| r.render.label.contains("(Stack roots)"))
+        .expect("(Stack roots) should be visible");
     assert!(
         stack_roots.render.is_root_holder,
         "(Stack roots) should be marked as root_holder"
@@ -3318,8 +3300,12 @@ fn test_weakrefs_7207_tui_root_holders_marked() {
     let weakref = app
         .cached_rows
         .iter()
-        .find(|r| r.render.label.contains("@21195 WeakRef"))
-        .expect("WeakRef @21195 should be visible");
+        .find(|r| {
+            r.nav.depth == 0
+                && r.render.label.contains("WeakRef")
+                && !r.render.label.contains("WeakRefs")
+        })
+        .expect("WeakRef should be visible");
     assert!(
         !weakref.render.is_root_holder,
         "WeakRef should not be marked as root_holder"
@@ -3327,29 +3313,29 @@ fn test_weakrefs_7207_tui_root_holders_marked() {
 }
 
 #[test]
-fn test_weakrefs_7207_tui_auto_expansion() {
-    let (_snap, app) = setup_weakrefs_7207_tui();
+fn test_weakrefs_tui_auto_expansion() {
+    let (_snap, app) = setup_weakrefs_tui();
 
     // On-plan retainers should be auto-expanded.
     let global = app
         .cached_rows
         .iter()
-        .find(|r| r.nav.depth == 0 && r.render.label.contains("@7571 global [JSGlobalObject]"))
-        .expect("global @7571 should be at depth 0");
+        .find(|r| r.nav.depth == 0 && r.render.label.contains("global [JSGlobalObject]"))
+        .expect("global [JSGlobalObject] should be at depth 0");
     assert!(
         global.nav.is_expanded,
-        "global @7571 (on-plan) should be auto-expanded"
+        "global [JSGlobalObject] (on-plan) should be auto-expanded"
     );
 
     // Off-plan retainer should not be expanded.
     let weakref = app
         .cached_rows
         .iter()
-        .find(|r| r.nav.depth == 0 && r.render.label.contains("@21195 WeakRef"))
-        .expect("WeakRef @21195 should be at depth 0");
+        .find(|r| r.nav.depth == 0 && r.render.label.contains("WeakRef"))
+        .expect("WeakRef should be at depth 0");
     assert!(
         !weakref.nav.is_expanded,
-        "WeakRef @21195 (off-plan) should not be auto-expanded"
+        "WeakRef (off-plan) should not be auto-expanded"
     );
 
     // Auto-expanded tree should reach a GC root: look for (Handle scope)
@@ -3729,14 +3715,15 @@ fn test_unreachable_filter_recomputes_group_sizes() {
 }
 
 #[test]
-fn test_weakrefs_7207_plan_tree_structure() {
+fn test_weakrefs_plan_tree_structure() {
     let snap = load_test_snapshot(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/tests/data/weakrefs.heapsnapshot"
     ));
+    // @7279 is the WeakTarget instance created by snapshot_weakrefs.js.
     let ordinal = snap
-        .node_for_snapshot_object_id(crate::types::NodeId(7207))
-        .expect("@7207 should exist");
+        .node_for_snapshot_object_id(crate::types::NodeId(7279))
+        .expect("@7279 (WeakTarget) should exist");
 
     let plan = plan_gc_root_retainer_paths(
         &snap,
@@ -3761,10 +3748,12 @@ fn test_weakrefs_7207_plan_tree_structure() {
         })
         .collect();
 
-    // global @7571 should be in the plan tree (it's on a GC-root path).
+    // The global [JSGlobalObject] should be in the plan tree (it's on a GC-root path).
     assert!(
-        top_labels.iter().any(|l| l.contains("@7571")),
-        "global @7571 should be in plan tree. Top entries: {top_labels:?}"
+        top_labels
+            .iter()
+            .any(|l| l.contains("global [JSGlobalObject]")),
+        "global [JSGlobalObject] should be in plan tree. Top entries: {top_labels:?}"
     );
 
     // Every leaf of the plan tree should be a root holder.

@@ -1,0 +1,15 @@
+14116 nodes, 128252 bytes total
+  V8 heap:      107572 bytes
+  Native:       20680 bytes
+  Code:         8492 bytes
+  Strings:      5820 bytes
+  JS arrays:    64 bytes
+  Extra native: 0 bytes
+  Typed arrays: 0 bytes
+  System:       0 bytes
+  Unreachable:  0 bytes (0 objects)
+
+Native Context Attribution:
+  [utility] #0 @7271: 121280 bytes
+  Shared: 0 bytes
+  Unattributed: 6972 bytes

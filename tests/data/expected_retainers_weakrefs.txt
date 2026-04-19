@@ -1,13 +1,13 @@
-Retainers for WeakTarget @7207:
+Retainers for WeakTarget @7279:
 Object                                                                  Distance     Shallow Size      Retained Size
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 ▶ 11 in @43 (Stack roots)                                                      1         0 B   0%          28 B   0%
-▼ weakObj in @7571 global [JSGlobalObject]                                     2        24 B   0%         276 B   0%
+▼ weakObj in @7643 global [JSGlobalObject]                                     2        24 B   0%         276 B   0%
   ▶ 214 in @25 (Handle scope)                                                  1         0 B   0%           0 B   0%
-  ▼ global_object in @7219 global [JSGlobalProxy]                              2        16 B   0%          56 B   0%
+  ▼ global_object in @7293 global [JSGlobalProxy]                              2        16 B   0%          56 B   0%
     ▶ 21 in @43 (Stack roots)                                                  1         0 B   0%          28 B   0%
     ▶ 208 in @25 (Handle scope)                                                1         0 B   0%           0 B   0%
-    ▼ global_proxy_object in @7201 system / NativeContext                      2        1 kB   1%         23 kB  18%
+    ▼ global_proxy_object in @7273 system / NativeContext                      2        1 kB   1%         23 kB  19%
       ▶ 245 in @25 (Handle scope)                                              1         0 B   0%           0 B   0%
       ▶ 244 in @25 (Handle scope)                                              1         0 B   0%           0 B   0%
       ▶ 243 in @25 (Handle scope)                                              1         0 B   0%           0 B   0%
@@ -26,23 +26,23 @@ Object                                                                  Distance
       ▶ 181 in @25 (Handle scope)                                              1         0 B   0%           0 B   0%
       ▶ 3 in @23 (Global handles)                                              1         0 B   0%           0 B   0%
       ▶ 2 in @23 (Global handles)                                              1         0 B   0%           0 B   0%
-      ▼ native_context in @7591 system / Map                                   2        40 B   0%          40 B   0%
+      ▼ native_context in @7663 system / Map                                   2        40 B   0%          40 B   0%
         ▶ 230 in @25 (Handle scope)                                            1         0 B   0%           0 B   0%
-        ▼ map in @7217 system / Context                                        2        44 B   0%          92 B   0%
+        ▼ map in @7291 system / Context / scope @7289                          2        44 B   0%          92 B   0%
           ▶ 18 in @43 (Stack roots)                                            1         0 B   0%          28 B   0%
           ▶ 231 in @25 (Handle scope)                                          1         0 B   0%           0 B   0%
-          ▼ [2] in @7573 system / ScriptContextTable                           2        80 B   0%         100 B   0%
+          ▼ [2] in @7645 system / ScriptContextTable                           2        80 B   0%         100 B   0%
             ▶ 215 in @25 (Handle scope)                                        1         0 B   0%           0 B   0%
-          ▼ context in @7215                                                   2        32 B   0%          32 B   0%
+          ▼ context in @7287                                                   2        32 B   0%          32 B   0%
             ▶ 22 in @43 (Stack roots)                                          1         0 B   0%          28 B   0%
             ▶ 17 in @43 (Stack roots)                                          1         0 B   0%          28 B   0%
             ▶ 196 in @25 (Handle scope)                                        1         0 B   0%           0 B   0%
-          ▼ context in @21323                                                  3        28 B   0%          28 B   0%
-            ▼ [3] in @7209 FinalizationRegistry                                2        40 B   0%         104 B   0%
+          ▼ context in @28087                                                  3        28 B   0%          28 B   0%
+            ▼ [3] in @7281 FinalizationRegistry                                2        40 B   0%         104 B   0%
               ▶ 12 in @43 (Stack roots)                                        1         0 B   0%          28 B   0%
-              ▼ registry in @20191 {strong, weakRef, registry}                 3        24 B   0%         200 B   0%
-                ▼ value in @21253 system / PropertyCell                        3        20 B   0%          20 B   0%
-                  ▼ 131 in @7577 (object properties)                           2        1 kB   1%          3 kB   2%
+              ▼ registry in @26667 {strong, weakRef, registry}                 3        24 B   0%         200 B   0%
+                ▼ value in @27997 system / PropertyCell                        3        20 B   0%          20 B   0%
+                  ▼ 129 in @7649 (object properties)                           2        1 kB   1%          3 kB   2%
                     ▶ 229 in @25 (Handle scope)                                1         0 B   0%           0 B   0%
                     ▶ 227 in @25 (Handle scope)                                1         0 B   0%           0 B   0%
                     ▶ 225 in @25 (Handle scope)                                1         0 B   0%           0 B   0%
@@ -50,21 +50,21 @@ Object                                                                  Distance
                     ▶ 221 in @25 (Handle scope)                                1         0 B   0%           0 B   0%
                     ▶ 219 in @25 (Handle scope)                                1         0 B   0%           0 B   0%
                     ▶ 217 in @25 (Handle scope)                                1         0 B   0%           0 B   0%
-          ▼ previous in @21265 system / Context                                5        16 B   0%          16 B   0%
-            ▼ context in @21217 WeakTarget                                     4        32 B   0%         168 B   0%
-              ▼ constructor in @16869 system / Map                             4        40 B   0%         112 B   0%
-                ▼ 3 in @16863 system / WeakArrayList                           5        28 B   0%          28 B   0%
-                  ▼ [1] in @16751 system / PrototypeInfo                       4        40 B   0%          68 B   0%
-                    ▼ prototype_info in @16523 system / Map                    3        40 B   0%         272 B   0%
-                      ▼ map in @16379 {constructor, __defineGetter__,…         3        28 B   0%         296 B   0%
-                        ▼ prototype in @16521 Object                           3        32 B   0%          1 kB   1%
-                          ▼ constructor in @16775 system / Map                 4        40 B   0%         108 B   0%
-                            ▼ map in @16345 Function                           3        32 B   0%         160 B   0%
-                              ▼ constructor in @7555 system / Map              2        40 B   0%          96 B   0%
+          ▼ previous in @28009 system / Context / scope @27885                 5        16 B   0%          16 B   0%
+            ▼ context in @27961 WeakTarget                                     4        32 B   0%         168 B   0%
+              ▼ constructor in @22709 system / Map                             4        40 B   0%         112 B   0%
+                ▼ 3 in @22703 system / WeakArrayList                           5        28 B   0%          28 B   0%
+                  ▼ [1] in @22565 system / PrototypeInfo                       4        40 B   0%          68 B   0%
+                    ▼ prototype_info in @22341 system / Map                    3        40 B   0%         272 B   0%
+                      ▼ map in @22027 {constructor, __defineGetter__,…         3        28 B   0%         296 B   0%
+                        ▼ prototype in @22339 Object                           3        32 B   0%          1 kB   1%
+                          ▼ constructor in @22613 system / Map                 4        40 B   0%         108 B   0%
+                            ▼ map in @22165 Function                           3        32 B   0%         160 B   0%
+                              ▼ constructor in @7629 system / Map              2        40 B   0%          96 B   0%
                                 ▶ 195 in @25 (Handle scope)                    1         0 B   0%           0 B   0%
-▼ 5 in @2327                                                                   2        60 B   0%          60 B   0%
+▼ 5 in @2325                                                                   2        60 B   0%          60 B   0%
   ▶ weak_refs_keep_during_job in @49 (Strong root list)                        1         0 B   0%          7 kB   5%
-▶ weakObj in @7217 system / Context                                            2        44 B   0%          92 B   0%
-▶ target in @21325 system / WeakCell                                           3        36 B   0%          36 B   0%
-▶ value in @21255 system / PropertyCell                                        3        20 B   0%          20 B   0%
-▶ target in @21195 WeakRef                                                     3        16 B   0%          16 B   0%
+▶ weakObj in @7291 system / Context / scope @7289                              2        44 B   0%          92 B   0%
+▶ target in @28089 system / WeakCell                                           3        36 B   0%          36 B   0%
+▶ value in @27999 system / PropertyCell                                        3        20 B   0%          20 B   0%
+▶ target in @27939 WeakRef                                                     3        16 B   0%          16 B   0%

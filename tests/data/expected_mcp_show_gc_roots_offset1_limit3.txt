@@ -1,0 +1,5 @@
+Object @3: (GC roots) (type: synthetic, self_size: 0)
+  --[element "2"]--> @7 (Builtins) (type: synthetic, self_size: 0)
+  --[element "3"]--> @9 (Client heap) (type: synthetic, self_size: 0)
+  --[element "4"]--> @11 (Code flusher) (type: synthetic, self_size: 0)
+  (2-4 of 32 children shown)

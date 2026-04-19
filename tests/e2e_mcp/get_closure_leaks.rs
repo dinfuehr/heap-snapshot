@@ -26,24 +26,9 @@ fn get_closure_leaks_show_incomplete() {
         "get_closure_leaks",
         serde_json::json!({ "snapshot_id": 1, "show_incomplete": true }),
     );
-    let text = get_text(&resp);
-    assert_eq!(
-        text,
-        "\
-@124649 (retained: 168 B)  vars: [innerOnly]
-  (incomplete: script @7653 source is missing or could not be parsed)
-@124645 (retained: 148 B)  vars: [shared]
-  (incomplete: script @7653 source is missing or could not be parsed)
-@7295 (retained: 68 B)  vars: [Emitter, counter, emitter, fns, greeter, nested, secret]
-  (incomplete: script @7653 source is missing or could not be parsed)
-@124639 (retained: 44 B)  vars: [count]
-  (incomplete: script @7653 source is missing or could not be parsed)
-@124643 (retained: 28 B)  vars: [greeting, prefix, punctuation]
-  (incomplete: script @7653 source is missing or could not be parsed)
-@124665 (retained: 20 B)  vars: [hidden]
-  (incomplete: script @7653 source is missing or could not be parsed)
-
-6 contexts with unused variables"
+    assert_content!(
+        get_text(&resp),
+        "expected_mcp_get_closure_leaks_show_incomplete.txt"
     );
 }
 

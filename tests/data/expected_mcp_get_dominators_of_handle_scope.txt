@@ -1,0 +1,2 @@
+Dominator chain for @25: (Handle scope) (type: synthetic, self_size: 0, retained_size: 0)
+  dominated by @3 (GC roots) (type: synthetic, self_size: 0, retained_size: 128252)

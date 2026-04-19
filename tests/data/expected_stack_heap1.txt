@@ -1,0 +1,30 @@
+Object                                                                       Source         Det   Retained Size  Reachable Size
+------------------------------------------------------------------------------------------------------------------------------
+ @7283                                                                       (Stack roots)                 32 B          118 kB
+    → [utility] #0 @7271
+ @7283                                                                       (Stack roots)                 32 B          118 kB
+    → [utility] #0 @7271
+InitialObject @7277                                                          (Stack roots)                 32 B          117 kB
+    → [utility] #0 @7271
+system / Context / scope @7285 @7287                                         (Stack roots)                 2 kB          117 kB
+    → [utility] #0 @7271
+global [JSGlobalProxy] @7289                                                 (Stack roots)                 56 B          117 kB
+    → [utility] #0 @7271
+system / BytecodeArray @7281                                                 (Stack roots)                848 B            3 kB
+heap-1.heapsnapshot @7279                                                    (Stack roots)                 32 B            32 B
+system / WasmSuspenderObject @7273                                           (Stack roots)                 28 B            28 B
+keep @7275                                                                   (Stack roots)                 16 B            16 B
+system / Hole @63                                                            (Stack roots)                  0 B             0 B
+system / Hole @63                                                            (Stack roots)                  0 B             0 B
+system / Hole @63                                                            (Stack roots)                  0 B             0 B
+system / Hole @63                                                            (Stack roots)                  0 B             0 B
+undefined @61                                                                (Stack roots)                  0 B             0 B
+system / Code / CEntry_Return1_ArgvInRegister_NoBuiltinExit (builtin) @4003  (Stack roots)                  0 B             0 B
+system / Code / CallRuntimeHandler (builtin) @6439                           (Stack roots)                  0 B             0 B
+undefined @61                                                                (Stack roots)                  0 B             0 B
+undefined @61                                                                (Stack roots)                  0 B             0 B
+system / Code / InterpreterEntryTrampoline (builtin) @2495                   (Stack roots)                  0 B             0 B
+system / Code / JSEntryTrampoline (builtin) @2467                            (Stack roots)                  0 B             0 B
+system / Code / JSEntry (builtin) @2461                                      (Stack roots)                  0 B             0 B
+
+21 stack-rooted objects

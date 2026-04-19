@@ -1,5 +1,10 @@
 use super::*;
 
+// All of these tests operate on @1 (synthetic root) or @3 (GC roots), which
+// are stable across V8 snapshot revisions. @1 has a single child (@3) in the
+// current format; @3 has many children and is convenient for exercising depth,
+// offset, and limit.
+
 #[test]
 fn show() {
     let mut proc = McpProcess::start();
@@ -10,15 +15,7 @@ fn show() {
         "show",
         serde_json::json!({ "snapshot_id": 1, "object_id": "@1" }),
     );
-    let text = get_text(&resp);
-    assert_eq!(
-        text,
-        r#"Object @1:  (type: synthetic, self_size: 0)
-  --[element "1"]--> @3 (GC roots) (type: synthetic, self_size: 0)
-  --[element "2"]--> @2 C++ Persistent roots (type: synthetic, self_size: 0)
-  --[element "3"]--> @4 C++ CrossThreadPersistent roots (type: synthetic, self_size: 0)
-  --[element "4"]--> @6 C++ native stack roots (type: synthetic, self_size: 0)"#
-    );
+    assert_content!(get_text(&resp), "expected_mcp_show_root.txt");
 }
 
 #[test]
@@ -65,15 +62,8 @@ fn show_without_at_prefix() {
         "show",
         serde_json::json!({ "snapshot_id": 1, "object_id": "1" }),
     );
-    let text = get_text(&resp);
-    assert_eq!(
-        text,
-        r#"Object @1:  (type: synthetic, self_size: 0)
-  --[element "1"]--> @3 (GC roots) (type: synthetic, self_size: 0)
-  --[element "2"]--> @2 C++ Persistent roots (type: synthetic, self_size: 0)
-  --[element "3"]--> @4 C++ CrossThreadPersistent roots (type: synthetic, self_size: 0)
-  --[element "4"]--> @6 C++ native stack roots (type: synthetic, self_size: 0)"#
-    );
+    // Same object as "@1" above — output should be identical.
+    assert_content!(get_text(&resp), "expected_mcp_show_root.txt");
 }
 
 #[test]
@@ -81,65 +71,21 @@ fn show_with_depth() {
     let mut proc = McpProcess::start();
     load_heap1(&mut proc);
 
-    // depth=1 (default) should only have one level of indentation
+    // depth=1 (default): direct edges only.
     let resp1 = proc.call_tool(
         2,
         "show",
-        serde_json::json!({ "snapshot_id": 1, "object_id": "@1" }),
+        serde_json::json!({ "snapshot_id": 1, "object_id": "@3" }),
     );
-    let text1 = get_text(&resp1);
-    assert_eq!(
-        text1,
-        r#"Object @1:  (type: synthetic, self_size: 0)
-  --[element "1"]--> @3 (GC roots) (type: synthetic, self_size: 0)
-  --[element "2"]--> @2 C++ Persistent roots (type: synthetic, self_size: 0)
-  --[element "3"]--> @4 C++ CrossThreadPersistent roots (type: synthetic, self_size: 0)
-  --[element "4"]--> @6 C++ native stack roots (type: synthetic, self_size: 0)"#
-    );
+    assert_content!(get_text(&resp1), "expected_mcp_show_gc_roots.txt");
 
-    // depth=2 should have nested edges (double indentation)
+    // depth=2: nested edges appear with double indentation.
     let resp2 = proc.call_tool(
         3,
         "show",
-        serde_json::json!({ "snapshot_id": 1, "object_id": "@1", "depth": 2 }),
+        serde_json::json!({ "snapshot_id": 1, "object_id": "@3", "depth": 2 }),
     );
-    let text2 = get_text(&resp2);
-    assert_eq!(
-        text2,
-        r#"Object @1:  (type: synthetic, self_size: 0)
-  --[element "1"]--> @3 (GC roots) (type: synthetic, self_size: 0)
-    --[element "1"]--> @5 (Bootstrapper) (type: synthetic, self_size: 0)
-    --[element "2"]--> @7 (Builtins) (type: synthetic, self_size: 0)
-    --[element "3"]--> @9 (Client heap) (type: synthetic, self_size: 0)
-    --[element "4"]--> @11 (Code flusher) (type: synthetic, self_size: 0)
-    --[element "5"]--> @13 (Compilation cache) (type: synthetic, self_size: 0)
-    --[element "6"]--> @15 (Debugger) (type: synthetic, self_size: 0)
-    --[element "7"]--> @17 (Extensions) (type: synthetic, self_size: 0)
-    --[element "8"]--> @19 (Eternal handles) (type: synthetic, self_size: 0)
-    --[element "9"]--> @21 (External strings) (type: synthetic, self_size: 0)
-    --[element "10"]--> @23 (Global handles) (type: synthetic, self_size: 0)
-    --[element "11"]--> @25 (Handle scope) (type: synthetic, self_size: 0)
-    --[element "12"]--> @27 (Identity map) (type: synthetic, self_size: 0)
-    --[element "13"]--> @29 (Micro tasks) (type: synthetic, self_size: 0)
-    --[element "14"]--> @31 (Read-only roots) (type: synthetic, self_size: 0)
-    --[element "15"]--> @33 (Relocatable) (type: synthetic, self_size: 0)
-    --[element "16"]--> @35 (Retain maps) (type: synthetic, self_size: 0)
-    --[element "17"]--> @37 (Shareable object cache) (type: synthetic, self_size: 0)
-    --[element "18"]--> @39 (SharedStruct type registry) (type: synthetic, self_size: 0)
-    --[element "19"]--> @41 (Smi roots) (type: synthetic, self_size: 0)
-    --[element "20"]--> @43 (Stack roots) (type: synthetic, self_size: 0)
-    --[element "21"]--> @45 (Startup object cache) (type: synthetic, self_size: 0)
-    --[element "22"]--> @47 (Internalized strings) (type: synthetic, self_size: 0)
-    --[element "23"]--> @49 (Strong root list) (type: synthetic, self_size: 0)
-    --[element "24"]--> @51 (Strong roots) (type: synthetic, self_size: 0)
-    --[element "25"]--> @53 (Thread manager) (type: synthetic, self_size: 0)
-    --[element "26"]--> @55 (Traced handles) (type: synthetic, self_size: 0)
-    --[element "27"]--> @57 (Weak roots) (type: synthetic, self_size: 0)
-    --[element "28"]--> @59 (Write barrier) (type: synthetic, self_size: 0)
-  --[element "2"]--> @2 C++ Persistent roots (type: synthetic, self_size: 0)
-  --[element "3"]--> @4 C++ CrossThreadPersistent roots (type: synthetic, self_size: 0)
-  --[element "4"]--> @6 C++ native stack roots (type: synthetic, self_size: 0)"#
-    );
+    assert_content!(get_text(&resp2), "expected_mcp_show_gc_roots_depth2.txt");
 }
 
 #[test]
@@ -150,16 +96,9 @@ fn show_with_limit() {
     let resp = proc.call_tool(
         2,
         "show",
-        serde_json::json!({ "snapshot_id": 1, "object_id": "@1", "limit": 2 }),
+        serde_json::json!({ "snapshot_id": 1, "object_id": "@3", "limit": 2 }),
     );
-    let text = get_text(&resp);
-    assert_eq!(
-        text,
-        r#"Object @1:  (type: synthetic, self_size: 0)
-  --[element "1"]--> @3 (GC roots) (type: synthetic, self_size: 0)
-  --[element "2"]--> @2 C++ Persistent roots (type: synthetic, self_size: 0)
-  (1-2 of 4 children shown)"#
-    );
+    assert_content!(get_text(&resp), "expected_mcp_show_gc_roots_limit2.txt");
 }
 
 #[test]
@@ -167,34 +106,22 @@ fn show_with_offset() {
     let mut proc = McpProcess::start();
     load_heap1(&mut proc);
 
-    // Get all children first
+    // Without offset, first edge is element "1".
     let resp_all = proc.call_tool(
         2,
         "show",
-        serde_json::json!({ "snapshot_id": 1, "object_id": "@1" }),
+        serde_json::json!({ "snapshot_id": 1, "object_id": "@3", "limit": 3 }),
     );
-    let text_all = get_text(&resp_all);
-    assert_eq!(
-        text_all,
-        r#"Object @1:  (type: synthetic, self_size: 0)
-  --[element "1"]--> @3 (GC roots) (type: synthetic, self_size: 0)
-  --[element "2"]--> @2 C++ Persistent roots (type: synthetic, self_size: 0)
-  --[element "3"]--> @4 C++ CrossThreadPersistent roots (type: synthetic, self_size: 0)
-  --[element "4"]--> @6 C++ native stack roots (type: synthetic, self_size: 0)"#
-    );
+    assert_content!(get_text(&resp_all), "expected_mcp_show_gc_roots_limit3.txt");
 
-    // Get with offset=1
+    // With offset=1, first edge should be element "2".
     let resp_offset = proc.call_tool(
         3,
         "show",
-        serde_json::json!({ "snapshot_id": 1, "object_id": "@1", "offset": 1 }),
+        serde_json::json!({ "snapshot_id": 1, "object_id": "@3", "offset": 1, "limit": 3 }),
     );
-    let text_offset = get_text(&resp_offset);
-    assert_eq!(
-        text_offset,
-        r#"Object @1:  (type: synthetic, self_size: 0)
-  --[element "2"]--> @2 C++ Persistent roots (type: synthetic, self_size: 0)
-  --[element "3"]--> @4 C++ CrossThreadPersistent roots (type: synthetic, self_size: 0)
-  --[element "4"]--> @6 C++ native stack roots (type: synthetic, self_size: 0)"#
+    assert_content!(
+        get_text(&resp_offset),
+        "expected_mcp_show_gc_roots_offset1_limit3.txt"
     );
 }

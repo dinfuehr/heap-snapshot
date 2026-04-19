@@ -13,52 +13,7 @@ fn run_stack(file: &str) -> String {
 }
 
 #[test]
-fn stack_shows_header() {
+fn stack_full_output_heap1() {
     let output = run_stack("heap-1.heapsnapshot");
-    assert!(
-        output.contains("Object")
-            && output.contains("Retained Size")
-            && output.contains("Reachable Size"),
-        "expected header in output, got:\n{output}"
-    );
-}
-
-#[test]
-fn stack_finds_stack_rooted_objects() {
-    let output = run_stack("heap-1.heapsnapshot");
-    assert!(
-        output.contains("(Stack roots)"),
-        "expected (Stack roots) source in output, got:\n{output}"
-    );
-}
-
-#[test]
-fn stack_shows_count() {
-    let output = run_stack("heap-1.heapsnapshot");
-    assert!(
-        output.contains("21 stack-rooted objects"),
-        "expected 21 stack-rooted objects, got:\n{output}"
-    );
-}
-
-#[test]
-fn stack_contains_known_objects() {
-    let output = run_stack("heap-1.heapsnapshot");
-    assert!(
-        output.contains("InitialObject @7171"),
-        "expected InitialObject in output, got:\n{output}"
-    );
-    assert!(
-        output.contains("keep @7169"),
-        "expected keep in output, got:\n{output}"
-    );
-}
-
-#[test]
-fn stack_shows_reached_native_contexts() {
-    let output = run_stack("heap-1.heapsnapshot");
-    assert!(
-        output.contains("\u{2192} [utility] #0"),
-        "expected arrow with NativeContext in output, got:\n{output}"
-    );
+    assert_content!(output, "expected_stack_heap1.txt");
 }

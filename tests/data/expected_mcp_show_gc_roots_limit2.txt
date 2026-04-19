@@ -1,0 +1,4 @@
+Object @3: (GC roots) (type: synthetic, self_size: 0)
+  --[element "1"]--> @5 (Bootstrapper) (type: synthetic, self_size: 0)
+  --[element "2"]--> @7 (Builtins) (type: synthetic, self_size: 0)
+  (1-2 of 32 children shown)
