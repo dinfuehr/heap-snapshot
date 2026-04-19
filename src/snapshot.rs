@@ -20,8 +20,7 @@ pub const V8_STACK_ROOTS: &str = "(Stack roots)";
 pub const CPPGC_STACK_ROOTS: &str = "C++ native stack roots";
 
 use crate::types::Distance;
-const SHIFT_FOR_CLASS_INDEX: u32 = 2;
-const BITMASK_FOR_DOM_LINK_STATE: u32 = (1 << SHIFT_FOR_CLASS_INDEX) - 1;
+const BITMASK_FOR_DOM_LINK_STATE: u32 = 0b11;
 const MAX_INTERFACE_NAME_LENGTH: usize = 60;
 const MIN_INTERFACE_PROPERTY_COUNT: usize = 1;
 
@@ -214,9 +213,8 @@ pub struct HeapSnapshot {
     // Root classification for each node ordinal.
     root_kinds: Vec<RootKind>,
 
-    // Class index per node (separate array if detachedness offset not present)
-    detachedness_and_class_index: Vec<u32>,
-    use_separate_class_index: bool,
+    // Class index per node
+    class_indices: Vec<u32>,
 
     // Location map: node_index -> SourceLocation
     location_map: FxHashMap<usize, SourceLocation>,
@@ -436,8 +434,7 @@ impl HeapSnapshot {
             first_retainer_index: vec![0u32; node_count + 1],
             flags: vec![0u8; node_count],
             root_kinds: vec![RootKind::NonRoot; node_count],
-            detachedness_and_class_index: Vec::new(),
-            use_separate_class_index: false,
+            class_indices: vec![0u32; node_count],
             native_contexts: Vec::new(),
             node_native_context_buckets: vec![NativeContextBucket::Unattributed; node_count],
             shared_attributable_size: 0,
@@ -2316,11 +2313,6 @@ impl HeapSnapshot {
         let nfc = self.node_field_count;
         let node_count = self.node_count;
 
-        if self.node_detachedness_offset == -1 {
-            self.detachedness_and_class_index = vec![0u32; node_count];
-            self.use_separate_class_index = true;
-        }
-
         let mut string_table: FxHashMap<String, u32> = FxHashMap::default();
 
         let get_index =
@@ -2658,26 +2650,11 @@ impl HeapSnapshot {
     }
 
     fn set_class_index(&mut self, ordinal: NodeOrdinal, index: u32) {
-        if self.use_separate_class_index {
-            self.detachedness_and_class_index[ordinal.0] = index << SHIFT_FOR_CLASS_INDEX;
-        } else {
-            let det_off = self.node_detachedness_offset as usize;
-            let node_index = ordinal.0 * self.node_field_count;
-            let mut val = self.nodes[node_index + det_off];
-            val &= BITMASK_FOR_DOM_LINK_STATE;
-            val |= index << SHIFT_FOR_CLASS_INDEX;
-            self.nodes[node_index + det_off] = val;
-        }
+        self.class_indices[ordinal.0] = index;
     }
 
     fn class_index(&self, ordinal: NodeOrdinal) -> u32 {
-        if self.use_separate_class_index {
-            self.detachedness_and_class_index[ordinal.0] >> SHIFT_FOR_CLASS_INDEX
-        } else {
-            let det_off = self.node_detachedness_offset as usize;
-            let node_index = ordinal.0 * self.node_field_count;
-            self.nodes[node_index + det_off] >> SHIFT_FOR_CLASS_INDEX
-        }
+        self.class_indices[ordinal.0]
     }
 
     fn class_key_internal(&self, ordinal: NodeOrdinal) -> ClassKey {
