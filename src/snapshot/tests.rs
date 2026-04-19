@@ -7013,6 +7013,77 @@ fn test_duplicate_strings_fields_populated() {
 }
 
 #[test]
+fn test_aggregates_for_duplicate_strings_matches_duplicate_strings() {
+    let snap = build_string_props_snapshot(&[
+        StringTestEntry {
+            name: "abc".into(),
+            self_size: 20,
+            length: 3,
+            truncated: false,
+            two_byte: false,
+        },
+        StringTestEntry {
+            name: "abc".into(),
+            self_size: 20,
+            length: 3,
+            truncated: false,
+            two_byte: false,
+        },
+        StringTestEntry {
+            name: "xyz".into(),
+            self_size: 40,
+            length: 3,
+            truncated: false,
+            two_byte: true,
+        },
+        StringTestEntry {
+            name: "xyz".into(),
+            self_size: 40,
+            length: 3,
+            truncated: false,
+            two_byte: true,
+        },
+        StringTestEntry {
+            name: "lonely".into(),
+            self_size: 30,
+            length: 6,
+            truncated: false,
+            two_byte: false,
+        },
+    ]);
+
+    let dupes = snap.duplicate_strings().duplicates;
+    let aggs = snap.aggregates_for_duplicate_strings();
+    assert_eq!(aggs.len(), dupes.len());
+
+    let abc = aggs
+        .iter()
+        .find(|a| a.name == "abc")
+        .expect("abc aggregate present");
+    assert_eq!(abc.count, 2);
+    assert_eq!(abc.node_ordinals.len(), 2);
+    assert_eq!(abc.self_size, 40);
+
+    // Two-byte flag should surface in the name so it's visible in the row.
+    let xyz = aggs
+        .iter()
+        .find(|a| a.name == "xyz [2-byte]")
+        .expect("xyz aggregate carries [2-byte] tag");
+    assert_eq!(xyz.count, 2);
+    assert_eq!(xyz.node_ordinals.len(), 2);
+    assert_eq!(xyz.self_size, 80);
+
+    // Non-duplicates do not appear.
+    assert!(aggs.iter().all(|a| !a.name.starts_with("lonely")));
+
+    // first_seen is unique so the Summary view's tiebreak is stable.
+    let mut firsts: Vec<u32> = aggs.iter().map(|a| a.first_seen).collect();
+    firsts.sort_unstable();
+    firsts.dedup();
+    assert_eq!(firsts.len(), aggs.len());
+}
+
+#[test]
 fn test_duplicate_strings_non_truncated_still_grouped_by_name() {
     // Non-truncated strings with the same name should still be grouped
     // regardless of the length edge.

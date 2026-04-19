@@ -4436,6 +4436,70 @@ impl HeapSnapshot {
             skipped_size,
         }
     }
+
+    /// Build aggregates from duplicate string groups so they can be displayed
+    /// in the Summary view: one aggregate per duplicate string value, with
+    /// `node_ordinals` listing every duplicate instance.
+    pub fn aggregates_for_duplicate_strings(&self) -> AggregateMap {
+        let result = self.duplicate_strings();
+        if result.duplicates.is_empty() {
+            return Vec::new();
+        }
+
+        let nfc = self.node_field_count;
+        let ido = self.node_id_offset;
+        let mut id_to_ord: FxHashMap<u64, NodeOrdinal> = FxHashMap::default();
+        id_to_ord.reserve(self.node_count);
+        for ordinal in 0..self.node_count {
+            let id = self.nodes[ordinal * nfc + ido] as u64;
+            id_to_ord.insert(id, NodeOrdinal(ordinal));
+        }
+
+        result
+            .duplicates
+            .into_iter()
+            .enumerate()
+            .map(|(idx, info)| {
+                let mut node_ordinals: Vec<NodeOrdinal> = Vec::with_capacity(info.node_ids.len());
+                let mut self_size: u64 = 0;
+                let mut max_ret: u64 = 0;
+                let mut distance = Distance::NONE;
+                for nid in &info.node_ids {
+                    if let Some(&ord) = id_to_ord.get(&nid.0) {
+                        node_ordinals.push(ord);
+                        self_size += self.node_self_size(ord) as u64;
+                        max_ret += self.node_retained_size(ord);
+                        let d = self.node_distances[ord.0];
+                        if d < distance {
+                            distance = d;
+                        }
+                    }
+                }
+
+                let mut name = info.value;
+                let mut tags: Vec<&str> = Vec::new();
+                if info.truncated {
+                    tags.push("truncated");
+                }
+                if info.two_byte {
+                    tags.push("2-byte");
+                }
+                if !tags.is_empty() {
+                    name = format!("{name} [{}]", tags.join(", "));
+                }
+
+                AggregateInfo {
+                    count: info.count,
+                    distance,
+                    self_size,
+                    max_ret,
+                    name,
+                    first_seen: idx as u32,
+                    node_ordinals,
+                }
+            })
+            .collect()
+    }
 }
 
 pub struct EdgeIter<'a> {

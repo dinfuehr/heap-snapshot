@@ -639,6 +639,7 @@ export function SummaryView(props: {
           <option value="3">Retained by detached DOM</option>
           <option value="4">Retained by DevTools console</option>
           <option value="5">Retained by event handlers</option>
+          <option value="8">Duplicate strings</option>
           <Show when={contexts() && contexts()!.length > 0}>
             <optgroup label="Native contexts">
               <For each={contexts()!}>

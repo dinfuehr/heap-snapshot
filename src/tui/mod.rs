@@ -130,6 +130,8 @@ pub(super) enum SummaryFilterMode {
     SharedContext,
     /// Objects not attributed to any native context.
     UnattributedContext,
+    /// String values that appear more than once in the heap.
+    DuplicateStrings,
 }
 
 impl SummaryFilterMode {
@@ -149,6 +151,7 @@ impl SummaryFilterMode {
             }
             Self::SharedContext => "Shared (multiple contexts)".to_string(),
             Self::UnattributedContext => "Unattributed".to_string(),
+            Self::DuplicateStrings => "Duplicate strings".to_string(),
         }
     }
 }
@@ -529,6 +532,7 @@ impl App {
             SummaryFilterMode::NativeContext(id) => snap.aggregates_for_native_context(id),
             SummaryFilterMode::SharedContext => snap.aggregates_for_shared_context(),
             SummaryFilterMode::UnattributedContext => snap.aggregates_for_unattributed_context(),
+            SummaryFilterMode::DuplicateStrings => snap.aggregates_for_duplicate_strings(),
         };
         let mut sorted: Vec<AggregateInfo> = aggregates;
         sorted.sort_by(|a, b| {
@@ -558,6 +562,7 @@ impl App {
             SummaryFilterMode::RetainedByDetachedDom,
             SummaryFilterMode::RetainedByConsole,
             SummaryFilterMode::RetainedByEventHandlers,
+            SummaryFilterMode::DuplicateStrings,
         ] {
             items.push(FilterOverlayItem::Filter {
                 label: mode.label(snap),

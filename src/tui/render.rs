@@ -1,7 +1,7 @@
 use ratatui::prelude::*;
 use ratatui::widgets::Paragraph;
 
-use crate::print::{format_distance, format_size, pct_str};
+use crate::print::{format_distance, format_size, pct_str, truncate_str};
 use crate::snapshot::{Detachedness, HeapSnapshot, NativeContextBucket};
 
 use super::types::*;
@@ -177,11 +177,7 @@ impl App {
                 let prefix = " Retainers for ";
                 let label = snap.format_node_label(target);
                 let max_label = (area.width as usize).saturating_sub(prefix.len());
-                let truncated = if label.len() > max_label && max_label > 1 {
-                    format!("{}\u{2026}", &label[..max_label - 1])
-                } else {
-                    label
-                };
+                let truncated = truncate_str(&label, max_label);
                 let spans: Vec<Span<'static>> = vec![
                     Span::styled(prefix.to_string(), Style::default().dim()),
                     Span::styled(truncated, Style::default().fg(Color::Yellow)),

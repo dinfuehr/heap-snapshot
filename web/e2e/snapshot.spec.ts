@@ -88,6 +88,28 @@ test.describe('Heap Snapshot Viewer', () => {
     await page.waitForTimeout(500);
   });
 
+  test('summary filter "Duplicate strings" lists duplicate groups', async ({
+    page,
+  }) => {
+    const select = page.locator('select').first();
+    await select.selectOption('8');
+
+    // heap-1 contains duplicate strings (CLI reports 11 groups), so the table
+    // should populate with at least one row whose name surfaces the value.
+    const rows = page.locator('table tbody tr');
+    await expect(rows.first()).toBeVisible({ timeout: 5000 });
+    expect(await rows.count()).toBeGreaterThan(0);
+
+    // Expanding a duplicate-string group should reveal individual @id rows
+    // (using the same expansion path as class aggregates).
+    await rows.first().dblclick();
+    const objectLink = page
+      .locator('a[href="#"]')
+      .filter({ hasText: '@' })
+      .first();
+    await expect(objectLink).toBeVisible({ timeout: 5000 });
+  });
+
   test('statistics shows expected fields', async ({ page }) => {
     await page.locator('button:has-text("Statistics")').click();
 
@@ -471,13 +493,23 @@ test.describe('Heap Snapshot Viewer', () => {
       .first();
     await expect(objectRow).toBeVisible({ timeout: 5000 });
 
-    // Double-click to expand the object
-    await objectRow.dblclick();
+    // Click the chevron to expand. Use exact:true so we match the chevron
+    // span (text == "▶") rather than the surrounding cell. Retry until the
+    // chevron flips, because Solid binds the chevron's click handler in the
+    // same render pass that puts the row in the DOM, and Playwright can
+    // sometimes click in the gap between visibility and handler binding.
+    const chevron = objectRow.getByText('\u25b6', { exact: true });
+    await expect(async () => {
+      await chevron.click();
+      await expect(objectRow.getByText('\u25bc', { exact: true })).toBeVisible({
+        timeout: 1000,
+      });
+    }).toPass({ timeout: 10000 });
 
     // Should show children with edge labels (:: separator)
     await expect(
       page.locator('tr:visible').filter({ hasText: '::' }).first(),
-    ).toBeVisible({ timeout: 5000 });
+    ).toBeVisible({ timeout: 10000 });
   });
 
   // ── Keyboard shortcuts ────────────────────────────────────────────────

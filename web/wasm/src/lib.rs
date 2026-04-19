@@ -301,7 +301,8 @@ impl WasmHeapSnapshot {
     /// one call so the cache and UI entries are always in sync.
     /// 0 = all objects, 1 = all unreachable, 2 = unreachable roots only,
     /// 3 = retained by detached DOM, 4 = retained by console,
-    /// 5 = retained by event handlers, 6 = attached, 7 = detached.
+    /// 5 = retained by event handlers, 6 = attached, 7 = detached,
+    /// 8 = duplicate strings.
     pub fn get_summary_with_filter(&mut self, mode: u32) -> String {
         self.cached_summary_aggregates = Some(match mode {
             1 => self.inner.unreachable_aggregates(),
@@ -311,6 +312,7 @@ impl WasmHeapSnapshot {
             5 => self.inner.retained_by_event_handlers(),
             6 => self.inner.aggregates_attached(),
             7 => self.inner.aggregates_detached(),
+            8 => self.inner.aggregates_for_duplicate_strings(),
             _ => self.inner.aggregates_with_filter(),
         });
         self.format_summary()
