@@ -33,7 +33,7 @@ pub enum RootKind {
     UserRoot = 3,
 }
 
-/// DOM link state for a node, as propagated by `propagate_dom_state`.
+/// DOM link state for a node, as propagated by `propagate_detachedness`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u8)]
 pub enum Detachedness {
@@ -215,6 +215,10 @@ pub struct HeapSnapshot {
 
     // Class index per node
     class_indices: Vec<u32>,
+
+    // Detachedness per node. Populated by propagate_detachedness; all Unknown
+    // when the snapshot does not carry a detachedness field.
+    detachedness: Vec<Detachedness>,
 
     // Location map: node_index -> SourceLocation
     location_map: FxHashMap<usize, SourceLocation>,
@@ -435,6 +439,7 @@ impl HeapSnapshot {
             flags: vec![0u8; node_count],
             root_kinds: vec![RootKind::NonRoot; node_count],
             class_indices: vec![0u32; node_count],
+            detachedness: vec![Detachedness::Unknown; node_count],
             native_contexts: Vec::new(),
             node_native_context_buckets: vec![NativeContextBucket::Unattributed; node_count],
             shared_attributable_size: 0,
@@ -544,7 +549,7 @@ impl HeapSnapshot {
         snap.build_retainers();
 
         // Propagate DOM state
-        snap.propagate_dom_state();
+        snap.propagate_detachedness();
 
         // Calculate flags
         snap.calculate_flags();
@@ -1407,7 +1412,7 @@ impl HeapSnapshot {
         self.first_retainer_index = first_retainer_index;
     }
 
-    fn propagate_dom_state(&mut self) {
+    fn propagate_detachedness(&mut self) {
         if self.node_detachedness_offset == -1 {
             return;
         }
@@ -1422,22 +1427,33 @@ impl HeapSnapshot {
         let mut attached: Vec<NodeOrdinal> = Vec::new();
         let mut detached: Vec<NodeOrdinal> = Vec::new();
 
-        // Read initial detachedness from nodes, identify native nodes
+        // Load initial detachedness from the raw nodes array for every node,
+        // then seed BFS from native nodes that carry an attached/detached bit.
+        // raw: 0 = unknown, 1 = attached, 2 = detached
         for ordinal in 0..self.node_count {
             let node_index = ordinal * nfc;
+            let raw = self.nodes[node_index + det_offset] & BITMASK_FOR_DOM_LINK_STATE;
+            let det = match raw {
+                1 => Detachedness::Attached,
+                2 => Detachedness::Detached,
+                _ => Detachedness::Unknown,
+            };
+            self.detachedness[ordinal] = det;
+
             let node_type = self.nodes[node_index + self.node_type_offset];
             if node_type != self.node_native_type {
                 continue;
             }
-
-            let detachedness = self.nodes[node_index + det_offset] & BITMASK_FOR_DOM_LINK_STATE;
-            // detachedness: 0 = unknown, 1 = attached, 2 = detached
-            if detachedness == 1 {
-                attached.push(NodeOrdinal(ordinal));
-                visited[ordinal] = 1;
-            } else if detachedness == 2 {
-                detached.push(NodeOrdinal(ordinal));
-                visited[ordinal] = 1;
+            match det {
+                Detachedness::Attached => {
+                    attached.push(NodeOrdinal(ordinal));
+                    visited[ordinal] = 1;
+                }
+                Detachedness::Detached => {
+                    detached.push(NodeOrdinal(ordinal));
+                    visited[ordinal] = 1;
+                }
+                Detachedness::Unknown => {}
             }
         }
 
@@ -1445,7 +1461,6 @@ impl HeapSnapshot {
         // NOTE: DevTools only propagates to native (DOM) nodes. We propagate
         // to all node types so the Det column is useful for JS objects too.
         while let Some(ordinal) = attached.pop() {
-            let _node_index = ordinal.0 * nfc;
             let first_edge = self.first_edge_indexes[ordinal.0] as usize;
             let last_edge = self.first_edge_indexes[ordinal.0 + 1] as usize;
             let mut edge_index = first_edge;
@@ -1462,9 +1477,7 @@ impl HeapSnapshot {
                     continue;
                 }
                 visited[child_ordinal] = 1;
-                // Write attached state back to node data
-                let old = self.nodes[child_index + det_offset];
-                self.nodes[child_index + det_offset] = (old & !BITMASK_FOR_DOM_LINK_STATE) | 1;
+                self.detachedness[child_ordinal] = Detachedness::Attached;
                 attached.push(NodeOrdinal(child_ordinal));
                 edge_index += efc;
             }
@@ -1474,7 +1487,6 @@ impl HeapSnapshot {
         // NOTE: DevTools only propagates to native (DOM) nodes. We propagate
         // to all node types so the Det column is useful for JS objects too.
         while let Some(ordinal) = detached.pop() {
-            let _node_index = ordinal.0 * nfc;
             let first_edge = self.first_edge_indexes[ordinal.0] as usize;
             let last_edge = self.first_edge_indexes[ordinal.0 + 1] as usize;
             let mut edge_index = first_edge;
@@ -1491,9 +1503,7 @@ impl HeapSnapshot {
                     continue;
                 }
                 visited[child_ordinal] = 1;
-                // Write detached state back to node data
-                let old = self.nodes[child_index + det_offset];
-                self.nodes[child_index + det_offset] = (old & !BITMASK_FOR_DOM_LINK_STATE) | 2;
+                self.detachedness[child_ordinal] = Detachedness::Detached;
                 detached.push(NodeOrdinal(child_ordinal));
                 edge_index += efc;
             }
@@ -1523,7 +1533,6 @@ impl HeapSnapshot {
             return;
         }
         let nfc = self.node_field_count;
-        let det_offset = self.node_detachedness_offset as usize;
         let flag: u8 = 2; // detachedDOMTreeNode
         for ordinal in 0..self.node_count {
             let node_index = ordinal * nfc;
@@ -1531,7 +1540,7 @@ impl HeapSnapshot {
             if node_type != self.node_native_type {
                 continue;
             }
-            if self.nodes[node_index + det_offset] & BITMASK_FOR_DOM_LINK_STATE == 2 {
+            if self.detachedness[ordinal] == Detachedness::Detached {
                 self.flags[ordinal] |= flag;
             }
         }
@@ -3557,21 +3566,13 @@ impl HeapSnapshot {
     }
 
     pub fn node_detachedness(&self, ordinal: NodeOrdinal) -> Detachedness {
-        if self.node_detachedness_offset == -1 {
-            return Detachedness::Unknown;
-        }
-        let ni = ordinal.0 * self.node_field_count;
-        match self.nodes[ni + self.node_detachedness_offset as usize] & BITMASK_FOR_DOM_LINK_STATE {
-            1 => Detachedness::Attached,
-            2 => Detachedness::Detached,
-            _ => Detachedness::Unknown,
-        }
+        self.detachedness[ordinal.0]
     }
 
     /// Returns the detachedness of a NativeContext inferred from its global object.
     /// Tries global_object (the Window) first, then global_proxy_object.
     pub fn native_context_detachedness(&self, ordinal: NodeOrdinal) -> Detachedness {
-        // Try global_object (the Window itself) — propagate_dom_state sets detachedness on it.
+        // Try global_object (the Window itself) — propagate_detachedness sets detachedness on it.
         if let Some(go) = self.find_edge_target(ordinal, "global_object") {
             let d = self.node_detachedness(go);
             if d != Detachedness::Unknown {
@@ -4120,10 +4121,8 @@ impl HeapSnapshot {
         if self.node_detachedness_offset < 0 {
             return Vec::new();
         }
-        let det_off = self.node_detachedness_offset as usize;
-        let nfc = self.node_field_count;
         let retained = self.compute_retained_bitmap(|_ei, _src, target| {
-            self.nodes[target * nfc + det_off] & BITMASK_FOR_DOM_LINK_STATE == 2
+            self.detachedness[target] == Detachedness::Detached
         });
         self.compute_aggregates(|ordinal| retained[ordinal])
     }

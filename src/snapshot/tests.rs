@@ -1425,10 +1425,10 @@ fn test_node_detachedness_values() {
 }
 
 #[test]
-fn test_propagate_dom_state_to_children() {
+fn test_propagate_detachedness_to_children() {
     let snap = make_detachedness_snapshot();
     // Node 4 (object) is child of attached node 2 (native, det=1)
-    // propagate_dom_state should propagate attached state to node 4
+    // propagate_detachedness should propagate attached state to node 4
     assert_eq!(
         snap.node_detachedness(NodeOrdinal(4)),
         Detachedness::Attached
