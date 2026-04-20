@@ -189,8 +189,8 @@ fn make_js_global_snapshot() -> HeapSnapshot {
     let strings: Vec<String> = [
         "",
         "(GC roots)",
-        "Window (global*)",
-        "Window (global)",
+        "Window [JSGlobalObject]",
+        "Window [JSGlobalProxy]",
         "value_a",
         "value_b",
         "value_c",
@@ -684,40 +684,6 @@ fn test_node_display_name_number_types() {
     assert_eq!(snap.node_display_name(NodeOrdinal(6)), "int 2064");
     assert_eq!(snap.node_display_name(NodeOrdinal(7)), "bool true");
     assert_eq!(snap.node_display_name(NodeOrdinal(10)), "string hello");
-}
-
-#[test]
-fn test_normalize_constructor_type_for_js_globals() {
-    assert_eq!(
-        HeapSnapshot::normalize_constructor_type("Window (global*)"),
-        Some("[JSGlobalObject]")
-    );
-    assert_eq!(
-        HeapSnapshot::normalize_constructor_type("Window (global*) / https://example.test"),
-        Some("[JSGlobalObject]")
-    );
-    assert_eq!(
-        HeapSnapshot::normalize_constructor_type("Window (global)"),
-        Some("[JSGlobalProxy]")
-    );
-    assert_eq!(
-        HeapSnapshot::normalize_constructor_type("Window (global) / <detached>"),
-        Some("[JSGlobalProxy]")
-    );
-    assert_eq!(HeapSnapshot::normalize_constructor_type("Window"), None);
-}
-
-#[test]
-fn test_normalize_display_name_for_js_globals() {
-    assert_eq!(
-        HeapSnapshot::normalize_display_name("Window (global*) / https://example.test"),
-        "Window [JSGlobalObject] / https://example.test"
-    );
-    assert_eq!(
-        HeapSnapshot::normalize_display_name("Window (global) / <detached>"),
-        "Window [JSGlobalProxy] / <detached>"
-    );
-    assert_eq!(HeapSnapshot::normalize_display_name("Window"), "Window");
 }
 
 #[test]

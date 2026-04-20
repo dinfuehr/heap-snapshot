@@ -116,8 +116,8 @@ fn make_js_global_snapshot() -> HeapSnapshot {
     let strings: Vec<String> = [
         "",
         "(GC roots)",
-        "Window (global*)",
-        "Window (global)",
+        "Window [JSGlobalObject]",
+        "Window [JSGlobalProxy]",
         "value_a",
         "value_b",
         "value_c",

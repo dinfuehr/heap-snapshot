@@ -842,12 +842,17 @@ impl HeapSnapshot {
 
     fn find_js_globals(&mut self) {
         for ordinal in 0..self.node_count {
-            match Self::normalize_constructor_type(self.node_raw_name(NodeOrdinal(ordinal))) {
-                Some("[JSGlobalObject]") => self.js_global_objects.push(ordinal),
-                Some("[JSGlobalProxy]") => self.js_global_proxies.push(ordinal),
-                _ => {}
+            let name = self.node_raw_name(NodeOrdinal(ordinal));
+            if Self::has_global_tag(name, "[JSGlobalObject]") {
+                self.js_global_objects.push(ordinal);
+            } else if Self::has_global_tag(name, "[JSGlobalProxy]") {
+                self.js_global_proxies.push(ordinal);
             }
         }
+    }
+
+    fn has_global_tag(name: &str, tag: &str) -> bool {
+        name.ends_with(&format!(" {tag}")) || name.contains(&format!(" {tag} / "))
     }
 
     /// Known fields on NativeContext global objects.
@@ -2371,9 +2376,7 @@ impl HeapSnapshot {
                     }
                 } else if raw_type == self.node_object_type || raw_type == self.node_native_type {
                     let name = self.strings[raw_name_idx as usize].clone();
-                    if let Some(normalized) = Self::normalize_constructor_type(&name) {
-                        get_index(normalized, &mut self.strings, &mut string_table)
-                    } else if name.starts_with('<') {
+                    if name.starts_with('<') {
                         let first_space = name.find(' ');
                         let short_name = if let Some(pos) = first_space {
                             format!("{}>", &name[..pos])
@@ -2404,30 +2407,6 @@ impl HeapSnapshot {
                 };
 
             self.set_class_index(NodeOrdinal(ordinal), class_index);
-        }
-    }
-
-    fn normalize_constructor_type(name: &str) -> Option<&'static str> {
-        if Self::has_global_suffix(name, " (global*)") {
-            Some("[JSGlobalObject]")
-        } else if Self::has_global_suffix(name, " (global)") {
-            Some("[JSGlobalProxy]")
-        } else {
-            None
-        }
-    }
-
-    fn has_global_suffix(name: &str, suffix: &str) -> bool {
-        name.strip_suffix(suffix).is_some() || name.contains(&format!("{suffix} / "))
-    }
-
-    fn normalize_display_name(name: &str) -> String {
-        if name.contains(" (global*)") {
-            name.replacen(" (global*)", " [JSGlobalObject]", 1)
-        } else if name.contains(" (global)") {
-            name.replacen(" (global)", " [JSGlobalProxy]", 1)
-        } else {
-            name.to_string()
         }
     }
 
@@ -2908,17 +2887,11 @@ impl HeapSnapshot {
     }
 
     pub fn is_js_global_object(&self, ordinal: NodeOrdinal) -> bool {
-        matches!(
-            Self::normalize_constructor_type(self.node_raw_name(ordinal)),
-            Some("[JSGlobalObject]")
-        )
+        Self::has_global_tag(self.node_raw_name(ordinal), "[JSGlobalObject]")
     }
 
     pub fn is_js_global_proxy(&self, ordinal: NodeOrdinal) -> bool {
-        matches!(
-            Self::normalize_constructor_type(self.node_raw_name(ordinal)),
-            Some("[JSGlobalProxy]")
-        )
+        Self::has_global_tag(self.node_raw_name(ordinal), "[JSGlobalProxy]")
     }
 
     pub fn is_common_js_global_field(&self, ordinal: NodeOrdinal, name: &str) -> bool {
@@ -3651,7 +3624,17 @@ impl HeapSnapshot {
             }
         }
 
-        Self::normalize_display_name(self.node_raw_name(ordinal))
+        if raw_type == self.node_closure_type {
+            let raw_name = self.node_raw_name(ordinal);
+            let name = if raw_name.is_empty() {
+                "<anonymous>"
+            } else {
+                raw_name
+            };
+            return format!("{name} [JSFunction]");
+        }
+
+        self.node_raw_name(ordinal).to_string()
     }
 
     /// Returns true if this cons string has been "flattened" by V8, meaning

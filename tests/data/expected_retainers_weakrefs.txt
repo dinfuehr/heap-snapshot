@@ -33,11 +33,11 @@ Object                                                                  Distance
           ▶ 231 in @25 (Handle scope)                                          1         0 B   0%           0 B   0%
           ▼ [2] in @7645 system / ScriptContextTable                           2        80 B   0%         100 B   0%
             ▶ 215 in @25 (Handle scope)                                        1         0 B   0%           0 B   0%
-          ▼ context in @7287                                                   2        32 B   0%          32 B   0%
+          ▼ context in @7287 <anonymous> [JSFunction]                          2        32 B   0%          32 B   0%
             ▶ 22 in @43 (Stack roots)                                          1         0 B   0%          28 B   0%
             ▶ 17 in @43 (Stack roots)                                          1         0 B   0%          28 B   0%
             ▶ 196 in @25 (Handle scope)                                        1         0 B   0%           0 B   0%
-          ▼ context in @28087                                                  3        28 B   0%          28 B   0%
+          ▼ context in @28087 <anonymous> [JSFunction]                         3        28 B   0%          28 B   0%
             ▼ [3] in @7281 FinalizationRegistry                                2        40 B   0%         104 B   0%
               ▶ 12 in @43 (Stack roots)                                        1         0 B   0%          28 B   0%
               ▼ registry in @26667 {strong, weakRef, registry}                 3        24 B   0%         200 B   0%
@@ -51,15 +51,15 @@ Object                                                                  Distance
                     ▶ 219 in @25 (Handle scope)                                1         0 B   0%           0 B   0%
                     ▶ 217 in @25 (Handle scope)                                1         0 B   0%           0 B   0%
           ▼ previous in @28009 system / Context / scope @27885                 5        16 B   0%          16 B   0%
-            ▼ context in @27961 WeakTarget                                     4        32 B   0%         168 B   0%
+            ▼ context in @27961 WeakTarget [JSFunction]                        4        32 B   0%         168 B   0%
               ▼ constructor in @22709 system / Map                             4        40 B   0%         112 B   0%
                 ▼ 3 in @22703 system / WeakArrayList                           5        28 B   0%          28 B   0%
                   ▼ [1] in @22565 system / PrototypeInfo                       4        40 B   0%          68 B   0%
                     ▼ prototype_info in @22341 system / Map                    3        40 B   0%         272 B   0%
                       ▼ map in @22027 {constructor, __defineGetter__,…         3        28 B   0%         296 B   0%
-                        ▼ prototype in @22339 Object                           3        32 B   0%          1 kB   1%
+                        ▼ prototype in @22339 Object [JSFunction]              3        32 B   0%          1 kB   1%
                           ▼ constructor in @22613 system / Map                 4        40 B   0%         108 B   0%
-                            ▼ map in @22165 Function                           3        32 B   0%         160 B   0%
+                            ▼ map in @22165 Function [JSFunction]              3        32 B   0%         160 B   0%
                               ▼ constructor in @7629 system / Map              2        40 B   0%          96 B   0%
                                 ▶ 195 in @25 (Handle scope)                    1         0 B   0%           0 B   0%
 ▼ 5 in @2325                                                                   2        60 B   0%          60 B   0%

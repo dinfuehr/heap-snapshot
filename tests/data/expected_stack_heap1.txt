@@ -1,10 +1,10 @@
 Object                                                                       Source         Det   Retained Size  Reachable Size
 ------------------------------------------------------------------------------------------------------------------------------
- @7283                                                                       (Stack roots)                 32 B          118 kB
+<anonymous> [JSFunction] @7283                                               (Stack roots)                 32 B          118 kB
     → [utility] #0 @7271
- @7283                                                                       (Stack roots)                 32 B          118 kB
+<anonymous> [JSFunction] @7283                                               (Stack roots)                 32 B          118 kB
     → [utility] #0 @7271
-InitialObject @7277                                                          (Stack roots)                 32 B          117 kB
+InitialObject [JSFunction] @7277                                             (Stack roots)                 32 B          117 kB
     → [utility] #0 @7271
 system / Context / scope @7285 @7287                                         (Stack roots)                 2 kB          117 kB
     → [utility] #0 @7271

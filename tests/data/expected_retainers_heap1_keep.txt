@@ -36,17 +36,17 @@ Object                                                                  Distance
           ▼ value in @26731 system / PropertyCell                              3        20 B   0%          20 B   0%
             ▼ 166 in @7643 (object properties)                                 2        1 kB   1%          3 kB   2%
               ▶ 216 in @25 (Handle scope)                                      1         0 B   0%           0 B   0%
-        ▼ context in @22509 valueOf                                            3        28 B   0%          28 B   0%
+        ▼ context in @22509 valueOf [JSFunction]                               3        28 B   0%          28 B   0%
           ▼ valueOf in @22031 {constructor, __defineGetter__, __defin…         3        28 B   0%         296 B   0%
             ▼ __proto__ in @27899 {constructor}                                3        28 B   0%         140 B   0%
-              ▼ prototype in @7277 InitialObject                               2        32 B   0%          32 B   0%
+              ▼ prototype in @7277 InitialObject [JSFunction]                  2        32 B   0%          32 B   0%
                 ▶ 10 in @43 (Stack roots)                                      1         0 B   0%          28 B   0%
-            ▼ prototype in @22343 Object                                       3        32 B   0%          1 kB   1%
+            ▼ prototype in @22343 Object [JSFunction]                          3        32 B   0%          1 kB   1%
               ▼ constructor in @22617 system / Map                             4        40 B   0%         108 B   0%
-                ▼ map in @22169 Function                                       3        32 B   0%         160 B   0%
+                ▼ map in @22169 Function [JSFunction]                          3        32 B   0%         160 B   0%
                   ▼ constructor in @7625 system / Map                          2        40 B   0%          96 B   0%
                     ▶ 195 in @25 (Handle scope)                                1         0 B   0%           0 B   0%
-                    ▼ map in @7283                                             2        32 B   0%          32 B   0%
+                    ▼ map in @7283 <anonymous> [JSFunction]                    2        32 B   0%          32 B   0%
                       ▶ 20 in @43 (Stack roots)                                1         0 B   0%          28 B   0%
                       ▶ 15 in @43 (Stack roots)                                1         0 B   0%          28 B   0%
                       ▶ 196 in @25 (Handle scope)                              1         0 B   0%           0 B   0%
