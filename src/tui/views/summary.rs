@@ -69,6 +69,7 @@ impl App {
                     label: label.into(),
                     is_weak: false,
                     is_root_holder: false,
+                    inspect_source: None,
                     kind: FlatRowKind::SummaryGroup {
                         distance: Some(display_distance),
                         shallow_size,

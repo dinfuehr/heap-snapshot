@@ -1,5 +1,5 @@
 use crate::snapshot::HeapSnapshot;
-use crate::utils::truncate_str;
+use crate::display::truncate_str;
 
 use super::{format_count, format_size};
 

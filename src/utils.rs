@@ -1,68 +1,118 @@
-use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
-
-pub fn display_width(s: &str) -> usize {
-    UnicodeWidthStr::width(s)
+/// Converts a UTF-16 code-unit offset into a byte offset in the given UTF-8
+/// string. V8 source positions (e.g. `start_position`, `end_position`) are
+/// UTF-16 code units. Returns `None` if the offset is past the end of the
+/// string or falls inside a surrogate pair.
+pub fn utf16_offset_to_byte(s: &str, utf16_offset: u32) -> Option<usize> {
+    let mut u16_pos = 0u32;
+    for (byte_pos, ch) in s.char_indices() {
+        if u16_pos == utf16_offset {
+            return Some(byte_pos);
+        }
+        if u16_pos > utf16_offset {
+            return None;
+        }
+        u16_pos += ch.len_utf16() as u32;
+    }
+    (u16_pos == utf16_offset).then_some(s.len())
 }
 
-pub fn pad_str(s: &str, width: usize) -> String {
-    let actual = display_width(s);
-    if actual >= width {
-        s.to_string()
-    } else {
-        format!("{s}{}", " ".repeat(width - actual))
+/// Converts a UTF-16 code-unit offset into a zero-based (line, column) pair,
+/// where column is also counted in UTF-16 code units. Line breaks are `\n`;
+/// a preceding `\r` counts as one column unit (V8's behavior). Returns `None`
+/// if the offset is past the end of the string or falls inside a surrogate
+/// pair.
+pub fn utf16_offset_to_line_column(s: &str, utf16_offset: u32) -> Option<(u32, u32)> {
+    let mut line = 0u32;
+    let mut col = 0u32;
+    let mut u16_pos = 0u32;
+    for ch in s.chars() {
+        if u16_pos == utf16_offset {
+            return Some((line, col));
+        }
+        if u16_pos > utf16_offset {
+            return None;
+        }
+        let w = ch.len_utf16() as u32;
+        if ch == '\n' {
+            line += 1;
+            col = 0;
+        } else {
+            col += w;
+        }
+        u16_pos += w;
     }
+    (u16_pos == utf16_offset).then_some((line, col))
 }
 
-pub fn truncate_str(s: &str, max_width: usize) -> String {
-    let actual = display_width(s);
-    if actual <= max_width {
-        return s.to_string();
-    }
-    if max_width == 0 {
-        return String::new();
-    }
-    let ellipsis = "\u{2026}";
-    let ellipsis_width = display_width(ellipsis);
-    if max_width <= ellipsis_width {
-        return ellipsis.to_string();
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_utf16_offset_to_byte_ascii() {
+        let s = "hello\nworld";
+        assert_eq!(utf16_offset_to_byte(s, 0), Some(0));
+        assert_eq!(utf16_offset_to_byte(s, 5), Some(5));
+        assert_eq!(utf16_offset_to_byte(s, 6), Some(6));
+        assert_eq!(utf16_offset_to_byte(s, 11), Some(11));
+        assert_eq!(utf16_offset_to_byte(s, 12), None);
     }
 
-    let target = max_width - ellipsis_width;
-    let mut width = 0;
-    let mut truncated = String::new();
-    for c in s.chars() {
-        let ch_width = UnicodeWidthChar::width(c).unwrap_or(0);
-        if width + ch_width > target {
-            break;
-        }
-        truncated.push(c);
-        width += ch_width;
-    }
-    truncated.push_str(ellipsis);
-    truncated
-}
-
-pub fn slice_str(s: &str, start_width: usize, max_width: usize) -> String {
-    if max_width == 0 {
-        return String::new();
+    #[test]
+    fn test_utf16_offset_to_byte_bmp() {
+        // 'é' = 1 UTF-16 code unit, 2 UTF-8 bytes
+        let s = "aébc";
+        assert_eq!(utf16_offset_to_byte(s, 0), Some(0));
+        assert_eq!(utf16_offset_to_byte(s, 1), Some(1));
+        assert_eq!(utf16_offset_to_byte(s, 2), Some(3));
+        assert_eq!(utf16_offset_to_byte(s, 3), Some(4));
+        assert_eq!(utf16_offset_to_byte(s, 4), Some(5));
     }
 
-    let mut skipped = 0;
-    let mut taken = 0;
-    let mut out = String::new();
-
-    for c in s.chars() {
-        let ch_width = UnicodeWidthChar::width(c).unwrap_or(0);
-        if skipped + ch_width <= start_width {
-            skipped += ch_width;
-            continue;
-        }
-        if taken + ch_width > max_width {
-            break;
-        }
-        out.push(c);
-        taken += ch_width;
+    #[test]
+    fn test_utf16_offset_to_byte_surrogate_pair() {
+        // '🦀' (U+1F980) = 2 UTF-16 code units, 4 UTF-8 bytes
+        let s = "a🦀b";
+        assert_eq!(utf16_offset_to_byte(s, 0), Some(0));
+        assert_eq!(utf16_offset_to_byte(s, 1), Some(1));
+        assert_eq!(utf16_offset_to_byte(s, 2), None);
+        assert_eq!(utf16_offset_to_byte(s, 3), Some(5));
+        assert_eq!(utf16_offset_to_byte(s, 4), Some(6));
     }
 
-    out
+    #[test]
+    fn test_utf16_offset_to_line_column_ascii() {
+        let s = "ab\ncd\nef";
+        assert_eq!(utf16_offset_to_line_column(s, 0), Some((0, 0)));
+        assert_eq!(utf16_offset_to_line_column(s, 2), Some((0, 2)));
+        assert_eq!(utf16_offset_to_line_column(s, 3), Some((1, 0)));
+        assert_eq!(utf16_offset_to_line_column(s, 5), Some((1, 2)));
+        assert_eq!(utf16_offset_to_line_column(s, 6), Some((2, 0)));
+        assert_eq!(utf16_offset_to_line_column(s, 8), Some((2, 2)));
+        assert_eq!(utf16_offset_to_line_column(s, 9), None);
+    }
+
+    #[test]
+    fn test_utf16_offset_to_line_column_bmp() {
+        let s = "aé\nb";
+        assert_eq!(utf16_offset_to_line_column(s, 0), Some((0, 0)));
+        assert_eq!(utf16_offset_to_line_column(s, 1), Some((0, 1)));
+        assert_eq!(utf16_offset_to_line_column(s, 2), Some((0, 2)));
+        assert_eq!(utf16_offset_to_line_column(s, 3), Some((1, 0)));
+    }
+
+    #[test]
+    fn test_utf16_offset_to_line_column_surrogate_pair() {
+        let s = "a🦀b";
+        assert_eq!(utf16_offset_to_line_column(s, 1), Some((0, 1)));
+        assert_eq!(utf16_offset_to_line_column(s, 2), None);
+        assert_eq!(utf16_offset_to_line_column(s, 3), Some((0, 3)));
+        assert_eq!(utf16_offset_to_line_column(s, 4), Some((0, 4)));
+    }
+
+    #[test]
+    fn test_utf16_offset_to_line_column_empty() {
+        assert_eq!(utf16_offset_to_line_column("", 0), Some((0, 0)));
+        assert_eq!(utf16_offset_to_line_column("", 1), None);
+    }
 }

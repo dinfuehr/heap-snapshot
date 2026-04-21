@@ -31,7 +31,7 @@ pub fn print_show(snap: &HeapSnapshot, node_id: NodeId, depth: usize, offset: us
         }
     }
 
-    if let Some(source) = snap.shared_function_info_source(ordinal) {
+    if let Some(source) = snap.function_source(ordinal) {
         println!("  Source:");
         for line in source.lines() {
             println!("    {line}");

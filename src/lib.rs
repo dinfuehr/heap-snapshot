@@ -1,4 +1,6 @@
 pub mod diff;
+#[cfg(feature = "cli")]
+pub mod display;
 pub mod function_info;
 #[cfg(feature = "cli")]
 pub mod mcp;
@@ -10,7 +12,6 @@ pub mod snapshot;
 #[cfg(feature = "cli")]
 pub mod tui;
 pub mod types;
-#[cfg(feature = "cli")]
 pub mod utils;
 
 /// Fetch the name of a Chrome extension from the Chrome Web Store.

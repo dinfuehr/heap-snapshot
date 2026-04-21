@@ -20,7 +20,7 @@ use crate::retaining_path::{
 };
 use crate::snapshot::{Detachedness, HeapSnapshot, RootKind, SnapshotOptions};
 use crate::types::{AggregateMap, NodeId, NodeOrdinal};
-use crate::utils::truncate_str;
+use crate::display::truncate_str;
 
 // ---------------------------------------------------------------------------
 // Parameter types
@@ -324,7 +324,7 @@ impl McpServer {
                 }
             }
 
-            if let Some(source) = snapshot.shared_function_info_source(ordinal) {
+            if let Some(source) = snapshot.function_source(ordinal) {
                 lines.push("  Source:".to_string());
                 for line in source.lines() {
                     lines.push(format!("    {line}"));

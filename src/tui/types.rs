@@ -110,6 +110,10 @@ pub(super) struct FlatRowRender {
     pub(super) is_weak: bool,
     // true when this node is directly retained by (GC roots)
     pub(super) is_root_holder: bool,
+    // When set, pressing "inspect" on this row shows the source of the
+    // referenced JSFunction / SharedFunctionInfo. Set on the pseudo location
+    // row under a function node.
+    pub(super) inspect_source: Option<NodeOrdinal>,
 }
 
 impl FlatRow {
@@ -161,6 +165,10 @@ pub(super) struct ChildNode {
     pub(super) is_weak: bool,
     // true when this node is directly retained by (GC roots)
     pub(super) is_root_holder: bool,
+    // When set, pressing "inspect" on this row opens the source of the
+    // referenced JSFunction / SharedFunctionInfo. Used for the pseudo location
+    // row under a function node.
+    pub(super) inspect_source: Option<NodeOrdinal>,
 }
 
 // Per-node edge window: which slice of (filtered) edges to show.

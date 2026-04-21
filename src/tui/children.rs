@@ -34,6 +34,7 @@ fn insert_allocation_stack(
                     children_key: None,
                     is_weak: false,
                     is_root_holder: false,
+                    inspect_source: None,
                 },
             );
         }
@@ -161,6 +162,7 @@ pub(super) fn compute_class_members(
                     },
                     is_weak: false,
                     is_root_holder: false,
+                    inspect_source: None,
                 }
             })
             .collect();
@@ -182,6 +184,7 @@ pub(super) fn compute_class_members(
                 children_key: None,
                 is_weak: false,
                 is_root_holder: false,
+                inspect_source: None,
             });
         }
         return children;
@@ -213,6 +216,7 @@ pub(super) fn compute_class_members(
                 },
                 is_weak: false,
                 is_root_holder: false,
+                inspect_source: None,
             }
         })
         .collect();
@@ -235,6 +239,7 @@ pub(super) fn compute_class_members(
             children_key: None,
             is_weak: false,
             is_root_holder: false,
+            inspect_source: None,
         });
     }
 
@@ -267,6 +272,7 @@ fn edge_to_child_node(
         },
         is_weak: edge_type == "weak",
         is_root_holder: false,
+        inspect_source: None,
     }
 }
 
@@ -317,12 +323,16 @@ pub(super) fn compute_edges(
                 children_key: None,
                 is_weak: false,
                 is_root_holder: false,
+                inspect_source: None,
             });
         }
         // For JSFunction / SharedFunctionInfo nodes, prepend a location info row.
         if snap.is_js_function(ord) || snap.is_shared_function_info(ord) {
             if let Some(loc) = snap.node_location(ord) {
-                let label = snap.format_location(&loc);
+                let mut label = snap.format_location(&loc);
+                if let Some((end_line, end_col)) = snap.function_end_line_column(ord) {
+                    label.push_str(&format!("-{}:{}", end_line + 1, end_col + 1));
+                }
                 children.insert(
                     0,
                     ChildNode {
@@ -336,6 +346,7 @@ pub(super) fn compute_edges(
                         children_key: None,
                         is_weak: false,
                         is_root_holder: false,
+                        inspect_source: Some(ord),
                     },
                 );
             }
@@ -413,6 +424,7 @@ pub(super) fn compute_edges(
                     children_key: None,
                     is_weak: false,
                     is_root_holder: false,
+                    inspect_source: None,
                 },
             );
         }
@@ -421,7 +433,10 @@ pub(super) fn compute_edges(
     // For JSFunction / SharedFunctionInfo nodes, prepend a location info row.
     if snap.is_js_function(ord) || snap.is_shared_function_info(ord) {
         if let Some(loc) = snap.node_location(ord) {
-            let label = snap.format_location(&loc);
+            let mut label = snap.format_location(&loc);
+            if let Some((end_line, end_col)) = snap.function_end_line_column(ord) {
+                label.push_str(&format!("-{}:{}", end_line + 1, end_col + 1));
+            }
             children.insert(
                 0,
                 ChildNode {
@@ -435,6 +450,7 @@ pub(super) fn compute_edges(
                     children_key: None,
                     is_weak: false,
                     is_root_holder: false,
+                    inspect_source: Some(ord),
                 },
             );
         }
@@ -469,6 +485,7 @@ pub(super) fn compute_edges(
             children_key: None,
             is_weak: false,
             is_root_holder: false,
+            inspect_source: None,
         });
     }
 
@@ -520,6 +537,7 @@ pub(super) fn make_retainer_child(
         },
         is_weak,
         is_root_holder: snap.is_root_holder(ret_ord),
+        inspect_source: None,
     }
 }
 
@@ -578,6 +596,7 @@ pub(super) fn compute_retainers(
                 children_key: None,
                 is_weak: false,
                 is_root_holder: false,
+                inspect_source: None,
             });
         }
         return children;
@@ -617,6 +636,7 @@ pub(super) fn compute_retainers(
             children_key: None,
             is_weak: false,
             is_root_holder: false,
+            inspect_source: None,
         });
     }
     children
@@ -649,6 +669,7 @@ pub(super) fn compute_dominated_children(
                 },
                 is_weak: false,
                 is_root_holder: false,
+                inspect_source: None,
             }
         })
         .collect();

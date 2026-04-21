@@ -66,6 +66,7 @@ impl App {
                     children_key,
                     is_weak,
                     is_root_holder: snap.is_root_holder(pe.retainer),
+                    inspect_source: None,
                 });
             }
             let selected = children.len();
@@ -83,6 +84,7 @@ impl App {
                     children_key: None,
                     is_weak: false,
                     is_root_holder: false,
+                    inspect_source: None,
                 });
             }
             children
@@ -162,6 +164,7 @@ impl App {
                     children_key,
                     is_weak,
                     is_root_holder: snap.is_root_holder(ret_ord),
+                    inspect_source: None,
                 });
             } else {
                 root_children.push(make_retainer_child(snap, edge_idx, ret_ord, &self.next_id));
@@ -191,6 +194,7 @@ impl App {
                 children_key: None,
                 is_weak: false,
                 is_root_holder: false,
+                inspect_source: None,
             });
         }
 
@@ -256,6 +260,7 @@ impl App {
                     children_key,
                     is_weak,
                     is_root_holder: snap.is_root_holder(pe.retainer),
+                    inspect_source: None,
                 });
             }
             let selected = children.len();
@@ -273,6 +278,7 @@ impl App {
                     children_key: None,
                     is_weak: false,
                     is_root_holder: false,
+                    inspect_source: None,
                 });
             }
             children

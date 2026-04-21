@@ -15,6 +15,7 @@ use crate::types::{
     AggregateInfo, AggregateMap, DuplicateStringInfo, DuplicateStringsResult, NodeId, NodeOrdinal,
     RawHeapSnapshot, Statistics,
 };
+use crate::utils::{utf16_offset_to_byte, utf16_offset_to_line_column};
 
 pub const V8_STACK_ROOTS: &str = "(Stack roots)";
 pub const CPPGC_STACK_ROOTS: &str = "C++ native stack roots";
@@ -3115,6 +3116,38 @@ impl HeapSnapshot {
             + &format!(":{}:{}", loc.line + 1, loc.column + 1)
     }
 
+    /// For a JSFunction or SharedFunctionInfo, returns the (line, column) of
+    /// the function's `end_position`, computed by scanning the script source.
+    /// Both `end_position` and the returned column are in UTF-16 code units,
+    /// matching V8's source-position convention.
+    ///
+    /// Unlike the start location — which V8 resolves into (line, column) via
+    /// `Script::GetPositionInfo` and writes into the snapshot's top-level
+    /// `locations` array (consumed by `node_location`) — the end position is
+    /// emitted only as a raw `end_position` integer edge on the SFI. So we
+    /// convert it ourselves by walking the script source.
+    ///
+    /// Returns `None` if the end position is not available or the script
+    /// source cannot be resolved.
+    pub fn function_end_line_column(&self, ordinal: NodeOrdinal) -> Option<(u32, u32)> {
+        let sfi_ord = if self.is_js_function(ordinal) {
+            self.find_edge_target(ordinal, "shared")?
+        } else if self.is_shared_function_info(ordinal) {
+            ordinal
+        } else {
+            return None;
+        };
+
+        let end_pos = self.int_edge_value(sfi_ord, "end_position")?;
+        if end_pos < 0 {
+            return None;
+        }
+        let script_ord = self.find_edge_target(sfi_ord, "script")?;
+        let source_ord = self.find_edge_target(script_ord, "source")?;
+        let source = self.node_raw_name(source_ord);
+        utf16_offset_to_line_column(source, end_pos as u32)
+    }
+
     // --- Allocation trace data ---
 
     fn build_trace_functions(
@@ -3423,6 +3456,17 @@ impl HeapSnapshot {
         None
     }
 
+    /// For a JSFunction or SharedFunctionInfo node, extract its source code.
+    /// Follows `shared` from a JSFunction to reach the SFI, then delegates to
+    /// [`Self::shared_function_info_source`].
+    pub fn function_source(&self, ordinal: NodeOrdinal) -> Option<&str> {
+        if self.is_js_function(ordinal) {
+            let sfi = self.find_edge_target(ordinal, "shared")?;
+            return self.shared_function_info_source(sfi);
+        }
+        self.shared_function_info_source(ordinal)
+    }
+
     /// For a SharedFunctionInfo node, extract its source code from the linked Script.
     /// Returns `None` if start_position or end_position are negative, or if the
     /// script/source chain cannot be resolved.
@@ -3442,9 +3486,9 @@ impl HeapSnapshot {
         let source_ord = self.find_edge_target(script_ord, "source")?;
         let source = self.node_raw_name(source_ord);
 
-        let start = start_pos as usize;
-        let end = end_pos as usize;
-        if start <= source.len() && end <= source.len() {
+        let start = utf16_offset_to_byte(source, start_pos as u32)?;
+        let end = utf16_offset_to_byte(source, end_pos as u32)?;
+        if start <= end {
             Some(&source[start..end])
         } else {
             None

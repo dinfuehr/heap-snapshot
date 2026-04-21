@@ -1,7 +1,7 @@
 use rustc_hash::FxHashMap;
 
 use crate::types::{Distance, NodeId};
-pub use crate::utils::{display_width, pad_str, slice_str, truncate_str};
+pub use crate::display::{display_width, pad_str, slice_str, truncate_str};
 
 pub mod closure_leaks;
 pub mod closures;
@@ -158,4 +158,4 @@ pub(crate) fn pct_str(val: u64, total: u64) -> String {
     }
 }
 
-// display_width, pad_str, truncate_str, slice_str are re-exported from crate::utils
+// display_width, pad_str, truncate_str, slice_str are re-exported from crate::display

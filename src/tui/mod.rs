@@ -613,13 +613,20 @@ impl App {
     }
 
     fn open_inspect(&mut self, snap: &HeapSnapshot) {
-        let row = match self.current_row() {
+        let row_idx = self.current_tree_state().cursor;
+        let row = match self.cached_rows.get(row_idx) {
             Some(r) => r,
             None => return,
         };
         let ordinal = match row.node_ordinal() {
             Some(o) => o,
-            None => return,
+            None => {
+                if let Some(source) = self.function_source_for_row(row_idx, snap) {
+                    self.inspect_lines = source.lines().map(String::from).collect();
+                    self.input_mode = InputMode::Inspect;
+                }
+                return;
+            }
         };
 
         let mut lines = Vec::new();
@@ -679,6 +686,14 @@ impl App {
 
     fn current_row(&self) -> Option<&FlatRow> {
         self.cached_rows.get(self.current_tree_state().cursor)
+    }
+
+    /// If `row_idx` points to the pseudo location row under a JSFunction /
+    /// SharedFunctionInfo, returns that function's source code.
+    fn function_source_for_row(&self, row_idx: usize, snap: &HeapSnapshot) -> Option<String> {
+        let row = self.cached_rows.get(row_idx)?;
+        let target = row.render.inspect_source?;
+        snap.function_source(target).map(String::from)
     }
 
     fn subtree_end_index(&self, start_idx: usize) -> usize {

@@ -25,15 +25,20 @@ def main() -> int:
     ok = run(["cargo", "fmt", "--check"]) and ok
     ok = run(["cargo", "test"]) and ok
 
-    # Web: build WASM first (needed for typecheck and e2e)
-    ok = run(["npm", "run", "build:wasm"], cwd=WEB) and ok
+    # Web: build WASM first (needed for typecheck and e2e). Skip the rest if
+    # it fails, since typecheck and e2e would only produce noise on stale WASM.
+    wasm_ok = run(["npm", "run", "build:wasm"], cwd=WEB)
+    ok = wasm_ok and ok
 
-    # Web: checks
-    ok = run(["npm", "run", "typecheck"], cwd=WEB) and ok
-    ok = run(["npx", "prettier", "--check", "src/**/*.{ts,tsx}", "e2e/**/*.ts", "vite.config.ts"], cwd=WEB) and ok
+    if wasm_ok:
+        # Web: checks
+        ok = run(["npm", "run", "typecheck"], cwd=WEB) and ok
+        ok = run(["npx", "prettier", "--check", "src/**/*.{ts,tsx}", "e2e/**/*.ts", "vite.config.ts"], cwd=WEB) and ok
 
-    # Web: e2e tests
-    ok = run(["npm", "run", "test:e2e"], cwd=WEB) and ok
+        # Web: e2e tests
+        ok = run(["npm", "run", "test:e2e"], cwd=WEB) and ok
+    else:
+        print("\nSkipping typecheck, prettier, and e2e: WASM build failed.")
 
     print(f"\n{'=' * 60}")
     if ok:
