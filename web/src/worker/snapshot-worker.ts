@@ -208,6 +208,12 @@ async function processMessage(msg: WorkerMsg) {
       case 'getNodeInfo':
         respond(id, JSON.parse(snapshot.get_node_info(msg.nodeId as number)));
         break;
+      case 'getFunctionSource':
+        respond(
+          id,
+          JSON.parse(snapshot.get_function_source(msg.nodeId as number)),
+        );
+        break;
       case 'getConstructorForNode':
         respond(id, snapshot.get_constructor_for_node(msg.nodeId as number));
         break;

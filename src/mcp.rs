@@ -11,6 +11,7 @@ use rmcp::schemars;
 use rmcp::{ErrorData as McpError, RoleServer, ServerHandler, tool, tool_handler, tool_router};
 
 use crate::diff;
+use crate::display::truncate_str;
 use crate::parser;
 use crate::print::closure_leaks;
 use crate::print::diff::{format_signed_count, format_signed_size};
@@ -20,7 +21,6 @@ use crate::retaining_path::{
 };
 use crate::snapshot::{Detachedness, HeapSnapshot, RootKind, SnapshotOptions};
 use crate::types::{AggregateMap, NodeId, NodeOrdinal};
-use crate::display::truncate_str;
 
 // ---------------------------------------------------------------------------
 // Parameter types

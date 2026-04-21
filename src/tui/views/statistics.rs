@@ -1,9 +1,9 @@
 use ratatui::prelude::*;
 use ratatui::widgets::{Paragraph, Wrap};
 
+use crate::display::truncate_str;
 use crate::print::format_size;
 use crate::snapshot::HeapSnapshot;
-use crate::display::truncate_str;
 
 use super::super::App;
 

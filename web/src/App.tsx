@@ -11,6 +11,7 @@ import { FileLoader } from './components/FileLoader.tsx';
 import { TabNav } from './components/TabNav.tsx';
 import { ContextMenu } from './components/ContextMenu.tsx';
 import { InspectDialog } from './components/InspectDialog.tsx';
+import { SourceDialog } from './components/SourceDialog.tsx';
 import type { NavigateOptions, EdgeInfo } from './components/ObjectLink.tsx';
 import type { ReachableSizeInfo, NodeInfo } from './types.ts';
 import { StatisticsView } from './views/StatisticsView.tsx';
@@ -61,6 +62,26 @@ function createSnapshotInstance(): SnapshotInstance {
   };
 }
 
+// Parse `@<id>` references out of a V8 edge name. Currently recognizes the
+// WeakMap ephemeron format (built by `SetNamedAutoIndexReference` + the
+// format string in `ExtractEphemeronHashTableReferences` in
+// V8's heap-snapshot-generator.cc):
+//   "<index> / part of key (TYPE @N) -> value (TYPE @N) pair in WeakMap (table @N)"
+// Returns one entry per `@<id>` reference, or an empty array if the name
+// doesn't match.
+const EPHEMERON_EDGE_RE =
+  /^\d+ \/ part of key \((.+?) @(\d+)\) -> value \((.+?) @(\d+)\) pair in WeakMap \(table @(\d+)\)$/;
+
+function parseEdgeRefs(edgeName: string): Array<{ label: string; id: number }> {
+  const m = edgeName.match(EPHEMERON_EDGE_RE);
+  if (!m) return [];
+  return [
+    { label: `key/${m[1]}`, id: parseInt(m[2], 10) },
+    { label: `value/${m[3]}`, id: parseInt(m[4], 10) },
+    { label: 'table', id: parseInt(m[5], 10) },
+  ];
+}
+
 export function App(): JSX.Element {
   const [snapshots, setSnapshots] = createSignal<SnapshotInstance[]>([
     createSnapshotInstance(),
@@ -75,10 +96,15 @@ export function App(): JSX.Element {
     y: number;
     nodeId: number;
     edgeInfo?: EdgeInfo;
+    nodeInfo: NodeInfo;
   } | null>(null);
   const [inspectInfo, setInspectInfo] = createSignal<{
     node: NodeInfo;
     edge?: EdgeInfo;
+  } | null>(null);
+  const [sourceDialog, setSourceDialog] = createSignal<{
+    title: string;
+    source: string;
   } | null>(null);
 
   const historyStorageKey = (inst: SnapshotInstance): string | null => {
@@ -150,12 +176,18 @@ export function App(): JSX.Element {
     }
   };
 
-  const handleContextMenu = (
+  const handleContextMenu = async (
     e: MouseEvent,
     nodeId: number,
     edgeInfo?: EdgeInfo,
   ) => {
-    setMenu({ x: e.clientX, y: e.clientY, nodeId, edgeInfo });
+    const x = e.clientX;
+    const y = e.clientY;
+    const nodeInfo = await active().call<NodeInfo>({
+      type: 'getNodeInfo',
+      nodeId,
+    });
+    setMenu({ x, y, nodeId, edgeInfo, nodeInfo });
   };
 
   onMount(() => {
@@ -524,33 +556,19 @@ export function App(): JSX.Element {
               items={(() => {
                 const nodeId = m().nodeId;
                 const edge = m().edgeInfo;
-                return [
+                const nodeInfo = m().nodeInfo;
+                const items = [
                   {
-                    label: 'Show retainers',
+                    label: `Show @${nodeId} in Retainers view`,
                     action: () => navigate({ nodeId, target: 'Retainers' }),
                   },
                   {
-                    label: 'Show in dominators',
+                    label: `Show @${nodeId} in Dominators view`,
                     action: () => navigate({ nodeId, target: 'Dominators' }),
                   },
                   {
-                    label: 'Show in summary',
+                    label: `Show @${nodeId} in Summary view`,
                     action: () => navigate({ nodeId, target: 'Summary' }),
-                  },
-                  {
-                    label: 'Expand path to GC roots',
-                    action: () => {
-                      const inst = active();
-                      const [, setTab] = inst.tab;
-                      const [, setRetainersNodeId] = inst.retainersNodeId;
-                      if (inst.tab[0]() !== 'Retainers') {
-                        setRetainersNodeId(nodeId);
-                        setTab('Retainers');
-                        pushHistory(inst, nodeId);
-                      }
-                      setExpandGcTarget(null);
-                      queueMicrotask(() => setExpandGcTarget(nodeId));
-                    },
                   },
                   {
                     label: 'Remember object',
@@ -564,17 +582,46 @@ export function App(): JSX.Element {
                     label: 'Compute reachable size w/ children',
                     action: () => computeReachableSizeWithChildren(nodeId),
                   },
-                  {
-                    label: 'Inspect',
+                ];
+                if (active().tab[0]() === 'Retainers') {
+                  items.push({
+                    label: 'Expand path to GC roots',
+                    action: () => {
+                      setExpandGcTarget(null);
+                      queueMicrotask(() => setExpandGcTarget(nodeId));
+                    },
+                  });
+                }
+                if (nodeInfo.has_source) {
+                  items.push({
+                    label: 'Show source',
                     action: async () => {
-                      const info = await active().call<NodeInfo>({
-                        type: 'getNodeInfo',
+                      const source = await active().call<string | null>({
+                        type: 'getFunctionSource',
                         nodeId,
                       });
-                      setInspectInfo({ node: info, edge });
+                      if (source == null) return;
+                      const title = nodeInfo.location
+                        ? `${nodeInfo.name}  (${nodeInfo.location})`
+                        : nodeInfo.name;
+                      setSourceDialog({ title, source });
                     },
-                  },
-                ];
+                  });
+                }
+                if (edge) {
+                  for (const ref of parseEdgeRefs(edge.edgeName)) {
+                    items.push({
+                      label: `Show ${ref.label} @${ref.id} in Summary view`,
+                      action: () =>
+                        navigate({ nodeId: ref.id, target: 'Summary' }),
+                    });
+                  }
+                }
+                items.push({
+                  label: 'Inspect',
+                  action: () => setInspectInfo({ node: nodeInfo, edge }),
+                });
+                return items;
               })()}
             />
           )}
@@ -585,6 +632,15 @@ export function App(): JSX.Element {
               info={data().node}
               edgeInfo={data().edge}
               onClose={() => setInspectInfo(null)}
+            />
+          )}
+        </Show>
+        <Show when={sourceDialog()}>
+          {(data) => (
+            <SourceDialog
+              title={data().title}
+              source={data().source}
+              onClose={() => setSourceDialog(null)}
             />
           )}
         </Show>

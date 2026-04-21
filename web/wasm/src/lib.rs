@@ -66,6 +66,14 @@ struct JsNodeInfo {
     detachedness: u8,
     ctx: String,
     ctx_label: String,
+    /// For JSFunction / SharedFunctionInfo, formatted as
+    /// `"file.js:start_line:start_col-end_line:end_col"` or just
+    /// `"file.js:line:col"` if the end position is unavailable.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    location: Option<String>,
+    /// True when `get_function_source` can be called on this node — i.e. for
+    /// JSFunction and SharedFunctionInfo. Matches the TUI's `function_source`.
+    has_source: bool,
 }
 
 #[derive(Serialize)]
@@ -213,6 +221,14 @@ impl WasmHeapSnapshot {
     fn node_info(&self, ordinal: NodeOrdinal) -> JsNodeInfo {
         let snap = &self.inner;
         let bucket = snap.node_native_context_bucket(ordinal);
+        let location = snap.node_location(ordinal).map(|loc| {
+            let mut s = snap.format_location(&loc);
+            if let Some((end_line, end_col)) = snap.function_end_line_column(ordinal) {
+                s.push_str(&format!("-{}:{}", end_line + 1, end_col + 1));
+            }
+            s
+        });
+        let has_source = snap.is_js_function(ordinal) || snap.is_shared_function_info(ordinal);
         JsNodeInfo {
             id: snap.node_id(ordinal).0,
             ordinal: ordinal.0 as u32,
@@ -226,6 +242,8 @@ impl WasmHeapSnapshot {
             detachedness: snap.node_detachedness(ordinal) as u8,
             ctx: format_ctx_bucket(bucket),
             ctx_label: format_ctx_label(snap, bucket),
+            location,
+            has_source,
         }
     }
 
@@ -669,6 +687,14 @@ impl WasmHeapSnapshot {
     pub fn get_node_info(&self, node_id: f64) -> Result<String, JsError> {
         let ordinal = self.resolve_ordinal(node_id)?;
         Ok(to_json(&self.node_info(ordinal)))
+    }
+
+    /// Returns the source code of a JSFunction or SharedFunctionInfo, or
+    /// `None` for any other node type or when the script source cannot be
+    /// resolved. Encoded as JSON: a string when present, `null` otherwise.
+    pub fn get_function_source(&self, node_id: f64) -> Result<String, JsError> {
+        let ordinal = self.resolve_ordinal(node_id)?;
+        Ok(to_json(&self.inner.function_source(ordinal)))
     }
 
     pub fn get_reachable_size(&self, node_id: f64) -> Result<String, JsError> {

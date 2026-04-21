@@ -37,6 +37,13 @@ export interface NodeInfo {
   detachedness: number; // 0=unknown, 1=attached, 2=detached
   ctx: string;
   ctx_label: string;
+  // For JSFunction / SharedFunctionInfo, formatted as
+  // `"file.js:start_line:start_col-end_line:end_col"` or just
+  // `"file.js:line:col"` if the end position is unavailable.
+  location?: string;
+  // True when the "Show source" action is applicable to this node — i.e. it
+  // is a JSFunction or SharedFunctionInfo.
+  has_source: boolean;
 }
 
 export interface Edge {
@@ -197,6 +204,7 @@ export type WorkerRequest =
   | { id: number; type: 'getNativeContexts' }
   | { id: number; type: 'getDominatorsOf'; nodeId: number }
   | { id: number; type: 'getNodeInfo'; nodeId: number }
+  | { id: number; type: 'getFunctionSource'; nodeId: number }
   | { id: number; type: 'getAllocationStack'; nodeId: number }
   | { id: number; type: 'getSummaryForInterval'; intervalIndex: number }
   | {

@@ -49,6 +49,9 @@ export function InspectDialog(props: {
   if (n.ctx) {
     rows.push(['Context', n.ctx_label || n.ctx]);
   }
+  if (n.location) {
+    rows.push(['Location', n.location]);
+  }
 
   const edgeRows: [string, string][] = [];
   if (props.edgeInfo) {

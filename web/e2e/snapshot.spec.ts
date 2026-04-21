@@ -176,9 +176,15 @@ test.describe('Heap Snapshot Viewer', () => {
     await objectLink.click({ button: 'right' });
 
     // Context menu should appear with expected items
-    await expect(page.locator('text=Show retainers')).toBeVisible();
-    await expect(page.locator('text=Show in dominators')).toBeVisible();
-    await expect(page.locator('text=Show in summary')).toBeVisible();
+    await expect(
+      page.locator('text=/Show @\\d+ in Retainers view/'),
+    ).toBeVisible();
+    await expect(
+      page.locator('text=/Show @\\d+ in Dominators view/'),
+    ).toBeVisible();
+    await expect(
+      page.locator('text=/Show @\\d+ in Summary view/'),
+    ).toBeVisible();
     await expect(page.locator('text=Remember object')).toBeVisible();
     await expect(page.locator('text=Inspect')).toBeVisible();
   });
@@ -202,7 +208,7 @@ test.describe('Heap Snapshot Viewer', () => {
     await objectLink.click({ button: 'right' });
 
     // Click "Show retainers"
-    await page.locator('text=Show retainers').click();
+    await page.locator('text=/Show @\\d+ in Retainers view/').click();
 
     // Should switch to Retainers tab
     const retainersTab = page.locator('button:has-text("Retainers")');
@@ -230,7 +236,7 @@ test.describe('Heap Snapshot Viewer', () => {
     await expect(objectLink).toBeVisible({ timeout: 5000 });
     await objectLink.click({ button: 'right' });
 
-    await page.locator('text=Show in dominators').click();
+    await page.locator('text=/Show @\\d+ in Dominators view/').click();
 
     const dominatorsTab = page.locator('button:has-text("Dominators")');
     await expect(dominatorsTab).toHaveCSS('font-weight', '700');
@@ -318,13 +324,17 @@ test.describe('Heap Snapshot Viewer', () => {
       .first();
     await expect(objectLink).toBeVisible({ timeout: 5000 });
     await objectLink.click({ button: 'right' });
-    await expect(page.locator('text=Show retainers')).toBeVisible();
+    await expect(
+      page.locator('text=/Show @\\d+ in Retainers view/'),
+    ).toBeVisible();
 
     // Click outside the menu
     await page.mouse.click(10, 10);
 
     // Menu should be gone
-    await expect(page.locator('text=Show retainers')).not.toBeVisible();
+    await expect(
+      page.locator('text=/Show @\\d+ in Retainers view/'),
+    ).not.toBeVisible();
   });
 
   // ── Containment view ──────────────────────────────────────────────────
@@ -915,7 +925,7 @@ test.describe('Heap Snapshot Viewer', () => {
     await expect(objectLink).toBeVisible({ timeout: 5000 });
 
     await objectLink.click({ button: 'right' });
-    await page.locator('text=Show retainers').click();
+    await page.locator('text=/Show @\\d+ in Retainers view/').click();
 
     await expect(page.getByTestId('retaining-paths-header')).toBeVisible({
       timeout: 5000,
@@ -982,7 +992,7 @@ test.describe('Heap Snapshot Viewer', () => {
     // Here we verify the shared reachableSizes map works across tabs
     // by navigating to retainers and back.
     await objectLink.click({ button: 'right' });
-    await page.locator('text=Show retainers').click();
+    await page.locator('text=/Show @\\d+ in Retainers view/').click();
     await expect(page.getByTestId('retaining-paths-header')).toBeVisible({
       timeout: 5000,
     });
@@ -1195,7 +1205,7 @@ test.describe('Heap Snapshot Viewer', () => {
 
     // Right-click and show retainers
     await objectLink.click({ button: 'right' });
-    await page.locator('text=Show retainers').click();
+    await page.locator('text=/Show @\\d+ in Retainers view/').click();
 
     // Should be in Retainers tab now with retaining paths
     await expect(page.locator('button:has-text("Retainers")')).toHaveCSS(
@@ -1218,7 +1228,7 @@ test.describe('Heap Snapshot Viewer', () => {
 
     // Right-click the retainer and select "Show retainers"
     await retainerLink.click({ button: 'right' });
-    await page.locator('text=Show retainers').click();
+    await page.locator('text=/Show @\\d+ in Retainers view/').click();
 
     // The retainers input should now contain the retainer's ID
     const input = page.locator('input[placeholder="@12345"]');

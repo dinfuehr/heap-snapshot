@@ -1,7 +1,7 @@
 use rustc_hash::FxHashMap;
 
-use crate::types::{Distance, NodeId};
 pub use crate::display::{display_width, pad_str, slice_str, truncate_str};
+use crate::types::{Distance, NodeId};
 
 pub mod closure_leaks;
 pub mod closures;
