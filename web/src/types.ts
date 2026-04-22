@@ -205,6 +205,12 @@ export type WorkerRequest =
   | { id: number; type: 'getDominatorsOf'; nodeId: number }
   | { id: number; type: 'getNodeInfo'; nodeId: number }
   | { id: number; type: 'getFunctionSource'; nodeId: number }
+  | {
+      id: number;
+      type: 'getContextMenuData';
+      nodeId: number;
+      edgeName?: string;
+    }
   | { id: number; type: 'getAllocationStack'; nodeId: number }
   | { id: number; type: 'getSummaryForInterval'; intervalIndex: number }
   | {

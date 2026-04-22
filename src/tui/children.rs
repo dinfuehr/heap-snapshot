@@ -3,7 +3,7 @@ use std::cell::Cell;
 use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::snapshot::HeapSnapshot;
-use crate::types::{AggregateInfo, Distance, NodeOrdinal};
+use crate::types::{AggregateInfo, Distance, EdgeId, NodeOrdinal};
 
 use super::SummaryFilterMode;
 use super::contains_ignore_case;
@@ -35,6 +35,7 @@ fn insert_allocation_stack(
                     is_weak: false,
                     is_root_holder: false,
                     inspect_source: None,
+                    edge_idx: None,
                 },
             );
         }
@@ -44,7 +45,7 @@ fn insert_allocation_stack(
 /// Format an outgoing edge label: `edge :: @id name`
 pub(super) fn format_edge_label(
     snap: &HeapSnapshot,
-    edge_idx: usize,
+    edge_idx: EdgeId,
     child_ord: NodeOrdinal,
 ) -> String {
     snap.format_edge_label(edge_idx, child_ord)
@@ -53,7 +54,7 @@ pub(super) fn format_edge_label(
 /// Format a retainer edge label: `edge in @id name`
 pub(super) fn format_retainer_label(
     snap: &HeapSnapshot,
-    edge_idx: usize,
+    edge_idx: EdgeId,
     ret_ord: NodeOrdinal,
 ) -> String {
     snap.format_retainer_label(edge_idx, ret_ord)
@@ -68,7 +69,7 @@ pub(super) fn compute_children(
     class_member_windows: &FxHashMap<usize, EdgeWindow>,
     edge_filters: &FxHashMap<NodeOrdinal, String>,
     summary_filter: &str,
-    retainer_path_edges: Option<&FxHashSet<usize>>,
+    retainer_path_edges: Option<&FxHashSet<EdgeId>>,
     unreachable_filter: SummaryFilterMode,
     next_id: &Cell<u64>,
 ) -> Vec<ChildNode> {
@@ -163,6 +164,7 @@ pub(super) fn compute_class_members(
                     is_weak: false,
                     is_root_holder: false,
                     inspect_source: None,
+                    edge_idx: None,
                 }
             })
             .collect();
@@ -185,6 +187,7 @@ pub(super) fn compute_class_members(
                 is_weak: false,
                 is_root_holder: false,
                 inspect_source: None,
+                edge_idx: None,
             });
         }
         return children;
@@ -217,6 +220,7 @@ pub(super) fn compute_class_members(
                 is_weak: false,
                 is_root_holder: false,
                 inspect_source: None,
+                edge_idx: None,
             }
         })
         .collect();
@@ -240,6 +244,7 @@ pub(super) fn compute_class_members(
             is_weak: false,
             is_root_holder: false,
             inspect_source: None,
+            edge_idx: None,
         });
     }
 
@@ -249,7 +254,7 @@ pub(super) fn compute_class_members(
 /// Build a `ChildNode` from an edge, constructing the display label.
 fn edge_to_child_node(
     snap: &HeapSnapshot,
-    edge_idx: usize,
+    edge_idx: EdgeId,
     child_ord: NodeOrdinal,
     next_id: &Cell<u64>,
 ) -> ChildNode {
@@ -273,6 +278,7 @@ fn edge_to_child_node(
         is_weak: edge_type == "weak",
         is_root_holder: false,
         inspect_source: None,
+        edge_idx: Some(edge_idx),
     }
 }
 
@@ -324,6 +330,7 @@ pub(super) fn compute_edges(
                 is_weak: false,
                 is_root_holder: false,
                 inspect_source: None,
+                edge_idx: None,
             });
         }
         // For JSFunction / SharedFunctionInfo nodes, prepend a location info row.
@@ -347,6 +354,7 @@ pub(super) fn compute_edges(
                         is_weak: false,
                         is_root_holder: false,
                         inspect_source: Some(ord),
+                        edge_idx: None,
                     },
                 );
             }
@@ -425,6 +433,7 @@ pub(super) fn compute_edges(
                     is_weak: false,
                     is_root_holder: false,
                     inspect_source: None,
+                    edge_idx: None,
                 },
             );
         }
@@ -451,6 +460,7 @@ pub(super) fn compute_edges(
                     is_weak: false,
                     is_root_holder: false,
                     inspect_source: Some(ord),
+                    edge_idx: None,
                 },
             );
         }
@@ -486,6 +496,7 @@ pub(super) fn compute_edges(
             is_weak: false,
             is_root_holder: false,
             inspect_source: None,
+            edge_idx: None,
         });
     }
 
@@ -513,7 +524,7 @@ pub(super) fn compute_compare_edges(
 /// Build a `ChildNode` for a single retainer edge.
 pub(super) fn make_retainer_child(
     snap: &HeapSnapshot,
-    edge_idx: usize,
+    edge_idx: EdgeId,
     ret_ord: NodeOrdinal,
     next_id: &Cell<u64>,
 ) -> ChildNode {
@@ -538,6 +549,7 @@ pub(super) fn make_retainer_child(
         is_weak,
         is_root_holder: snap.is_root_holder(ret_ord),
         inspect_source: None,
+        edge_idx: Some(edge_idx),
     }
 }
 
@@ -545,10 +557,10 @@ pub(super) fn compute_retainers(
     snap: &HeapSnapshot,
     ord: NodeOrdinal,
     w: EdgeWindow,
-    path_edges: Option<&FxHashSet<usize>>,
+    path_edges: Option<&FxHashSet<EdgeId>>,
     next_id: &Cell<u64>,
 ) -> Vec<ChildNode> {
-    let make_child = |edge_idx: usize, ret_ord: NodeOrdinal, next_id: &Cell<u64>| {
+    let make_child = |edge_idx: EdgeId, ret_ord: NodeOrdinal, next_id: &Cell<u64>| {
         make_retainer_child(snap, edge_idx, ret_ord, next_id)
     };
 
@@ -558,7 +570,7 @@ pub(super) fn compute_retainers(
     // retainers by distance before paging, so closer-to-root retainers
     // always appear on earlier pages.
     if path_edges.is_some() {
-        let mut all: Vec<(usize, NodeOrdinal)> = Vec::new();
+        let mut all: Vec<(EdgeId, NodeOrdinal)> = Vec::new();
         snap.for_each_retainer(ord, |edge_idx, ret_ord| {
             let pe = path_edges.unwrap();
             if !pe.contains(&edge_idx) {
@@ -597,6 +609,7 @@ pub(super) fn compute_retainers(
                 is_weak: false,
                 is_root_holder: false,
                 inspect_source: None,
+                edge_idx: None,
             });
         }
         return children;
@@ -637,6 +650,7 @@ pub(super) fn compute_retainers(
             is_weak: false,
             is_root_holder: false,
             inspect_source: None,
+            edge_idx: None,
         });
     }
     children
@@ -670,6 +684,7 @@ pub(super) fn compute_dominated_children(
                 is_weak: false,
                 is_root_holder: false,
                 inspect_source: None,
+                edge_idx: None,
             }
         })
         .collect();

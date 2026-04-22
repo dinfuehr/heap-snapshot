@@ -17,7 +17,7 @@ use crate::print::diff;
 use crate::print::retainers::{RetainerAutoExpandLimits, plan_gc_root_retainer_paths};
 use crate::print::{display_width, format_size, pad_str, slice_str, truncate_str};
 use crate::snapshot::HeapSnapshot;
-use crate::types::{AggregateInfo, NodeOrdinal};
+use crate::types::{AggregateInfo, EdgeId, NodeOrdinal};
 
 mod types;
 use types::*;
@@ -236,6 +236,8 @@ struct App {
     filter_overlay_scroll: usize,
     // inspect overlay state
     inspect_lines: Vec<String>,
+    // action-menu overlay state
+    action_menu: ActionMenu,
 }
 
 // Core App methods used across multiple submodules.
@@ -388,6 +390,7 @@ impl App {
             filter_overlay_cursor: 0,
             filter_overlay_scroll: 0,
             inspect_lines: Vec::new(),
+            action_menu: ActionMenu::default(),
         }
     }
 
@@ -439,7 +442,7 @@ impl App {
         }
     }
 
-    fn retainer_path_filter(&self, node_id: NodeId) -> Option<&FxHashSet<usize>> {
+    fn retainer_path_filter(&self, node_id: NodeId) -> Option<&FxHashSet<EdgeId>> {
         if self.retainers.unfiltered_nodes.contains(&node_id)
             || self.retainers.gc_root_path_edges.is_empty()
         {

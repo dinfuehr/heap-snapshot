@@ -20,7 +20,7 @@ use crate::retaining_path::{
     RetainerAutoExpandLimits, RetainerPathEdge, plan_gc_root_retainer_paths,
 };
 use crate::snapshot::{Detachedness, HeapSnapshot, RootKind, SnapshotOptions};
-use crate::types::{AggregateMap, NodeId, NodeOrdinal};
+use crate::types::{AggregateMap, EdgeId, NodeId, NodeOrdinal};
 
 // ---------------------------------------------------------------------------
 // Parameter types
@@ -939,7 +939,7 @@ impl McpServer {
                 snapshot.node_retained_size(ordinal),
             ));
 
-            fn format_edge(snap: &HeapSnapshot, edge_idx: usize, ret_ordinal: NodeOrdinal) -> String {
+            fn format_edge(snap: &HeapSnapshot, edge_idx: EdgeId, ret_ordinal: NodeOrdinal) -> String {
                 let edge_type = snap.edge_type_name(edge_idx);
                 let edge_name = snap.edge_name(edge_idx);
                 let node_name = snap.node_display_name(ret_ordinal);

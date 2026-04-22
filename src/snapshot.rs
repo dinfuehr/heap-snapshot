@@ -12,8 +12,8 @@ use regex::Regex;
 use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::types::{
-    AggregateInfo, AggregateMap, DuplicateStringInfo, DuplicateStringsResult, NodeId, NodeOrdinal,
-    RawHeapSnapshot, Statistics,
+    AggregateInfo, AggregateMap, DuplicateStringInfo, DuplicateStringsResult, EdgeId, NodeId,
+    NodeOrdinal, RawHeapSnapshot, Statistics,
 };
 use crate::utils::{utf16_offset_to_byte, utf16_offset_to_line_column};
 
@@ -141,6 +141,55 @@ enum ReachClass {
     None,
     One(NativeContextId),
     Many,
+}
+
+/// A single `@<id>` reference extracted from a V8 edge name (e.g. the
+/// three references embedded in a WeakMap ephemeron edge label).
+#[derive(Clone, Debug, PartialEq)]
+pub struct ParsedEdgeRef {
+    /// Short human label for the role/type, e.g. `"key/HTMLDivElement"`,
+    /// `"value/Object"`, `"table"`.
+    pub label: String,
+    pub id: NodeId,
+}
+
+/// Parse `@<id>` references out of a V8 edge name. Currently recognizes the
+/// WeakMap ephemeron format (built by `SetNamedAutoIndexReference` +
+/// `ExtractEphemeronHashTableReferences` in V8's heap-snapshot-generator.cc):
+///   `"<index> / part of key (TYPE @N) -> value (TYPE @N) pair in WeakMap (table @N)"`
+/// Returns one entry per `@<id>` reference in the order they appear, or an
+/// empty vector if the name does not match a recognized format.
+pub fn parse_edge_refs(edge_name: &str) -> Vec<ParsedEdgeRef> {
+    use std::sync::OnceLock;
+    static EPHEMERON_RE: OnceLock<Regex> = OnceLock::new();
+    let re = EPHEMERON_RE.get_or_init(|| {
+        Regex::new(
+            r"^\d+ / part of key \((.+?) @(\d+)\) -> value \((.+?) @(\d+)\) pair in WeakMap \(table @(\d+)\)$",
+        )
+        .unwrap()
+    });
+    let Some(caps) = re.captures(edge_name) else {
+        return Vec::new();
+    };
+    let parse_id = |i: usize| -> Option<NodeId> { caps[i].parse::<u64>().ok().map(NodeId) };
+    let (Some(key_id), Some(value_id), Some(table_id)) = (parse_id(2), parse_id(4), parse_id(5))
+    else {
+        return Vec::new();
+    };
+    vec![
+        ParsedEdgeRef {
+            label: format!("key/{}", &caps[1]),
+            id: key_id,
+        },
+        ParsedEdgeRef {
+            label: format!("value/{}", &caps[3]),
+            id: value_id,
+        },
+        ParsedEdgeRef {
+            label: "table".to_string(),
+            id: table_id,
+        },
+    ]
 }
 
 pub struct HeapSnapshot {
@@ -1330,12 +1379,12 @@ impl HeapSnapshot {
         for &ord in ordinals {
             let mut fields = FxHashSet::default();
             for (edge_idx, _) in self.iter_edges(NodeOrdinal(ord)) {
-                let edge_type = self.edges[edge_idx + self.edge_type_offset];
+                let edge_type = self.edges[edge_idx.0 + self.edge_type_offset];
                 if edge_type != self.edge_element_type
                     && edge_type != self.edge_hidden_type
                     && !self.is_invisible_edge(edge_idx)
                 {
-                    let name_idx = self.edges[edge_idx + self.edge_name_offset] as usize;
+                    let name_idx = self.edges[edge_idx.0 + self.edge_name_offset] as usize;
                     fields.insert(self.strings[name_idx].clone());
                 }
             }
@@ -2828,11 +2877,11 @@ impl HeapSnapshot {
         let mut unique: Vec<String> = self
             .iter_edges(global)
             .filter_map(|(edge_idx, _)| {
-                let edge_type = self.edges[edge_idx + self.edge_type_offset];
+                let edge_type = self.edges[edge_idx.0 + self.edge_type_offset];
                 if edge_type == self.edge_element_type || edge_type == self.edge_hidden_type {
                     return None;
                 }
-                let name_idx = self.edges[edge_idx + self.edge_name_offset] as usize;
+                let name_idx = self.edges[edge_idx.0 + self.edge_name_offset] as usize;
                 let name = &self.strings[name_idx];
                 if self.native_context_global_fields.contains(name.as_str()) {
                     None
@@ -2854,17 +2903,17 @@ impl HeapSnapshot {
         let mut vars = Vec::new();
         // The ScriptContextTable has hidden edges to Context objects.
         for (edge_idx, child_ord) in self.iter_edges(table) {
-            let edge_type = self.edges[edge_idx + self.edge_type_offset];
+            let edge_type = self.edges[edge_idx.0 + self.edge_type_offset];
             if edge_type != self.edge_hidden_type && edge_type != self.edge_element_type {
                 continue;
             }
             // Each Context has "context"-typed edges for its variables.
             for (ctx_edge_idx, _) in self.iter_edges(child_ord) {
-                let ctx_edge_type = self.edges[ctx_edge_idx + self.edge_type_offset];
+                let ctx_edge_type = self.edges[ctx_edge_idx.0 + self.edge_type_offset];
                 if ctx_edge_type != self.edge_context_type {
                     continue;
                 }
-                let name_idx = self.edges[ctx_edge_idx + self.edge_name_offset] as usize;
+                let name_idx = self.edges[ctx_edge_idx.0 + self.edge_name_offset] as usize;
                 let name = &self.strings[name_idx];
                 // Skip "this" and other internal context vars.
                 if name != "this" {
@@ -3901,8 +3950,8 @@ impl HeapSnapshot {
         false
     }
 
-    pub fn edge_type_name(&self, edge_index: usize) -> &str {
-        let t = self.edges[edge_index + self.edge_type_offset] as usize;
+    pub fn edge_type_name(&self, edge: EdgeId) -> &str {
+        let t = self.edges[edge.0 + self.edge_type_offset] as usize;
         if t < self.edge_types.len() {
             &self.edge_types[t]
         } else {
@@ -3910,9 +3959,9 @@ impl HeapSnapshot {
         }
     }
 
-    pub fn edge_name(&self, edge_index: usize) -> String {
-        let edge_type = self.edges[edge_index + self.edge_type_offset];
-        let name_or_index = self.edges[edge_index + self.edge_name_offset];
+    pub fn edge_name(&self, edge: EdgeId) -> String {
+        let edge_type = self.edges[edge.0 + self.edge_type_offset];
+        let name_or_index = self.edges[edge.0 + self.edge_name_offset];
 
         // Element and hidden edges use numeric index
         if edge_type == self.edge_element_type || edge_type == self.edge_hidden_type {
@@ -3934,9 +3983,9 @@ impl HeapSnapshot {
     }
 
     /// Format the edge name portion, bracketing element/hidden edges.
-    fn format_edge_name(&self, edge_idx: usize) -> String {
-        let edge_name = self.edge_name(edge_idx);
-        let edge_type = self.edge_type_name(edge_idx);
+    fn format_edge_name(&self, edge: EdgeId) -> String {
+        let edge_name = self.edge_name(edge);
+        let edge_type = self.edge_type_name(edge);
         if edge_type == "element" || edge_type == "hidden" {
             format!("[{edge_name}]")
         } else if edge_name.is_empty() {
@@ -3947,21 +3996,21 @@ impl HeapSnapshot {
     }
 
     /// Format an outgoing edge label: `edge :: @id name`
-    pub fn format_edge_label(&self, edge_idx: usize, child_ord: NodeOrdinal) -> String {
-        let edge = self.format_edge_name(edge_idx);
+    pub fn format_edge_label(&self, edge: EdgeId, child_ord: NodeOrdinal) -> String {
+        let edge_str = self.format_edge_name(edge);
         let node = self.format_node_label(child_ord);
-        format!("{edge} :: {node}")
+        format!("{edge_str} :: {node}")
     }
 
     /// Format a retainer edge label: `edge in @id name`
-    pub fn format_retainer_label(&self, edge_idx: usize, ret_ord: NodeOrdinal) -> String {
-        let edge = self.format_edge_name(edge_idx);
+    pub fn format_retainer_label(&self, edge: EdgeId, ret_ord: NodeOrdinal) -> String {
+        let edge_str = self.format_edge_name(edge);
         let node = self.format_node_label(ret_ord);
-        format!("{edge} in {node}")
+        format!("{edge_str} in {node}")
     }
 
-    pub fn is_invisible_edge(&self, edge_index: usize) -> bool {
-        self.edges[edge_index + self.edge_type_offset] == self.edge_invisible_type
+    pub fn is_invisible_edge(&self, edge: EdgeId) -> bool {
+        self.edges[edge.0 + self.edge_type_offset] == self.edge_invisible_type
     }
 
     /// Returns a zero-allocation iterator over the outgoing edges of `ordinal`.
@@ -3985,13 +4034,13 @@ impl HeapSnapshot {
         end - begin
     }
 
-    pub fn get_retainers(&self, ordinal: NodeOrdinal) -> Vec<(usize, NodeOrdinal)> {
+    pub fn get_retainers(&self, ordinal: NodeOrdinal) -> Vec<(EdgeId, NodeOrdinal)> {
         let nfc = self.node_field_count;
         let begin = self.first_retainer_index[ordinal.0] as usize;
         let end = self.first_retainer_index[ordinal.0 + 1] as usize;
         let mut result = Vec::new();
         for idx in begin..end {
-            let edge_index = self.retaining_edges[idx] as usize;
+            let edge_index = EdgeId(self.retaining_edges[idx] as usize);
             let node_index = self.retaining_nodes[idx] as usize;
             let node_ordinal = NodeOrdinal(node_index / nfc);
             result.push((edge_index, node_ordinal));
@@ -4001,13 +4050,13 @@ impl HeapSnapshot {
 
     pub fn for_each_retainer<F>(&self, ordinal: NodeOrdinal, mut f: F)
     where
-        F: FnMut(usize, NodeOrdinal),
+        F: FnMut(EdgeId, NodeOrdinal),
     {
         let nfc = self.node_field_count;
         let begin = self.first_retainer_index[ordinal.0] as usize;
         let end = self.first_retainer_index[ordinal.0 + 1] as usize;
         for idx in begin..end {
-            let edge_index = self.retaining_edges[idx] as usize;
+            let edge_index = EdgeId(self.retaining_edges[idx] as usize);
             let node_index = self.retaining_nodes[idx] as usize;
             let node_ordinal = NodeOrdinal(node_index / nfc);
             f(edge_index, node_ordinal);
@@ -4082,7 +4131,7 @@ impl HeapSnapshot {
     /// these constraints (i.e. only retained via skipped edges).
     fn compute_retained_bitmap(
         &self,
-        skip_edge: impl Fn(usize, usize, usize) -> bool, // (edge_idx, source_ord, target_ord)
+        skip_edge: impl Fn(EdgeId, usize, usize) -> bool, // (edge_idx, source_ord, target_ord)
     ) -> Vec<bool> {
         let nfc = self.node_field_count;
         let efc = self.edge_fields_count;
@@ -4101,7 +4150,7 @@ impl HeapSnapshot {
             let mut ei = first;
             while ei < last {
                 let child_ord = self.edges[ei + eto] as usize / nfc;
-                if !reachable[child_ord] && !skip_edge(ei, ord, child_ord) {
+                if !reachable[child_ord] && !skip_edge(EdgeId(ei), ord, child_ord) {
                     reachable[child_ord] = true;
                     queue.push_back(child_ord);
                 }
@@ -4515,7 +4564,7 @@ pub struct EdgeIter<'a> {
 }
 
 impl<'a> Iterator for EdgeIter<'a> {
-    type Item = (usize, NodeOrdinal);
+    type Item = (EdgeId, NodeOrdinal);
 
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {
@@ -4526,7 +4575,7 @@ impl<'a> Iterator for EdgeIter<'a> {
         let child_index = self.edges[ei + self.edge_to_node_offset] as usize;
         let child_ordinal = NodeOrdinal(child_index / self.node_field_count);
         self.current += self.edge_fields_count;
-        Some((ei, child_ordinal))
+        Some((EdgeId(ei), child_ordinal))
     }
 
     #[inline]

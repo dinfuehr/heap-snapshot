@@ -9463,3 +9463,30 @@ fn test_native_context_attributable_sizes_keep_unreachable_direct_and_reachable_
     assert_eq!(reachable_unattributed.shared_attributable_size(), 0);
     assert_eq!(reachable_unattributed.unattributed_size(), 16);
 }
+
+// ── parse_edge_refs ─────────────────────────────────────────────────────
+
+#[test]
+fn test_parse_edge_refs_ephemeron() {
+    use crate::snapshot::parse_edge_refs;
+    let label = "6 / part of key (HTMLDivElement @804589) -> value (Object @2084147) pair in WeakMap (table @2069533)";
+    let refs = parse_edge_refs(label);
+    assert_eq!(refs.len(), 3);
+    assert_eq!(refs[0].label, "key/HTMLDivElement");
+    assert_eq!(refs[0].id, NodeId(804589));
+    assert_eq!(refs[1].label, "value/Object");
+    assert_eq!(refs[1].id, NodeId(2084147));
+    assert_eq!(refs[2].label, "table");
+    assert_eq!(refs[2].id, NodeId(2069533));
+}
+
+#[test]
+fn test_parse_edge_refs_no_match() {
+    use crate::snapshot::parse_edge_refs;
+    assert!(parse_edge_refs("").is_empty());
+    assert!(parse_edge_refs("some random edge name").is_empty());
+    // Missing the auto-index prefix → not a match.
+    assert!(
+        parse_edge_refs("part of key (A @1) -> value (B @2) pair in WeakMap (table @3)").is_empty()
+    );
+}

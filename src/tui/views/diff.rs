@@ -47,6 +47,7 @@ impl App {
                     is_weak: false,
                     is_root_holder: false,
                     inspect_source: None,
+                    edge_idx: None,
                     kind: FlatRowKind::DiffGroup {
                         new_count: d.new_count,
                         deleted_count: d.deleted_count,
@@ -98,6 +99,7 @@ impl App {
                 is_weak: false,
                 is_root_holder: false,
                 inspect_source: None,
+                edge_idx: None,
             });
         }
 
@@ -124,6 +126,7 @@ impl App {
                 is_weak: false,
                 is_root_holder: false,
                 inspect_source: None,
+                edge_idx: None,
             });
         }
 
@@ -159,6 +162,7 @@ impl App {
                     is_weak: false,
                     is_root_holder: false,
                     inspect_source: None,
+                    edge_idx: None,
                     kind: FlatRowKind::DiffObject {
                         node_ordinal: child.node_ordinal,
                         is_new,

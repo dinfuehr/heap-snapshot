@@ -5,7 +5,7 @@ use super::{
     truncate_str,
 };
 use crate::snapshot::HeapSnapshot;
-use crate::types::{NodeId, NodeOrdinal};
+use crate::types::{EdgeId, NodeId, NodeOrdinal};
 
 // Re-export so existing `use crate::print::retainers::…` paths keep working.
 pub use crate::retaining_path::{
@@ -51,7 +51,7 @@ pub fn print_retainers(
 
     fn print_row(
         snap: &HeapSnapshot,
-        edge_idx: usize,
+        edge_idx: EdgeId,
         ret_ordinal: NodeOrdinal,
         depth: usize,
         expanded: bool,
@@ -118,7 +118,7 @@ pub fn print_retainers(
     }
 
     // Index plan tree root entries by edge_idx.
-    let plan_map: FxHashMap<usize, &RetainerPathEdge> =
+    let plan_map: FxHashMap<EdgeId, &RetainerPathEdge> =
         auto.tree.iter().map(|pe| (pe.edge_idx, pe)).collect();
 
     // Collect all direct retainers, sorted: plan-tree entries first (by

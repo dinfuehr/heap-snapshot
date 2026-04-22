@@ -12,7 +12,7 @@ use heap_snapshot::snapshot::{
     Detachedness, HeapSnapshot, NativeContextBucket, NativeContextId, RootKind, SnapshotOptions,
 };
 use heap_snapshot::types::AggregateInfo;
-use heap_snapshot::types::{NodeId, NodeOrdinal};
+use heap_snapshot::types::{EdgeId, NodeId, NodeOrdinal};
 
 // ---------------------------------------------------------------------------
 // Serialization types
@@ -175,6 +175,21 @@ struct JsTimelineInterval {
     timestamp_us: u64,
     count: u32,
     size: u64,
+}
+
+#[derive(Serialize)]
+struct JsEdgeRef {
+    label: String,
+    id: u64,
+}
+
+/// Bundle returned by [`WasmHeapSnapshot::get_context_menu_data`]: everything
+/// the UI needs to render a right-click context menu for a node (optionally
+/// reached through an edge) in a single WASM round trip.
+#[derive(Serialize)]
+struct JsContextMenuData {
+    node: JsNodeInfo,
+    edge_refs: Vec<JsEdgeRef>,
 }
 
 #[derive(Serialize)]
@@ -455,7 +470,7 @@ impl WasmHeapSnapshot {
         let ordinal = self.resolve_ordinal(node_id)?;
         let snap = &self.inner;
         let filter_lower = filter.to_lowercase();
-        let mut edges: Vec<(usize, NodeOrdinal)> = if filter_lower.is_empty() {
+        let mut edges: Vec<(EdgeId, NodeOrdinal)> = if filter_lower.is_empty() {
             snap.iter_edges(ordinal).collect()
         } else {
             snap.iter_edges(ordinal)
@@ -519,7 +534,7 @@ impl WasmHeapSnapshot {
         let ordinal = self.resolve_ordinal(node_id)?;
         let snap = &self.inner;
         let filter_lower = filter.to_lowercase();
-        let retainers: Vec<(usize, NodeOrdinal)> = if filter_lower.is_empty() {
+        let retainers: Vec<(EdgeId, NodeOrdinal)> = if filter_lower.is_empty() {
             snap.get_retainers(ordinal)
         } else {
             snap.get_retainers(ordinal)
@@ -695,6 +710,28 @@ impl WasmHeapSnapshot {
     pub fn get_function_source(&self, node_id: f64) -> Result<String, JsError> {
         let ordinal = self.resolve_ordinal(node_id)?;
         Ok(to_json(&self.inner.function_source(ordinal)))
+    }
+
+    /// Bundled call for opening a right-click context menu: returns node
+    /// info plus any `@<id>` references parsed from the edge name (e.g. the
+    /// key/value/table of a WeakMap ephemeron edge). Pass `edge_name = ""`
+    /// when no incoming edge is relevant. Shared with the TUI via
+    /// `heap_snapshot::snapshot::parse_edge_refs`.
+    pub fn get_context_menu_data(&self, node_id: f64, edge_name: &str) -> Result<String, JsError> {
+        let ordinal = self.resolve_ordinal(node_id)?;
+        let node = self.node_info(ordinal);
+        let edge_refs = if edge_name.is_empty() {
+            Vec::new()
+        } else {
+            heap_snapshot::snapshot::parse_edge_refs(edge_name)
+                .into_iter()
+                .map(|r| JsEdgeRef {
+                    label: r.label,
+                    id: r.id.0,
+                })
+                .collect()
+        };
+        Ok(to_json(&JsContextMenuData { node, edge_refs }))
     }
 
     pub fn get_reachable_size(&self, node_id: f64) -> Result<String, JsError> {

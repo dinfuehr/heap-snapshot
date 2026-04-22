@@ -214,6 +214,17 @@ async function processMessage(msg: WorkerMsg) {
           JSON.parse(snapshot.get_function_source(msg.nodeId as number)),
         );
         break;
+      case 'getContextMenuData':
+        respond(
+          id,
+          JSON.parse(
+            snapshot.get_context_menu_data(
+              msg.nodeId as number,
+              (msg.edgeName as string) || '',
+            ),
+          ),
+        );
+        break;
       case 'getConstructorForNode':
         respond(id, snapshot.get_constructor_for_node(msg.nodeId as number));
         break;

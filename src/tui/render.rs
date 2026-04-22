@@ -72,6 +72,9 @@ impl App {
         if self.input_mode == InputMode::Inspect {
             self.render_inspect_overlay(frame, chunks[1]);
         }
+        if self.input_mode == InputMode::ActionMenu {
+            self.render_action_menu_overlay(frame, chunks[1], snap);
+        }
     }
 
     fn render_header(&mut self, frame: &mut Frame, area: Rect, snap: &HeapSnapshot) {
@@ -502,6 +505,10 @@ impl App {
             )),
             InputMode::Inspect => Line::from(Span::styled(
                 "Press any key to close",
+                Style::default().fg(Color::Yellow),
+            )),
+            InputMode::ActionMenu => Line::from(Span::styled(
+                "\u{2191}\u{2193}:navigate  Enter:select  Esc:cancel",
                 Style::default().fg(Color::Yellow),
             )),
             InputMode::Normal => {

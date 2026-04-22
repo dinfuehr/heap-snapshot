@@ -1,7 +1,7 @@
 use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::snapshot::HeapSnapshot;
-use crate::types::NodeOrdinal;
+use crate::types::{EdgeId, NodeOrdinal};
 
 #[derive(Clone, Copy, Debug)]
 pub struct RetainerAutoExpandLimits {
@@ -11,7 +11,7 @@ pub struct RetainerAutoExpandLimits {
 
 /// A single retainer edge on a GC-root path.
 pub struct RetainerPathEdge {
-    pub edge_idx: usize,
+    pub edge_idx: EdgeId,
     pub retainer: NodeOrdinal,
     /// Children of this retainer that are also on a GC-root path.
     /// Empty for GC root nodes (leaf of the retainer tree).
@@ -25,7 +25,7 @@ pub struct RetainerAutoExpandPlan {
     /// paths has its subtree built only once; subsequent occurrences have
     /// empty `children` but are still marked as reaching GC roots.
     pub tree: Vec<RetainerPathEdge>,
-    pub gc_root_path_edges: FxHashSet<usize>,
+    pub gc_root_path_edges: FxHashSet<EdgeId>,
     pub reached_gc_roots: bool,
     pub truncated: bool,
 }
@@ -59,7 +59,7 @@ pub fn plan_gc_root_retainer_paths(
         explored_nodes: &mut FxHashSet<NodeOrdinal>,
         dfs_stack: &mut FxHashSet<NodeOrdinal>,
         memo: &mut FxHashMap<NodeOrdinal, (bool, usize)>,
-        gc_root_path_edges: &mut FxHashSet<usize>,
+        gc_root_path_edges: &mut FxHashSet<EdgeId>,
         truncated: &mut bool,
     ) -> Vec<RetainerPathEdge> {
         if snap.is_root(node) {
@@ -89,7 +89,7 @@ pub fn plan_gc_root_retainer_paths(
             return Vec::new();
         }
 
-        let mut retainers: Vec<(usize, NodeOrdinal)> = Vec::new();
+        let mut retainers: Vec<(EdgeId, NodeOrdinal)> = Vec::new();
         let mut directly_retained_by_gc_roots = false;
         snap.for_each_retainer(node, |edge_idx, ret_ordinal| {
             if dfs_stack.contains(&ret_ordinal) {
@@ -171,7 +171,7 @@ pub fn plan_gc_root_retainer_paths(
     // each edge_idx appears at most once.  This makes the tree ready for
     // direct iteration by both the CLI and TUI without further dedup.
     let mut expanded_once: FxHashSet<NodeOrdinal> = FxHashSet::default();
-    let mut seen_edges: FxHashSet<usize> = FxHashSet::default();
+    let mut seen_edges: FxHashSet<EdgeId> = FxHashSet::default();
     let tree = prune_plan_tree(snap, tree, &mut expanded_once, &mut seen_edges);
 
     RetainerAutoExpandPlan {
@@ -207,7 +207,7 @@ fn prune_plan_tree(
     snap: &HeapSnapshot,
     edges: Vec<RetainerPathEdge>,
     expanded_once: &mut FxHashSet<NodeOrdinal>,
-    seen_edges: &mut FxHashSet<usize>,
+    seen_edges: &mut FxHashSet<EdgeId>,
 ) -> Vec<RetainerPathEdge> {
     let mut result = Vec::new();
     for mut pe in edges {

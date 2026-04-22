@@ -1,6 +1,6 @@
 use crate::print::retainers::RetainerAutoExpandPlan;
 use crate::snapshot::HeapSnapshot;
-use crate::types::{Distance, NodeOrdinal};
+use crate::types::{Distance, EdgeId, NodeOrdinal};
 
 use super::children;
 use super::children::{
@@ -67,6 +67,7 @@ impl App {
                     is_weak,
                     is_root_holder: snap.is_root_holder(pe.retainer),
                     inspect_source: None,
+                    edge_idx: None,
                 });
             }
             let selected = children.len();
@@ -85,18 +86,19 @@ impl App {
                     is_weak: false,
                     is_root_holder: false,
                     inspect_source: None,
+                    edge_idx: None,
                 });
             }
             children
         }
 
         // Index plan tree root entries by edge_idx for fast lookup.
-        let plan_map: FxHashMap<usize, &RetainerPathEdge> =
+        let plan_map: FxHashMap<EdgeId, &RetainerPathEdge> =
             plan.tree.iter().map(|pe| (pe.edge_idx, pe)).collect();
 
         // Collect ALL retainers, sorted: plan-tree entries first (by distance),
         // then non-plan entries (by distance).
-        let mut all: Vec<(usize, NodeOrdinal)> = Vec::new();
+        let mut all: Vec<(EdgeId, NodeOrdinal)> = Vec::new();
         snap.for_each_retainer(ordinal, |edge_idx, ret_ord| {
             all.push((edge_idx, ret_ord));
         });
@@ -165,6 +167,7 @@ impl App {
                     is_weak,
                     is_root_holder: snap.is_root_holder(ret_ord),
                     inspect_source: None,
+                    edge_idx: Some(edge_idx),
                 });
             } else {
                 root_children.push(make_retainer_child(snap, edge_idx, ret_ord, &self.next_id));
@@ -195,6 +198,7 @@ impl App {
                 is_weak: false,
                 is_root_holder: false,
                 inspect_source: None,
+                edge_idx: None,
             });
         }
 
@@ -261,6 +265,7 @@ impl App {
                     is_weak,
                     is_root_holder: snap.is_root_holder(pe.retainer),
                     inspect_source: None,
+                    edge_idx: None,
                 });
             }
             let selected = children.len();
@@ -279,6 +284,7 @@ impl App {
                     is_weak: false,
                     is_root_holder: false,
                     inspect_source: None,
+                    edge_idx: None,
                 });
             }
             children
@@ -606,7 +612,7 @@ impl App {
         let mut seen = rustc_hash::FxHashSet::default();
         seen.insert(cur);
         while cur != synthetic_root {
-            let mut best: Option<(NodeOrdinal, usize, Distance)> = None; // (retainer_ord, edge_idx, distance)
+            let mut best: Option<(NodeOrdinal, EdgeId, Distance)> = None; // (retainer_ord, edge_idx, distance)
             snap.for_each_retainer(cur, |edge_idx, ret_ord| {
                 if snap.is_invisible_edge(edge_idx) || seen.contains(&ret_ord) {
                     return;

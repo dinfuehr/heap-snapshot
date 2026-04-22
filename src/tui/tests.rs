@@ -1,6 +1,6 @@
 use super::children::{compute_edges, compute_retainers, shifted_window_start};
 use super::*;
-use crate::types::{Distance, RawHeapSnapshot, SnapshotHeader, SnapshotMeta};
+use crate::types::{Distance, EdgeId, RawHeapSnapshot, SnapshotHeader, SnapshotMeta};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use std::fs::File;
 use std::rc::Rc;
@@ -2439,7 +2439,7 @@ fn test_filtered_retainers_sorted_before_paging() {
         });
         found_ord == NodeOrdinal(6)
     });
-    let path_edges: FxHashSet<usize> = retainer_edges
+    let path_edges: FxHashSet<EdgeId> = retainer_edges
         .iter()
         .copied()
         .filter(|ei| Some(ei) != far_edge)
@@ -3135,7 +3135,7 @@ fn test_plan_diamond_gc_root_path_edges_complete() {
     for edge_idx in &target_retainer_edges {
         assert!(
             plan.gc_root_path_edges.contains(edge_idx),
-            "gc_root_path_edges should contain edge {edge_idx} \
+            "gc_root_path_edges should contain edge {edge_idx:?} \
                  (retainer edge into Target)"
         );
     }
@@ -5358,4 +5358,288 @@ fn test_filter_overlay_f_does_not_open_in_other_views() {
         &snap,
     );
     assert_eq!(app.input_mode, InputMode::Normal);
+}
+
+// ── Action menu ──────────────────────────────────────────────────────────
+
+/// Build a tiny snapshot with a WeakMap ephemeron edge from Holder to Target
+/// so `parse_edge_refs` on that edge name yields key/value/table entries.
+fn make_ephemeron_snapshot() -> HeapSnapshot {
+    let mut strings = vec![
+        "".to_string(),
+        "(GC roots)".to_string(),
+        "Holder".to_string(),
+        "Key".to_string(),
+        "Value".to_string(),
+        "Table".to_string(),
+        "Target".to_string(),
+        // ephemeron edge name at index 7 (below)
+    ];
+    let ephemeron_edge_name_idx = strings.len() as u32;
+    strings.push(
+        "1 / part of key (Key @10) -> value (Value @20) pair in WeakMap (table @30)".to_string(),
+    );
+
+    // Node fields: [type, name, id, self_size, edge_count]
+    // Node 0: synthetic "" id=1 edge_count=1 → GC roots
+    // Node 1: synthetic "(GC roots)" id=2 edge_count=1 → Holder
+    // Node 2: object "Holder" id=3 edge_count=1 → Target (via ephemeron)
+    // Node 3: object "Key" id=10 edge_count=0
+    // Node 4: object "Value" id=20 edge_count=0
+    // Node 5: object "Table" id=30 edge_count=0
+    // Node 6: object "Target" id=50 edge_count=0
+    let nodes: Vec<u32> = vec![
+        9, 0, 1, 0, 1, // 0
+        9, 1, 2, 0, 1, // 1
+        3, 2, 3, 16, 1, // 2
+        3, 3, 10, 16, 0, // 3
+        3, 4, 20, 16, 0, // 4
+        3, 5, 30, 16, 0, // 5
+        3, 6, 50, 16, 0, // 6
+    ];
+
+    let node_index = |ord: u32| ord * 5;
+    // Edge fields: [type, name_or_index, to_node]
+    // type 3 = "internal"; type 1 = "element"
+    let edges: Vec<u32> = vec![
+        1,
+        0,
+        node_index(1), // 0: root → (GC roots), element
+        1,
+        0,
+        node_index(2), // 1: (GC roots) → Holder, element
+        3,
+        ephemeron_edge_name_idx,
+        node_index(6), // 2: Holder → Target, internal (ephemeron)
+    ];
+
+    build_snapshot(strings, nodes, edges)
+}
+
+/// Puts the action menu into a known good state by expanding the first
+/// summary group and selecting one of its members, then pressing 'o'.
+fn open_action_menu_on_first_object(app: &mut App, snap: &HeapSnapshot) -> NodeOrdinal {
+    app.current_view = ViewType::Summary;
+    app.rebuild_rows(snap);
+
+    // Expand the first (root) group via the normal path so its members are
+    // computed and pushed into cached_rows.
+    let id = app.cached_rows[0].nav.id;
+    let ck = app.cached_rows[0].nav.children_key.clone();
+    app.expand(id, ck, snap);
+    app.rebuild_rows(snap);
+
+    let row_idx = app
+        .cached_rows
+        .iter()
+        .position(|r| r.node_ordinal().is_some())
+        .expect("expected a summary row with a node ordinal");
+    let ordinal = app.cached_rows[row_idx].node_ordinal().unwrap();
+    app.summary_state.cursor = row_idx;
+
+    app.handle_key(KeyEvent::new(KeyCode::Char('o'), KeyModifiers::NONE), snap);
+    ordinal
+}
+
+#[test]
+fn test_action_menu_opens_with_default_actions() {
+    let snap = load_test_snapshot(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/data/globals.heapsnapshot"
+    ));
+    let (work_tx, _work_rx) = mpsc::channel();
+    let (_result_tx, result_rx) = mpsc::channel();
+    let mut app = App::new(&snap, Vec::new(), work_tx, result_rx);
+
+    let ordinal = open_action_menu_on_first_object(&mut app, &snap);
+
+    assert_eq!(app.input_mode, InputMode::ActionMenu);
+    assert_eq!(app.action_menu.target, Some(ordinal));
+    assert_eq!(app.action_menu.cursor, 0);
+    assert_eq!(
+        app.action_menu.actions,
+        vec![
+            ActionMenuAction::ShowInSummary,
+            ActionMenuAction::ShowInDominators,
+            ActionMenuAction::ShowInRetainers,
+        ]
+    );
+}
+
+#[test]
+fn test_action_menu_esc_closes() {
+    let snap = load_test_snapshot(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/data/globals.heapsnapshot"
+    ));
+    let (work_tx, _work_rx) = mpsc::channel();
+    let (_result_tx, result_rx) = mpsc::channel();
+    let mut app = App::new(&snap, Vec::new(), work_tx, result_rx);
+
+    open_action_menu_on_first_object(&mut app, &snap);
+    assert_eq!(app.input_mode, InputMode::ActionMenu);
+
+    app.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE), &snap);
+    assert_eq!(app.input_mode, InputMode::Normal);
+}
+
+#[test]
+fn test_action_menu_cursor_navigation() {
+    let snap = load_test_snapshot(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/data/globals.heapsnapshot"
+    ));
+    let (work_tx, _work_rx) = mpsc::channel();
+    let (_result_tx, result_rx) = mpsc::channel();
+    let mut app = App::new(&snap, Vec::new(), work_tx, result_rx);
+
+    open_action_menu_on_first_object(&mut app, &snap);
+    let count = app.action_menu.actions.len();
+    assert_eq!(count, 3);
+
+    // Down three times: 0 → 1 → 2 → 2 (clamped).
+    app.handle_key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE), &snap);
+    assert_eq!(app.action_menu.cursor, 1);
+    app.handle_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE), &snap);
+    assert_eq!(app.action_menu.cursor, 2);
+    app.handle_key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE), &snap);
+    assert_eq!(app.action_menu.cursor, 2);
+
+    // Up: 2 → 1.
+    app.handle_key(KeyEvent::new(KeyCode::Char('k'), KeyModifiers::NONE), &snap);
+    assert_eq!(app.action_menu.cursor, 1);
+
+    // Home / End.
+    app.handle_key(KeyEvent::new(KeyCode::Char('g'), KeyModifiers::NONE), &snap);
+    assert_eq!(app.action_menu.cursor, 0);
+    app.handle_key(KeyEvent::new(KeyCode::End, KeyModifiers::NONE), &snap);
+    assert_eq!(app.action_menu.cursor, count - 1);
+}
+
+#[test]
+fn test_action_menu_enter_show_in_summary() {
+    let snap = load_test_snapshot(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/data/globals.heapsnapshot"
+    ));
+    let (work_tx, _work_rx) = mpsc::channel();
+    let (_result_tx, result_rx) = mpsc::channel();
+    let mut app = App::new(&snap, Vec::new(), work_tx, result_rx);
+
+    let ordinal = open_action_menu_on_first_object(&mut app, &snap);
+    // Switch away so we can observe the navigation returning to Summary.
+    app.current_view = ViewType::Containment;
+
+    // Cursor at 0 → ShowInSummary.
+    app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE), &snap);
+    assert_eq!(app.input_mode, InputMode::Normal);
+    assert_eq!(app.current_view, ViewType::Summary);
+    // show_in_summary pushes a history entry for the ordinal.
+    assert!(app.history.contains(&ordinal));
+}
+
+#[test]
+fn test_action_menu_enter_show_in_retainers() {
+    let snap = load_test_snapshot(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/data/globals.heapsnapshot"
+    ));
+    let (work_tx, _work_rx) = mpsc::channel();
+    let (_result_tx, result_rx) = mpsc::channel();
+    let mut app = App::new(&snap, Vec::new(), work_tx, result_rx);
+
+    let ordinal = open_action_menu_on_first_object(&mut app, &snap);
+    // Move to ShowInRetainers (index 2) and Enter.
+    app.action_menu.cursor = 2;
+    app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE), &snap);
+    assert_eq!(app.input_mode, InputMode::Normal);
+    assert_eq!(app.retainers.target, Some(ordinal));
+}
+
+#[test]
+fn test_action_menu_ignores_row_without_ordinal() {
+    // Plain Summary view shows only group rows (no node_ordinal). Pressing 'o'
+    // should be a no-op.
+    let snap = load_test_snapshot(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/data/globals.heapsnapshot"
+    ));
+    let (work_tx, _work_rx) = mpsc::channel();
+    let (_result_tx, result_rx) = mpsc::channel();
+    let mut app = App::new(&snap, Vec::new(), work_tx, result_rx);
+
+    app.current_view = ViewType::Summary;
+    app.rebuild_rows(&snap);
+    // The first summary row is a group header with no node ordinal.
+    assert!(app.cached_rows[0].node_ordinal().is_none());
+    app.summary_state.cursor = 0;
+
+    app.handle_key(KeyEvent::new(KeyCode::Char('o'), KeyModifiers::NONE), &snap);
+    assert_eq!(app.input_mode, InputMode::Normal);
+}
+
+#[test]
+fn test_action_menu_adds_ephemeron_edge_refs() {
+    let snap = make_ephemeron_snapshot();
+    let (work_tx, _work_rx) = mpsc::channel();
+    let (_result_tx, result_rx) = mpsc::channel();
+    let mut app = App::new(&snap, Vec::new(), work_tx, result_rx);
+
+    // Navigate Containment such that the Target row is visible as a child of
+    // Holder (reached through the ephemeron edge). show_in_containment expands
+    // the path from synthetic_root down to Target.
+    let target_ord = snap
+        .node_for_snapshot_object_id(crate::types::NodeId(50))
+        .expect("target node");
+    app.show_in_containment(target_ord, &snap);
+    app.rebuild_rows(&snap);
+
+    let row_idx = app
+        .cached_rows
+        .iter()
+        .position(|r| r.node_ordinal() == Some(target_ord))
+        .expect("Target row should be visible after show_in_containment");
+    assert!(
+        app.cached_rows[row_idx].render.edge_idx.is_some(),
+        "Target row should carry the ephemeron edge_idx"
+    );
+    app.containment_state.cursor = row_idx;
+
+    app.handle_key(KeyEvent::new(KeyCode::Char('o'), KeyModifiers::NONE), &snap);
+    assert_eq!(app.input_mode, InputMode::ActionMenu);
+    assert_eq!(app.action_menu.actions.len(), 6);
+
+    // First three are defaults.
+    assert_eq!(app.action_menu.actions[0], ActionMenuAction::ShowInSummary);
+    assert_eq!(
+        app.action_menu.actions[1],
+        ActionMenuAction::ShowInDominators
+    );
+    assert_eq!(
+        app.action_menu.actions[2],
+        ActionMenuAction::ShowInRetainers
+    );
+
+    // Last three are the ephemeron refs in order: key, value, table.
+    assert_eq!(
+        app.action_menu.actions[3],
+        ActionMenuAction::ShowEdgeRefInSummary {
+            id: crate::types::NodeId(10),
+            label: "key/Key".to_string(),
+        }
+    );
+    assert_eq!(
+        app.action_menu.actions[4],
+        ActionMenuAction::ShowEdgeRefInSummary {
+            id: crate::types::NodeId(20),
+            label: "value/Value".to_string(),
+        }
+    );
+    assert_eq!(
+        app.action_menu.actions[5],
+        ActionMenuAction::ShowEdgeRefInSummary {
+            id: crate::types::NodeId(30),
+            label: "table".to_string(),
+        }
+    );
 }

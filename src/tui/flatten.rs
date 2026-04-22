@@ -95,6 +95,7 @@ impl App {
                     is_weak: child.is_weak,
                     is_root_holder: child.is_root_holder,
                     inspect_source: child.inspect_source,
+                    edge_idx: child.edge_idx,
                 },
             });
             let child_row = rows.len() - 1;
@@ -151,6 +152,7 @@ impl App {
                 is_weak: false,
                 is_root_holder: false,
                 inspect_source: None,
+                edge_idx: None,
             },
         });
         if is_expanded {

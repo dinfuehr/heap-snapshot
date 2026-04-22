@@ -57,6 +57,7 @@ impl App {
             Line::from("  c opens the selected object in Containment view"),
             Line::from("  m remembers the selected object (adds to History)"),
             Line::from("  i inspects the selected node and edge details"),
+            Line::from("  o opens an action menu for the selected object"),
             Line::from("  R computes Reachable Size for the selected object"),
             Line::from("  A computes Reachable Size for the selected object and its outgoing refs"),
             Line::from(""),

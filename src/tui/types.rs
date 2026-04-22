@@ -5,7 +5,7 @@ use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::print::retainers::RetainerAutoExpandPlan;
 use crate::snapshot::Detachedness;
-use crate::types::{Distance, NodeOrdinal};
+use crate::types::{Distance, EdgeId, NodeOrdinal};
 
 use super::EDGE_PAGE_SIZE;
 
@@ -30,6 +30,44 @@ pub(super) enum InputMode {
     EdgeFilter,
     FilterOverlay,
     Inspect,
+    ActionMenu,
+}
+
+/// One entry shown in the action-menu overlay.
+#[derive(Clone, Debug, PartialEq)]
+pub(super) enum ActionMenuAction {
+    ShowInSummary,
+    ShowInDominators,
+    ShowInRetainers,
+    /// Navigate to Summary view for an object referenced by the current
+    /// row's incoming edge label (e.g. the key/value/table of a WeakMap
+    /// ephemeron edge). Carries its own id + display label since it may
+    /// point to a different node than the menu's main target.
+    ShowEdgeRefInSummary {
+        id: crate::types::NodeId,
+        label: String,
+    },
+}
+
+impl ActionMenuAction {
+    pub(super) fn label(&self, target_id: crate::types::NodeId) -> String {
+        match self {
+            Self::ShowInSummary => format!("Show @{} in Summary view", target_id.0),
+            Self::ShowInDominators => format!("Show @{} in Dominators view", target_id.0),
+            Self::ShowInRetainers => format!("Show @{} in Retainers view", target_id.0),
+            Self::ShowEdgeRefInSummary { id, label } => {
+                format!("Show {label} @{} in Summary view", id.0)
+            }
+        }
+    }
+}
+
+/// Per-open state for the action-menu overlay (see `InputMode::ActionMenu`).
+#[derive(Default)]
+pub(super) struct ActionMenu {
+    pub(super) actions: Vec<ActionMenuAction>,
+    pub(super) cursor: usize,
+    pub(super) target: Option<NodeOrdinal>,
 }
 
 use super::SummaryFilterMode;
@@ -114,6 +152,9 @@ pub(super) struct FlatRowRender {
     // referenced JSFunction / SharedFunctionInfo. Set on the pseudo location
     // row under a function node.
     pub(super) inspect_source: Option<NodeOrdinal>,
+    // Index of the edge that produced this row (outgoing edge in containment,
+    // incoming edge in retainers). `None` for synthetic / paging / info rows.
+    pub(super) edge_idx: Option<EdgeId>,
 }
 
 impl FlatRow {
@@ -169,6 +210,9 @@ pub(super) struct ChildNode {
     // referenced JSFunction / SharedFunctionInfo. Used for the pseudo location
     // row under a function node.
     pub(super) inspect_source: Option<NodeOrdinal>,
+    // Index of the edge that produced this row (outgoing edge in containment,
+    // incoming edge in retainers). `None` for synthetic / paging / info rows.
+    pub(super) edge_idx: Option<EdgeId>,
 }
 
 // Per-node edge window: which slice of (filtered) edges to show.
@@ -330,7 +374,7 @@ pub(super) struct RetainersViewState {
     pub(super) target: Option<NodeOrdinal>,
     /// Stable NodeId for the root retainers entry (the target node's children key).
     pub(super) root_id: Option<NodeId>,
-    pub(super) gc_root_path_edges: FxHashSet<usize>,
+    pub(super) gc_root_path_edges: FxHashSet<crate::types::EdgeId>,
     pub(super) unfiltered_nodes: FxHashSet<NodeId>,
     pub(super) plan_pending: Option<PendingRetainerPlan>,
     pub(super) plan_message: Option<String>,

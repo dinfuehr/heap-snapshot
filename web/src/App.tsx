@@ -62,24 +62,9 @@ function createSnapshotInstance(): SnapshotInstance {
   };
 }
 
-// Parse `@<id>` references out of a V8 edge name. Currently recognizes the
-// WeakMap ephemeron format (built by `SetNamedAutoIndexReference` + the
-// format string in `ExtractEphemeronHashTableReferences` in
-// V8's heap-snapshot-generator.cc):
-//   "<index> / part of key (TYPE @N) -> value (TYPE @N) pair in WeakMap (table @N)"
-// Returns one entry per `@<id>` reference, or an empty array if the name
-// doesn't match.
-const EPHEMERON_EDGE_RE =
-  /^\d+ \/ part of key \((.+?) @(\d+)\) -> value \((.+?) @(\d+)\) pair in WeakMap \(table @(\d+)\)$/;
-
-function parseEdgeRefs(edgeName: string): Array<{ label: string; id: number }> {
-  const m = edgeName.match(EPHEMERON_EDGE_RE);
-  if (!m) return [];
-  return [
-    { label: `key/${m[1]}`, id: parseInt(m[2], 10) },
-    { label: `value/${m[3]}`, id: parseInt(m[4], 10) },
-    { label: 'table', id: parseInt(m[5], 10) },
-  ];
+interface EdgeRef {
+  label: string;
+  id: number;
 }
 
 export function App(): JSX.Element {
@@ -97,6 +82,7 @@ export function App(): JSX.Element {
     nodeId: number;
     edgeInfo?: EdgeInfo;
     nodeInfo: NodeInfo;
+    edgeRefs: EdgeRef[];
   } | null>(null);
   const [inspectInfo, setInspectInfo] = createSignal<{
     node: NodeInfo;
@@ -183,11 +169,15 @@ export function App(): JSX.Element {
   ) => {
     const x = e.clientX;
     const y = e.clientY;
-    const nodeInfo = await active().call<NodeInfo>({
-      type: 'getNodeInfo',
+    const { node: nodeInfo, edge_refs: edgeRefs } = await active().call<{
+      node: NodeInfo;
+      edge_refs: EdgeRef[];
+    }>({
+      type: 'getContextMenuData',
       nodeId,
+      edgeName: edgeInfo?.edgeName,
     });
-    setMenu({ x, y, nodeId, edgeInfo, nodeInfo });
+    setMenu({ x, y, nodeId, edgeInfo, nodeInfo, edgeRefs });
   };
 
   onMount(() => {
@@ -608,14 +598,12 @@ export function App(): JSX.Element {
                     },
                   });
                 }
-                if (edge) {
-                  for (const ref of parseEdgeRefs(edge.edgeName)) {
-                    items.push({
-                      label: `Show ${ref.label} @${ref.id} in Summary view`,
-                      action: () =>
-                        navigate({ nodeId: ref.id, target: 'Summary' }),
-                    });
-                  }
+                for (const ref of m().edgeRefs) {
+                  items.push({
+                    label: `Show ${ref.label} @${ref.id} in Summary view`,
+                    action: () =>
+                      navigate({ nodeId: ref.id, target: 'Summary' }),
+                  });
                 }
                 items.push({
                   label: 'Inspect',

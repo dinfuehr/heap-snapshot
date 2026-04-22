@@ -17,6 +17,7 @@ impl App {
                 self.input_mode = InputMode::Normal;
                 false
             }
+            InputMode::ActionMenu => self.handle_action_menu_key(key, snap),
             InputMode::Normal => self.handle_normal_key(key, snap),
         };
         if self.current_view != prev_view {
@@ -237,6 +238,86 @@ impl App {
         false
     }
 
+    pub(super) fn open_action_menu(&mut self, snap: &HeapSnapshot) {
+        let Some(row) = self.current_row() else {
+            return;
+        };
+        let Some(ordinal) = row.node_ordinal() else {
+            return;
+        };
+        let mut actions = vec![
+            ActionMenuAction::ShowInSummary,
+            ActionMenuAction::ShowInDominators,
+            ActionMenuAction::ShowInRetainers,
+        ];
+        // If this row came from a specific edge, parse the edge name for
+        // embedded `@<id>` references (e.g. WeakMap ephemeron) and surface
+        // them as additional "Show ref in Summary" actions.
+        if let Some(edge_idx) = row.render.edge_idx {
+            for r in crate::snapshot::parse_edge_refs(&snap.edge_name(edge_idx)) {
+                actions.push(ActionMenuAction::ShowEdgeRefInSummary {
+                    id: r.id,
+                    label: r.label,
+                });
+            }
+        }
+        self.action_menu.actions = actions;
+        self.action_menu.cursor = 0;
+        self.action_menu.target = Some(ordinal);
+        self.input_mode = InputMode::ActionMenu;
+    }
+
+    pub(super) fn handle_action_menu_key(&mut self, key: KeyEvent, snap: &HeapSnapshot) -> bool {
+        let count = self.action_menu.actions.len();
+        match key.code {
+            KeyCode::Esc | KeyCode::Char('q') => {
+                self.input_mode = InputMode::Normal;
+            }
+            KeyCode::Up | KeyCode::Char('k') => {
+                self.action_menu.cursor = self.action_menu.cursor.saturating_sub(1);
+            }
+            KeyCode::Down | KeyCode::Char('j') => {
+                if self.action_menu.cursor + 1 < count {
+                    self.action_menu.cursor += 1;
+                }
+            }
+            KeyCode::Home | KeyCode::Char('g') => {
+                self.action_menu.cursor = 0;
+            }
+            KeyCode::End | KeyCode::Char('G') => {
+                self.action_menu.cursor = count.saturating_sub(1);
+            }
+            KeyCode::Enter => {
+                let Some(target) = self.action_menu.target else {
+                    self.input_mode = InputMode::Normal;
+                    return false;
+                };
+                let Some(action) = self
+                    .action_menu
+                    .actions
+                    .get(self.action_menu.cursor)
+                    .cloned()
+                else {
+                    self.input_mode = InputMode::Normal;
+                    return false;
+                };
+                self.input_mode = InputMode::Normal;
+                match action {
+                    ActionMenuAction::ShowInSummary => self.show_in_summary(target, snap),
+                    ActionMenuAction::ShowInDominators => self.show_in_dominators(target, snap),
+                    ActionMenuAction::ShowInRetainers => self.set_retainers_target(target, snap),
+                    ActionMenuAction::ShowEdgeRefInSummary { id, .. } => {
+                        if let Some(ord) = snap.node_for_snapshot_object_id(id) {
+                            self.show_in_summary(ord, snap);
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+        false
+    }
+
     pub(super) fn handle_normal_key(&mut self, key: KeyEvent, snap: &HeapSnapshot) -> bool {
         let row_count = self.cached_rows.len();
         let is_scroll_view = self.is_scroll_view();
@@ -447,6 +528,9 @@ impl App {
             }
             KeyCode::Char('i') => {
                 self.open_inspect(snap);
+            }
+            KeyCode::Char('o') => {
+                self.open_action_menu(snap);
             }
             KeyCode::Char('+') | KeyCode::Char('=') => {
                 self.adjust_edge_count(EDGE_PAGE_SIZE as isize, snap);
