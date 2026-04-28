@@ -980,10 +980,14 @@ impl McpServer {
                 }
             }
 
-            if plan.truncated || (!plan.reached_gc_roots && !snapshot.is_root(ordinal)) {
-                lines.push(String::new());
-                walk(&snapshot, &plan.tree, 0, &mut lines);
-                return Err(McpError::internal_error(lines.join("\n"), None));
+            if plan.truncated {
+                lines.push(format!(
+                    "(auto-expansion hit limits; current max_depth={} max_nodes={}. Increase them to traverse more retainers)",
+                    max_depth, max_nodes
+                ));
+            }
+            if !plan.reached_gc_roots {
+                lines.push("(no retainer path to (GC roots) found within current limits)".to_string());
             }
 
             lines.push(String::new());

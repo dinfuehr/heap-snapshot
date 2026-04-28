@@ -45,7 +45,7 @@ pub fn print_retainers(
             auto_limits.max_depth, auto_limits.max_nodes
         );
     }
-    if !auto.reached_gc_roots && !snap.is_root(node_ordinal) {
+    if !auto.reached_gc_roots {
         println!("(no retainer path to (GC roots) found within current limits)");
     }
 

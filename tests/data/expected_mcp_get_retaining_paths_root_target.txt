@@ -1,0 +1,1 @@
+Retaining paths for @3: (GC roots) (type: synthetic, self_size: 0, retained_size: 128252)
