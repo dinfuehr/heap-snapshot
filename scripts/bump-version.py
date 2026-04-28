@@ -5,6 +5,7 @@
 
 import json
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -42,6 +43,7 @@ def main():
         pkg_path.write_text(json.dumps(pkg, indent=2) + "\n")
 
     print(f"Bumped version to {version}")
+    subprocess.run(["cargo", "build"], cwd=root, check=True)
 
 if __name__ == "__main__":
     main()
