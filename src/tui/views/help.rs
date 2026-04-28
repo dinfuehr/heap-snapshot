@@ -1,6 +1,8 @@
 use ratatui::prelude::*;
 use ratatui::widgets::{Paragraph, Wrap};
 
+use crate::retaining_path::{DEFAULT_RETAINER_SEARCH_MAX_DEPTH, DEFAULT_RETAINER_SEARCH_MAX_NODES};
+
 use super::super::App;
 
 impl App {
@@ -68,7 +70,10 @@ impl App {
             Line::from(""),
             Line::from(Span::styled("Retainers", Style::default().bold())),
             Line::from("  On load, the retainer tree auto-expands a path toward (GC roots)"),
-            Line::from("  when one is found within the search limits (depth 20, 2000 nodes)."),
+            Line::from(format!(
+                "  when one is found within the search limits (depth {}, {} nodes).",
+                DEFAULT_RETAINER_SEARCH_MAX_DEPTH, DEFAULT_RETAINER_SEARCH_MAX_NODES
+            )),
             Line::from("  k auto-expands paths from the current node toward (GC roots)"),
             Line::from(vec![
                 Span::raw("  "),

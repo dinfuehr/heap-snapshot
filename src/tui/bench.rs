@@ -1,5 +1,6 @@
 use super::*;
 use crate::print::retainers::{RetainerAutoExpandLimits, plan_gc_root_retainer_paths};
+use crate::retaining_path::{DEFAULT_RETAINER_SEARCH_MAX_DEPTH, DEFAULT_RETAINER_SEARCH_MAX_NODES};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 pub struct BenchApp {
@@ -33,8 +34,8 @@ impl BenchApp {
             snap,
             ord,
             RetainerAutoExpandLimits {
-                max_depth: RETAINER_AUTO_EXPAND_DEPTH,
-                max_nodes: RETAINER_AUTO_EXPAND_NODES,
+                max_depth: DEFAULT_RETAINER_SEARCH_MAX_DEPTH,
+                max_nodes: DEFAULT_RETAINER_SEARCH_MAX_NODES,
             },
         );
         if plan.reached_gc_roots {

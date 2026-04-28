@@ -17,7 +17,8 @@ use crate::print::closure_leaks;
 use crate::print::diff::{format_signed_count, format_signed_size};
 use crate::print::format_size;
 use crate::retaining_path::{
-    RetainerAutoExpandLimits, RetainerPathEdge, plan_gc_root_retainer_paths,
+    DEFAULT_RETAINER_SEARCH_MAX_DEPTH, DEFAULT_RETAINER_SEARCH_MAX_NODES, RetainerAutoExpandLimits,
+    RetainerPathEdge, plan_gc_root_retainer_paths,
 };
 use crate::snapshot::{Detachedness, HeapSnapshot, RootKind, SnapshotOptions};
 use crate::types::{AggregateMap, EdgeId, NodeId, NodeOrdinal};
@@ -88,7 +89,7 @@ struct GetRetainingPathsParams {
     object_id: String,
     /// Maximum depth to search (default: 50)
     max_depth: Option<usize>,
-    /// Maximum number of nodes to explore (default: 200)
+    /// Maximum number of nodes to explore (default: 5000)
     max_nodes: Option<usize>,
 }
 
@@ -917,8 +918,12 @@ impl McpServer {
                 McpError::invalid_params(format!("No object found with id @{object_id}"), None)
             })?;
 
-        let max_depth = params.max_depth.unwrap_or(50);
-        let max_nodes = params.max_nodes.unwrap_or(200);
+        let max_depth = params
+            .max_depth
+            .unwrap_or(DEFAULT_RETAINER_SEARCH_MAX_DEPTH);
+        let max_nodes = params
+            .max_nodes
+            .unwrap_or(DEFAULT_RETAINER_SEARCH_MAX_NODES);
 
         tokio::task::spawn_blocking(move || {
             let plan = plan_gc_root_retainer_paths(

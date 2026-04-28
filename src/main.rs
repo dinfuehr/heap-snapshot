@@ -4,6 +4,9 @@ use std::fs::File;
 use heap_snapshot::mcp;
 use heap_snapshot::parser;
 use heap_snapshot::print::{self, EdgeWindow, ExpandMap, GroupExpandMap, GroupWindow};
+use heap_snapshot::retaining_path::{
+    DEFAULT_RETAINER_SEARCH_MAX_DEPTH, DEFAULT_RETAINER_SEARCH_MAX_NODES,
+};
 use heap_snapshot::snapshot::{self, HeapSnapshot, SnapshotOptions};
 use heap_snapshot::tui;
 use heap_snapshot::types::{self, NodeId};
@@ -113,10 +116,10 @@ enum Command {
         #[arg(long = "column-length")]
         column_length: Option<usize>,
         /// Max auto-expansion search depth for GC-root retainer paths
-        #[arg(long = "max-depth", default_value = "20")]
+        #[arg(long = "max-depth", default_value_t = DEFAULT_RETAINER_SEARCH_MAX_DEPTH)]
         max_expand_depth: usize,
         /// Max nodes visited during auto-expansion search
-        #[arg(long = "max-nodes", default_value = "2000")]
+        #[arg(long = "max-nodes", default_value_t = DEFAULT_RETAINER_SEARCH_MAX_NODES)]
         max_expand_nodes: usize,
         /// Expand a node's edges: @id, @id:start, or @id:start:count (can be repeated)
         #[arg(short = 'e', long, value_name = "ID")]

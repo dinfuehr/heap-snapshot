@@ -16,6 +16,7 @@ use ratatui::prelude::*;
 use crate::print::diff;
 use crate::print::retainers::{RetainerAutoExpandLimits, plan_gc_root_retainer_paths};
 use crate::print::{display_width, format_size, pad_str, slice_str, truncate_str};
+use crate::retaining_path::{DEFAULT_RETAINER_SEARCH_MAX_DEPTH, DEFAULT_RETAINER_SEARCH_MAX_NODES};
 use crate::snapshot::HeapSnapshot;
 use crate::types::{AggregateInfo, EdgeId, NodeOrdinal};
 
@@ -54,8 +55,6 @@ const COL_CTX: usize = 4;
 const COL_DIFF_NAME: usize = 40;
 const COL_DIFF_NUM: usize = 12;
 const COL_DIFF_SIZE: usize = 14;
-const RETAINER_AUTO_EXPAND_DEPTH: usize = 20;
-const RETAINER_AUTO_EXPAND_NODES: usize = 2000;
 const HORIZONTAL_SCROLL_STEP: usize = 8;
 const EDGE_PAGE_SIZE: usize = 20;
 
@@ -820,8 +819,8 @@ pub fn run(
                             &snap,
                             request.ordinal,
                             RetainerAutoExpandLimits {
-                                max_depth: RETAINER_AUTO_EXPAND_DEPTH,
-                                max_nodes: RETAINER_AUTO_EXPAND_NODES,
+                                max_depth: DEFAULT_RETAINER_SEARCH_MAX_DEPTH,
+                                max_nodes: DEFAULT_RETAINER_SEARCH_MAX_NODES,
                             },
                         );
                         let _ = result_tx.send(WorkResult::RetainerPlan { request, plan });

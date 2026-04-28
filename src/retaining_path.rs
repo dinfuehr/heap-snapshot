@@ -3,6 +3,9 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use crate::snapshot::HeapSnapshot;
 use crate::types::{EdgeId, NodeOrdinal};
 
+pub const DEFAULT_RETAINER_SEARCH_MAX_DEPTH: usize = 50;
+pub const DEFAULT_RETAINER_SEARCH_MAX_NODES: usize = 5000;
+
 #[derive(Clone, Copy, Debug)]
 pub struct RetainerAutoExpandLimits {
     pub max_depth: usize,

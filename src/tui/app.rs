@@ -1,4 +1,5 @@
 use crate::print::retainers::RetainerAutoExpandPlan;
+use crate::retaining_path::{DEFAULT_RETAINER_SEARCH_MAX_DEPTH, DEFAULT_RETAINER_SEARCH_MAX_NODES};
 use crate::snapshot::HeapSnapshot;
 use crate::types::{Distance, EdgeId, NodeOrdinal};
 
@@ -8,10 +9,7 @@ use super::children::{
     compute_retainers, make_retainer_child, shifted_window_start,
 };
 use super::types::*;
-use super::{
-    App, EDGE_PAGE_SIZE, RETAINER_AUTO_EXPAND_DEPTH, RETAINER_AUTO_EXPAND_NODES, SummaryFilterMode,
-    contains_ignore_case,
-};
+use super::{App, EDGE_PAGE_SIZE, SummaryFilterMode, contains_ignore_case};
 
 impl App {
     pub(super) fn apply_retainers_plan(
@@ -343,7 +341,8 @@ impl App {
                                     } else if plan.truncated {
                                         self.retainers.plan_message = Some(format!(
                                             "No GC-root path found within current limits (depth {}, nodes {}).",
-                                            RETAINER_AUTO_EXPAND_DEPTH, RETAINER_AUTO_EXPAND_NODES
+                                            DEFAULT_RETAINER_SEARCH_MAX_DEPTH,
+                                            DEFAULT_RETAINER_SEARCH_MAX_NODES
                                         ));
                                     } else {
                                         self.retainers.plan_message = Some(
@@ -366,7 +365,8 @@ impl App {
                                 } else if plan.truncated {
                                     self.retainers.plan_message = Some(format!(
                                         "No GC-root path found within current limits (depth {}, nodes {}).",
-                                        RETAINER_AUTO_EXPAND_DEPTH, RETAINER_AUTO_EXPAND_NODES
+                                        DEFAULT_RETAINER_SEARCH_MAX_DEPTH,
+                                        DEFAULT_RETAINER_SEARCH_MAX_NODES
                                     ));
                                 } else {
                                     self.retainers.plan_message = Some(
