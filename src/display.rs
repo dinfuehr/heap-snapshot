@@ -7,8 +7,24 @@ pub fn display_width(s: &str) -> usize {
     UnicodeWidthStr::width(s)
 }
 
+/// Returns `min(display_width(s), max_width)` without scanning past the cap.
+pub fn display_width_capped(s: &str, max_width: usize) -> usize {
+    if max_width == 0 {
+        return 0;
+    }
+
+    let mut width = 0usize;
+    for c in s.chars() {
+        width += UnicodeWidthChar::width(c).unwrap_or(0);
+        if width >= max_width {
+            return max_width;
+        }
+    }
+    width
+}
+
 pub fn pad_str(s: &str, width: usize) -> String {
-    let actual = display_width(s);
+    let actual = display_width_capped(s, width);
     if actual >= width {
         s.to_string()
     } else {
@@ -17,7 +33,7 @@ pub fn pad_str(s: &str, width: usize) -> String {
 }
 
 pub fn truncate_str(s: &str, max_width: usize) -> String {
-    let actual = display_width(s);
+    let actual = display_width_capped(s, max_width + 1);
     if actual <= max_width {
         return s.to_string();
     }
@@ -68,4 +84,28 @@ pub fn slice_str(s: &str, start_width: usize, max_width: usize) -> String {
     }
 
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn display_width_capped_returns_exact_width_below_cap() {
+        assert_eq!(display_width_capped("abc", 10), 3);
+        assert_eq!(display_width_capped("a中", 10), 3);
+    }
+
+    #[test]
+    fn display_width_capped_stops_at_cap() {
+        assert_eq!(display_width_capped("abcdef", 3), 3);
+        assert_eq!(display_width_capped("中abc", 1), 1);
+        assert_eq!(display_width_capped("abc", 0), 0);
+    }
+
+    #[test]
+    fn truncate_str_does_not_need_full_width_for_long_strings() {
+        assert_eq!(truncate_str("abcdef", 4), "abc\u{2026}");
+        assert_eq!(truncate_str("abc", 4), "abc");
+    }
 }

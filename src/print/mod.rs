@@ -1,6 +1,6 @@
 use rustc_hash::FxHashMap;
 
-pub use crate::display::{display_width, pad_str, slice_str, truncate_str};
+pub use crate::display::{display_width, display_width_capped, pad_str, slice_str, truncate_str};
 use crate::types::{Distance, NodeId};
 
 pub mod closure_leaks;

@@ -15,7 +15,9 @@ use ratatui::prelude::*;
 
 use crate::print::diff;
 use crate::print::retainers::{RetainerAutoExpandLimits, plan_gc_root_retainer_paths};
-use crate::print::{display_width, format_size, pad_str, slice_str, truncate_str};
+use crate::print::{
+    display_width, display_width_capped, format_size, pad_str, slice_str, truncate_str,
+};
 use crate::retaining_path::{DEFAULT_RETAINER_SEARCH_MAX_DEPTH, DEFAULT_RETAINER_SEARCH_MAX_NODES};
 use crate::snapshot::HeapSnapshot;
 use crate::types::{AggregateInfo, EdgeId, NodeOrdinal};
@@ -82,8 +84,22 @@ fn fit_name_cell(prefix: &str, label: &str, width: usize, scroll: usize) -> Stri
     if width == 0 {
         return String::new();
     }
-    let full = format!("{prefix}{label}");
-    fit_cell(&slice_str(&full, scroll, width), width)
+    let w_prefix = display_width_capped(prefix, scroll.saturating_add(1));
+    let sliced = if scroll < w_prefix {
+        let prefix_sliced = slice_str(prefix, scroll, width);
+        let w_prefix_sliced = display_width_capped(&prefix_sliced, width);
+        if w_prefix_sliced < width {
+            let remaining = width - w_prefix_sliced;
+            let label_sliced = slice_str(label, 0, remaining);
+            format!("{prefix_sliced}{label_sliced}")
+        } else {
+            prefix_sliced
+        }
+    } else {
+        let label_scroll = scroll - w_prefix;
+        slice_str(label, label_scroll, width)
+    };
+    fit_cell(&sliced, width)
 }
 
 /// Case-insensitive substring check without allocating a lowercase copy.
@@ -491,8 +507,8 @@ impl App {
         }
     }
 
-    fn row_name_content_width(row: &FlatRow) -> usize {
-        let indent = "  ".repeat(row.nav.depth);
+    fn row_name_content_width_capped(row: &FlatRow, max_width: usize) -> usize {
+        let indent_width = row.nav.depth * 2;
         let marker = if row.nav.has_children {
             if row.nav.is_expanded {
                 "\u{25bc} "
@@ -502,14 +518,20 @@ impl App {
         } else {
             "  "
         };
-        display_width(&format!("{indent}{marker}{}", row.render.label))
+        let prefix_width = indent_width + display_width(marker);
+        prefix_width
+            + display_width_capped(&row.render.label, max_width.saturating_sub(prefix_width))
     }
 
     fn clamp_horizontal_scroll(&mut self, name_col_width: usize) -> usize {
+        let desired_scroll = self.current_tree_state().horizontal_scroll;
+        let needed_width = desired_scroll
+            .saturating_add(name_col_width)
+            .saturating_add(1);
         let max_content_width = self
             .cached_rows
             .iter()
-            .map(Self::row_name_content_width)
+            .map(|row| Self::row_name_content_width_capped(row, needed_width))
             .max()
             .unwrap_or(0);
         let max_scroll = max_content_width.saturating_sub(name_col_width);
