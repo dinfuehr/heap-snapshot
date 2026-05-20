@@ -1316,6 +1316,64 @@ fn make_summary_filter_snapshot() -> HeapSnapshot {
     build_snapshot(strings, nodes, edges)
 }
 
+fn make_context_coverage_filter_snapshot() -> HeapSnapshot {
+    let strings: Vec<String> = [
+        "",
+        "(GC roots)",
+        "system / NativeContext",
+        "system / Context",
+        "system / Context / scope @100",
+        "RegularObject",
+        "NativeOwned",
+        "ContextOwned",
+        "native",
+        "ctx",
+        "named_ctx",
+        "obj",
+        "owned",
+    ]
+    .iter()
+    .map(|s| s.to_string())
+    .collect();
+
+    let node_index = |ordinal: usize| (ordinal * 5) as u32;
+    let nodes = vec![
+        9, 0, 1, 0, 1, // node 0: synthetic root
+        9, 1, 2, 0, 4, // node 1: (GC roots)
+        3, 2, 5, 10, 1, // node 2: NativeContext
+        3, 3, 7, 20, 1, // node 3: ordinary Context
+        3, 4, 9, 30, 0, // node 4: named ordinary Context
+        3, 5, 11, 40, 0, // node 5: regular object
+        3, 6, 13, 15, 0, // node 6: object only reachable through NativeContext
+        3, 7, 15, 50, 0, // node 7: object only reachable through ordinary Context
+    ];
+    let edges = vec![
+        1,
+        0,
+        node_index(1), // root -> GC roots
+        2,
+        6,
+        node_index(2), // GC roots -> NativeContext
+        2,
+        7,
+        node_index(3), // GC roots -> ordinary Context
+        2,
+        8,
+        node_index(4), // GC roots -> named ordinary Context
+        2,
+        9,
+        node_index(5), // GC roots -> regular object
+        2,
+        12,
+        node_index(6), // NativeContext -> owned object
+        2,
+        12,
+        node_index(7), // ordinary Context -> owned object
+    ];
+
+    build_snapshot(strings, nodes, edges)
+}
+
 #[test]
 fn test_summary_filter_by_group_name_shows_all_members() {
     let snap = make_summary_filter_snapshot();
@@ -1351,6 +1409,90 @@ fn test_summary_filter_by_group_name_shows_all_members() {
         .filter(|r| matches!(r.render.kind, FlatRowKind::HeapNode { .. }) && r.nav.depth == 1)
         .collect();
     assert_eq!(member_rows.len(), 2);
+}
+
+#[test]
+fn test_summary_context_coverage_filters() {
+    let snap = make_context_coverage_filter_snapshot();
+    let (work_tx, _work_rx) = mpsc::channel();
+    let (_result_tx, result_rx) = mpsc::channel();
+    let mut app = App::new(&snap, Vec::new(), work_tx, result_rx);
+
+    app.set_summary_filter(SummaryFilterMode::ContextCovered, &snap);
+    app.rebuild_rows(&snap);
+    let context_groups: Vec<&str> = app
+        .cached_rows
+        .iter()
+        .filter_map(|r| match r.render.kind {
+            FlatRowKind::SummaryGroup { .. } => Some(r.render.label.as_ref()),
+            _ => None,
+        })
+        .collect();
+    assert!(
+        context_groups
+            .iter()
+            .any(|label| label.contains("system / Context")),
+        "context group should be visible: {context_groups:?}"
+    );
+    assert!(
+        context_groups
+            .iter()
+            .any(|label| label.contains("ContextOwned")),
+        "object only reachable through Context should be visible: {context_groups:?}"
+    );
+    assert!(
+        !context_groups
+            .iter()
+            .any(|label| label.contains("RegularObject")),
+        "regular object should be hidden: {context_groups:?}"
+    );
+    assert!(
+        !context_groups
+            .iter()
+            .any(|label| label.contains("system / NativeContext")),
+        "native context should be hidden: {context_groups:?}"
+    );
+
+    app.set_summary_filter(SummaryFilterMode::NonContextCovered, &snap);
+    app.rebuild_rows(&snap);
+    let non_context_groups: Vec<&str> = app
+        .cached_rows
+        .iter()
+        .filter_map(|r| match r.render.kind {
+            FlatRowKind::SummaryGroup { .. } => Some(r.render.label.as_ref()),
+            _ => None,
+        })
+        .collect();
+    assert!(
+        non_context_groups
+            .iter()
+            .any(|label| label.contains("RegularObject")),
+        "regular object should be visible: {non_context_groups:?}"
+    );
+    assert!(
+        non_context_groups
+            .iter()
+            .any(|label| label.contains("system / NativeContext")),
+        "native context should be visible: {non_context_groups:?}"
+    );
+    assert!(
+        non_context_groups
+            .iter()
+            .any(|label| label.contains("NativeOwned")),
+        "object reachable through NativeContext should be visible: {non_context_groups:?}"
+    );
+    assert!(
+        !non_context_groups
+            .iter()
+            .any(|label| label.contains("system / Context")),
+        "ordinary context should be hidden: {non_context_groups:?}"
+    );
+    assert!(
+        !non_context_groups
+            .iter()
+            .any(|label| label.contains("ContextOwned")),
+        "context-covered object should be hidden: {non_context_groups:?}"
+    );
 }
 
 #[test]
@@ -5091,7 +5233,6 @@ fn test_filter_overlay_contains_static_modes() {
 
     app.open_filter_overlay(&snap);
 
-    // First 6 items should be the static filter modes
     let labels: Vec<&str> = app
         .filter_overlay_items
         .iter()
@@ -5101,11 +5242,25 @@ fn test_filter_overlay_contains_static_modes() {
         })
         .collect();
     assert!(labels.contains(&"All objects"));
+    assert!(labels.contains(&"Attached"));
+    assert!(labels.contains(&"Detached"));
+    assert!(labels.contains(&"Context-covered objects"));
+    assert!(labels.contains(&"Non-context-covered objects"));
     assert!(labels.contains(&"Unreachable (all)"));
     assert!(labels.contains(&"Unreachable (roots only)"));
     assert!(labels.contains(&"Retained by detached DOM"));
     assert!(labels.contains(&"Retained by DevTools console"));
     assert!(labels.contains(&"Retained by event handlers"));
+    assert!(labels.contains(&"Duplicate strings"));
+
+    let has_context_coverage_header = app
+        .filter_overlay_items
+        .iter()
+        .any(|item| matches!(item, FilterOverlayItem::Header(s) if s == "Context coverage"));
+    assert!(
+        has_context_coverage_header,
+        "should have a 'Context coverage' header"
+    );
 }
 
 #[test]
@@ -5197,11 +5352,23 @@ fn test_filter_overlay_enter_applies_filter() {
     let mut app = App::new(&snap, Vec::new(), work_tx, result_rx);
 
     app.open_filter_overlay(&snap);
-    // Move down to "Unreachable (all)" (index 3, after All/Attached/Detached)
-    for _ in 0..3 {
+    let target_idx = app
+        .filter_overlay_items
+        .iter()
+        .position(|item| {
+            matches!(
+                item,
+                FilterOverlayItem::Filter {
+                    mode: SummaryFilterMode::Unreachable,
+                    ..
+                }
+            )
+        })
+        .expect("unreachable filter should be present");
+    for _ in 0..target_idx {
         app.handle_filter_overlay_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE), &snap);
     }
-    assert_eq!(app.filter_overlay_cursor, 3);
+    assert_eq!(app.filter_overlay_cursor, target_idx);
 
     app.handle_filter_overlay_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE), &snap);
     assert_eq!(app.input_mode, InputMode::Normal);

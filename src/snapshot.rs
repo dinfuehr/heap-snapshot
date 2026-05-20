@@ -7,6 +7,7 @@
 
 use std::cmp::Reverse;
 use std::collections::{BinaryHeap, VecDeque};
+use std::sync::OnceLock;
 
 use regex::Regex;
 use rustc_hash::{FxHashMap, FxHashSet};
@@ -24,6 +25,25 @@ use crate::types::Distance;
 const BITMASK_FOR_DOM_LINK_STATE: u32 = 0b11;
 const MAX_INTERFACE_NAME_LENGTH: usize = 60;
 const MIN_INTERFACE_PROPERTY_COUNT: usize = 1;
+
+#[derive(Clone, Copy, Debug, Default)]
+struct ContextCoverage {
+    context_count: u32,
+    context_covered_size: u64,
+    reachable_without_contexts_size: u64,
+}
+
+struct ContextCoverageReachability {
+    context_count: u32,
+    context_covered: Vec<ContextCovered>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ContextCovered {
+    Covered,
+    NonCovered,
+    Unreachable,
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u8)]
@@ -153,6 +173,16 @@ pub struct ParsedEdgeRef {
     pub id: NodeId,
 }
 
+fn weak_map_ephemeron_edge_regex() -> &'static Regex {
+    static WEAK_MAP_EPHEMERON_EDGE_RE: OnceLock<Regex> = OnceLock::new();
+    WEAK_MAP_EPHEMERON_EDGE_RE.get_or_init(|| {
+        Regex::new(
+            r"^\d+( / part of key \(.*? @\d+\) -> value \(.*? @\d+\) pair in WeakMap \(table @(\d+)\))$",
+        )
+        .unwrap()
+    })
+}
+
 /// Parse `@<id>` references out of a V8 edge name. Currently recognizes the
 /// WeakMap ephemeron format (built by `SetNamedAutoIndexReference` +
 /// `ExtractEphemeronHashTableReferences` in V8's heap-snapshot-generator.cc):
@@ -160,7 +190,6 @@ pub struct ParsedEdgeRef {
 /// Returns one entry per `@<id>` reference in the order they appear, or an
 /// empty vector if the name does not match a recognized format.
 pub fn parse_edge_refs(edge_name: &str) -> Vec<ParsedEdgeRef> {
-    use std::sync::OnceLock;
     static EPHEMERON_RE: OnceLock<Regex> = OnceLock::new();
     let re = EPHEMERON_RE.get_or_init(|| {
         Regex::new(
@@ -262,6 +291,8 @@ pub struct HeapSnapshot {
 
     // Root classification for each node ordinal.
     root_kinds: Vec<RootKind>,
+    system_roots: Vec<NodeOrdinal>,
+    user_roots: Vec<NodeOrdinal>,
 
     // Class index per node
     class_indices: Vec<u32>,
@@ -287,6 +318,9 @@ pub struct HeapSnapshot {
     node_native_context_buckets: Vec<NativeContextBucket>,
     shared_attributable_size: u64,
     unattributed_size: u64,
+    // Precomputed context coverage pass for each node.
+    context_coverage: ContextCoverage,
+    context_covered: Vec<ContextCovered>,
     // Edge names common to all NativeContext global_objects
     native_context_global_fields: FxHashSet<String>,
     // Precomputed "Vars" string per NativeContext (joined unique global + script context vars)
@@ -488,12 +522,16 @@ impl HeapSnapshot {
             first_retainer_index: vec![0u32; node_count + 1],
             flags: vec![0u8; node_count],
             root_kinds: vec![RootKind::NonRoot; node_count],
+            system_roots: Vec::new(),
+            user_roots: Vec::new(),
             class_indices: vec![0u32; node_count],
             detachedness: vec![Detachedness::Unknown; node_count],
             native_contexts: Vec::new(),
             node_native_context_buckets: vec![NativeContextBucket::Unattributed; node_count],
             shared_attributable_size: 0,
             unattributed_size: 0,
+            context_coverage: ContextCoverage::default(),
+            context_covered: vec![ContextCovered::Unreachable; node_count],
             native_context_global_fields: FxHashSet::default(),
             native_context_vars: FxHashMap::default(),
             js_global_objects: Vec::new(),
@@ -525,6 +563,9 @@ impl HeapSnapshot {
                 extra_native_bytes: 0,
                 unreachable_count: 0,
                 unreachable_size: 0,
+                context_count: 0,
+                context_covered_size: 0,
+                reachable_without_contexts_size: 0,
             },
         };
 
@@ -581,14 +622,17 @@ impl HeapSnapshot {
                 if child_type != snap.node_synthetic_type {
                     // Non-synthetic child of the synthetic root is a user root.
                     snap.root_kinds[child_ordinal] = RootKind::UserRoot;
+                    snap.user_roots.push(NodeOrdinal(child_ordinal));
                 } else {
                     let name =
                         &snap.strings[snap.nodes[child_index + snap.node_name_offset] as usize];
                     if name == "(Document DOM trees)" {
                         // "(Document DOM trees)" is synthetic but treated as a user root.
                         snap.root_kinds[child_ordinal] = RootKind::UserRoot;
+                        snap.user_roots.push(NodeOrdinal(child_ordinal));
                     } else {
                         snap.root_kinds[child_ordinal] = RootKind::SystemRoot;
+                        snap.system_roots.push(NodeOrdinal(child_ordinal));
                     }
                 }
                 ei += efc;
@@ -627,6 +671,7 @@ impl HeapSnapshot {
         // Classify each node into a native-context bucket using direct
         // inference first, then context reachability.
         snap.compute_node_native_context_buckets();
+        snap.compute_context_coverage();
         snap.compute_native_context_attributable_sizes();
 
         // Calculate depths within the unreachable subgraph
@@ -830,7 +875,7 @@ impl HeapSnapshot {
             return context_index_by_ordinal.get(&ordinal.0).copied();
         }
 
-        if self.is_context(ordinal) {
+        if self.is_context_or_native_context(ordinal) {
             if let Some(ctx) = self.find_native_context_for_context(ordinal) {
                 return context_index_by_ordinal.get(&ctx.0).copied();
             }
@@ -872,7 +917,7 @@ impl HeapSnapshot {
         if self.is_native_context(ordinal) {
             return context_index_by_ordinal.get(&ordinal.0).copied();
         }
-        if self.is_context(ordinal) {
+        if self.is_context_or_native_context(ordinal) {
             return self
                 .find_native_context_for_context(ordinal)
                 .and_then(|ctx| context_index_by_ordinal.get(&ctx.0).copied());
@@ -1606,12 +1651,6 @@ impl HeapSnapshot {
         let efc = self.edge_fields_count;
         let mut essential = vec![false; self.edge_count];
 
-        // Build weak map edge name regex
-        let weak_map_re = Regex::new(
-            r"^\d+( / part of key \(.*? @\d+\) -> value \(.*? @\d+\) pair in WeakMap \(table @(\d+)\))$",
-        )
-        .unwrap();
-
         for ordinal in 0..self.node_count {
             let node_index = ordinal * nfc;
             let first_edge = self.first_edge_indexes[ordinal] as usize;
@@ -1619,7 +1658,7 @@ impl HeapSnapshot {
             let mut ei = first_edge;
             while ei < last_edge {
                 let edge_ordinal = ei / efc;
-                if self.is_essential_edge(node_index, ei, &weak_map_re) {
+                if self.is_essential_edge(node_index, ei) {
                     essential[edge_ordinal] = true;
                 }
                 ei += efc;
@@ -1628,7 +1667,7 @@ impl HeapSnapshot {
         essential
     }
 
-    fn is_essential_edge(&self, node_index: usize, edge_index: usize, weak_map_re: &Regex) -> bool {
+    fn is_essential_edge(&self, node_index: usize, edge_index: usize) -> bool {
         let edge_type = self.edges[edge_index + self.edge_type_offset];
 
         // Difference from DevTools:
@@ -1640,7 +1679,7 @@ impl HeapSnapshot {
         if edge_type == self.edge_internal_type {
             let edge_name_index = self.edges[edge_index + self.edge_name_offset] as usize;
             let edge_name = &self.strings[edge_name_index];
-            if let Some(caps) = weak_map_re.captures(edge_name) {
+            if let Some(caps) = weak_map_ephemeron_edge_regex().captures(edge_name) {
                 if let Some(table_id_str) = caps.get(2) {
                     let node_id = self.nodes[node_index + self.node_id_offset];
                     if let Ok(table_id) = table_id_str.as_str().parse::<u32>() {
@@ -2047,9 +2086,6 @@ impl HeapSnapshot {
         let mut visit_len: usize;
 
         let mut pending_ephemerons = rustc_hash::FxHashSet::default();
-        let weak_map_re = Regex::new(
-            r"^\d+( / part of key \(.*? @\d+\) -> value \(.*? @\d+\) pair in WeakMap \(table @(\d+)\))$"
-        ).unwrap();
 
         let root_ordinal = self.root_node_index / nfc;
         let gc_roots_ordinal = self.gc_roots_ordinal;
@@ -2059,12 +2095,7 @@ impl HeapSnapshot {
         self.node_distances[gc_roots_ordinal] = Distance(0);
         nodes_to_visit[0] = (gc_roots_ordinal * nfc) as u32;
         visit_len = 1;
-        self.bfs_with_filter(
-            &mut nodes_to_visit,
-            &mut visit_len,
-            &mut pending_ephemerons,
-            &weak_map_re,
-        );
+        self.bfs_with_filter(&mut nodes_to_visit, &mut visit_len, &mut pending_ephemerons);
 
         // Phase 2: seed system roots that are siblings of (GC roots) under
         // the synthetic root, e.g. "C++ Persistent roots".  User roots
@@ -2089,12 +2120,7 @@ impl HeapSnapshot {
             ei += self.edge_fields_count;
         }
         if visit_len > 0 {
-            self.bfs_with_filter(
-                &mut nodes_to_visit,
-                &mut visit_len,
-                &mut pending_ephemerons,
-                &weak_map_re,
-            );
+            self.bfs_with_filter(&mut nodes_to_visit, &mut visit_len, &mut pending_ephemerons);
         }
     }
 
@@ -2231,7 +2257,7 @@ impl HeapSnapshot {
                     ei += efc;
                     continue;
                 }
-                if !self.distance_filter_structural(ordinal * nfc, ei) {
+                if !self.is_structural_reachability_edge(ordinal * nfc, ei) {
                     ei += efc;
                     continue;
                 }
@@ -2260,7 +2286,6 @@ impl HeapSnapshot {
         nodes_to_visit: &mut [u32],
         visit_len: &mut usize,
         pending_ephemerons: &mut rustc_hash::FxHashSet<String>,
-        weak_map_re: &Regex,
     ) {
         let nfc = self.node_field_count;
         let efc = self.edge_fields_count;
@@ -2289,7 +2314,7 @@ impl HeapSnapshot {
                     continue;
                 }
 
-                if !self.distance_filter_stateful(node_index, ei, pending_ephemerons, weak_map_re) {
+                if !self.should_traverse_reachability_edge(node_index, ei, pending_ephemerons) {
                     ei += efc;
                     continue;
                 }
@@ -2302,14 +2327,13 @@ impl HeapSnapshot {
         }
     }
 
-    fn distance_filter_stateful(
+    fn should_traverse_reachability_edge(
         &self,
         node_index: usize,
         edge_index: usize,
         pending_ephemerons: &mut rustc_hash::FxHashSet<String>,
-        weak_map_re: &Regex,
     ) -> bool {
-        if !self.distance_filter_structural(node_index, edge_index) {
+        if !self.is_structural_reachability_edge(node_index, edge_index) {
             return false;
         }
 
@@ -2321,7 +2345,7 @@ impl HeapSnapshot {
             let edge_name_index = edge_name_or_index as usize;
             if edge_name_index < self.strings.len() {
                 let edge_name = &self.strings[edge_name_index];
-                if let Some(caps) = weak_map_re.captures(edge_name) {
+                if let Some(caps) = weak_map_ephemeron_edge_regex().captures(edge_name) {
                     if let Some(dup) = caps.get(1) {
                         let dup_part = dup.as_str().to_string();
                         if !pending_ephemerons.remove(&dup_part) {
@@ -2336,12 +2360,11 @@ impl HeapSnapshot {
         true
     }
 
-    /// Stateless structural edge filter shared by the main BFS and
-    /// `unreachable_bfs`.  Returns `false` for edges that should never
-    /// contribute to distance (sloppy_function_map, descriptor-array
-    /// internals).  Does *not* cover the stateful WeakMap/ephemeron
-    /// filter which is only relevant during the initial reachable BFS.
-    fn distance_filter_structural(&self, node_index: usize, edge_index: usize) -> bool {
+    /// Stateless structural edge filter shared by reachability passes.
+    /// Returns `false` for edges that should never contribute to traversal
+    /// (sloppy_function_map, descriptor-array internals).  Does *not* cover
+    /// the stateful WeakMap/ephemeron filter.
+    fn is_structural_reachability_edge(&self, node_index: usize, edge_index: usize) -> bool {
         let nfc = self.node_field_count;
         let edge_type = self.edges[edge_index + self.edge_type_offset];
         let edge_name_or_index = self.edges[edge_index + self.edge_name_offset];
@@ -2728,6 +2751,7 @@ impl HeapSnapshot {
         let mut size_system = 0u64;
         let mut unreachable_count = 0u32;
         let mut unreachable_size = 0u64;
+        let context_coverage = self.context_coverage;
 
         for ordinal in 0..self.node_count {
             let node_index = ordinal * nfc;
@@ -2779,7 +2803,116 @@ impl HeapSnapshot {
             extra_native_bytes: self.extra_native_bytes,
             unreachable_count,
             unreachable_size,
+            context_count: context_coverage.context_count,
+            context_covered_size: context_coverage.context_covered_size,
+            reachable_without_contexts_size: context_coverage.reachable_without_contexts_size,
         };
+    }
+
+    fn compute_context_coverage(&mut self) {
+        let reachability = self.compute_context_coverage_reachability();
+
+        let mut context_covered_size = 0u64;
+        let mut reachable_without_contexts_size = 0u64;
+
+        for ordinal in 0..self.node_count {
+            let size =
+                self.nodes[ordinal * self.node_field_count + self.node_self_size_offset] as u64;
+            match reachability.context_covered[ordinal] {
+                ContextCovered::Covered => {
+                    context_covered_size += size;
+                }
+                ContextCovered::NonCovered => {
+                    reachable_without_contexts_size += size;
+                }
+                ContextCovered::Unreachable => {}
+            }
+        }
+
+        self.context_coverage = ContextCoverage {
+            context_count: reachability.context_count,
+            context_covered_size,
+            reachable_without_contexts_size,
+        };
+        self.context_covered = reachability.context_covered;
+    }
+
+    fn compute_context_coverage_reachability(&self) -> ContextCoverageReachability {
+        let mut blocked_contexts = vec![false; self.node_count];
+        let mut context_count = 0u32;
+        for ordinal in 0..self.node_count {
+            if self.is_context_object(NodeOrdinal(ordinal)) {
+                blocked_contexts[ordinal] = true;
+                context_count += 1;
+            }
+        }
+
+        let reachable_without_contexts = self.reachable_without_blocked_contexts(&blocked_contexts);
+        let mut context_covered = vec![ContextCovered::Unreachable; self.node_count];
+        for ordinal in 0..self.node_count {
+            context_covered[ordinal] = if self.node_distances[ordinal].is_unreachable() {
+                ContextCovered::Unreachable
+            } else if reachable_without_contexts[ordinal] {
+                ContextCovered::NonCovered
+            } else {
+                ContextCovered::Covered
+            };
+        }
+
+        ContextCoverageReachability {
+            context_count,
+            context_covered,
+        }
+    }
+
+    fn reachable_without_blocked_contexts(&self, blocked_contexts: &[bool]) -> Vec<bool> {
+        let nfc = self.node_field_count;
+        let efc = self.edge_fields_count;
+        let eto = self.edge_to_node_offset;
+        let etype_off = self.edge_type_offset;
+
+        let mut pending_ephemerons = FxHashSet::default();
+        let mut queue = VecDeque::new();
+        let mut visited = vec![false; self.node_count];
+        for root in &self.system_roots {
+            if !visited[root.0] {
+                visited[root.0] = true;
+                queue.push_back(root.0);
+            }
+        }
+
+        while let Some(ordinal) = queue.pop_front() {
+            let node_index = ordinal * nfc;
+            let first_edge = self.first_edge_indexes[ordinal] as usize;
+            let last_edge = self.first_edge_indexes[ordinal + 1] as usize;
+            let mut ei = first_edge;
+            while ei < last_edge {
+                let edge_type = self.edges[ei + etype_off];
+                if edge_type == self.edge_weak_type {
+                    ei += efc;
+                    continue;
+                }
+
+                let child_index = self.edges[ei + eto] as usize;
+                let child_ordinal = child_index / nfc;
+                if blocked_contexts[child_ordinal] || visited[child_ordinal] {
+                    ei += efc;
+                    continue;
+                }
+
+                if !self.should_traverse_reachability_edge(node_index, ei, &mut pending_ephemerons)
+                {
+                    ei += efc;
+                    continue;
+                }
+
+                visited[child_ordinal] = true;
+                queue.push_back(child_ordinal);
+                ei += efc;
+            }
+        }
+
+        visited
     }
 
     fn calculate_array_size(&self, ordinal: NodeOrdinal) -> u64 {
@@ -2975,6 +3108,14 @@ impl HeapSnapshot {
 
     pub fn root_kind(&self, ordinal: NodeOrdinal) -> RootKind {
         self.root_kinds[ordinal.0]
+    }
+
+    pub fn system_roots(&self) -> &[NodeOrdinal] {
+        &self.system_roots
+    }
+
+    pub fn user_roots(&self) -> &[NodeOrdinal] {
+        &self.user_roots
     }
 
     #[allow(dead_code)]
@@ -3548,7 +3689,7 @@ impl HeapSnapshot {
     /// Returns `None` if the node is not a Context or the chain doesn't reach
     /// a NativeContext. If the node is already a NativeContext, returns it directly.
     pub fn find_native_context_for_context(&self, ordinal: NodeOrdinal) -> Option<NodeOrdinal> {
-        if !self.is_context(ordinal) {
+        if !self.is_context_or_native_context(ordinal) {
             return None;
         }
         if self.is_native_context(ordinal) {
@@ -3559,7 +3700,7 @@ impl HeapSnapshot {
         for _ in 0..self.node_count() {
             match self.find_edge_target(current, "previous") {
                 Some(prev) if self.is_native_context(prev) => return Some(prev),
-                Some(prev) if self.is_context(prev) => current = prev,
+                Some(prev) if self.is_context_or_native_context(prev) => current = prev,
                 _ => return None,
             }
         }
@@ -3570,10 +3711,15 @@ impl HeapSnapshot {
         self.node_native_context_buckets[ordinal.0]
     }
 
-    /// Returns true if this node is a Context (including NativeContext).
-    pub fn is_context(&self, ordinal: NodeOrdinal) -> bool {
+    /// Returns true if this node is an ordinary `system / Context` object.
+    pub fn is_context_object(&self, ordinal: NodeOrdinal) -> bool {
         let name = self.node_raw_name(ordinal);
-        name.starts_with("system / Context") || name.starts_with("system / NativeContext")
+        name == "system / Context" || name.starts_with("system / Context / ")
+    }
+
+    /// Returns true if this node is a Context or NativeContext.
+    pub fn is_context_or_native_context(&self, ordinal: NodeOrdinal) -> bool {
+        self.is_context_object(ordinal) || self.is_native_context(ordinal)
     }
 
     /// Get the variable names stored in a Context node (context-typed edges, excluding "this").
@@ -4105,6 +4251,16 @@ impl HeapSnapshot {
     pub fn aggregates_detached(&self) -> AggregateMap {
         self.compute_aggregates(|ordinal| {
             self.node_detachedness(NodeOrdinal(ordinal)) == Detachedness::Detached
+        })
+    }
+
+    pub fn aggregates_for_context_covered_objects(&self) -> AggregateMap {
+        self.compute_aggregates(|ordinal| self.context_covered[ordinal] == ContextCovered::Covered)
+    }
+
+    pub fn aggregates_for_non_context_covered_objects(&self) -> AggregateMap {
+        self.compute_aggregates(|ordinal| {
+            self.context_covered[ordinal] == ContextCovered::NonCovered
         })
     }
 

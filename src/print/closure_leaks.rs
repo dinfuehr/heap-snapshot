@@ -17,7 +17,7 @@ pub fn find_closure_leaks(snap: &HeapSnapshot, contexts: &[NodeOrdinal]) -> Vec<
 
     for ord_idx in 0..snap.node_count() {
         let ord = NodeOrdinal(ord_idx);
-        if snap.is_context(ord) {
+        if snap.is_context_or_native_context(ord) {
             if let Some(parent) = snap.find_edge_target(ord, "previous") {
                 children_map.entry(parent).or_default().push(ord);
             }
@@ -275,7 +275,7 @@ pub fn collect_contexts(
     let mut contexts = Vec::new();
     for ord_idx in 0..snap.node_count() {
         let ord = NodeOrdinal(ord_idx);
-        if !snap.is_context(ord) || snap.is_native_context(ord) {
+        if !snap.is_context_object(ord) {
             continue;
         }
         if snap.context_variable_names(ord).is_empty() {
@@ -751,7 +751,7 @@ mod tests {
     fn all_contexts(snap: &HeapSnapshot) -> Vec<NodeOrdinal> {
         (0..snap.node_count())
             .map(NodeOrdinal)
-            .filter(|&ord| snap.is_context(ord) && !snap.is_native_context(ord))
+            .filter(|&ord| snap.is_context_object(ord))
             .collect()
     }
 

@@ -17,7 +17,7 @@ pub fn print_context_tree(snap: &HeapSnapshot, node_id: NodeId) {
         }
     };
 
-    if !snap.is_context(ordinal) {
+    if !snap.is_context_or_native_context(ordinal) {
         println!("Error: @{node_id} is not a Context node");
         std::process::exit(1);
     }
@@ -27,7 +27,7 @@ pub fn print_context_tree(snap: &HeapSnapshot, node_id: NodeId) {
 
     for ord_idx in 0..snap.node_count() {
         let ord = NodeOrdinal(ord_idx);
-        if snap.is_context(ord) {
+        if snap.is_context_or_native_context(ord) {
             if let Some(parent) = snap.find_edge_target(ord, "previous") {
                 children_map.entry(parent).or_default().push(ord);
             }

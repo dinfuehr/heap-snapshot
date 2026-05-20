@@ -724,6 +724,285 @@ fn test_statistics() {
     assert_eq!(stats.typed_arrays, 0);
     assert_eq!(stats.extra_native_bytes, 0);
     assert_eq!(stats.v8heap_total, 350);
+    assert_eq!(stats.context_count, 0);
+    assert_eq!(stats.context_covered_size, 0);
+    assert_eq!(stats.reachable_without_contexts_size, 350);
+}
+
+#[test]
+fn test_statistics_context_coverage_enters_native_contexts() {
+    let nfc = 5u32;
+    let n = |ord: u32| ord * nfc;
+    let snap = build_snapshot(
+        standard_node_fields(),
+        vec![
+            9, 0, 1, 0, 1, // node 0: synthetic root
+            9, 1, 3, 0, 2, // node 1: (GC roots)
+            3, 2, 5, 10, 1, // node 2: NativeContext
+            3, 3, 7, 70, 0, // node 3: object only reachable through NativeContext
+            3, 4, 9, 20, 1, // node 4: ordinary Context
+            3, 5, 11, 30, 0, // node 5: object only reachable through ordinary Context
+        ],
+        vec![
+            1,
+            0,
+            n(1), // root -> GC roots
+            2,
+            6,
+            n(2), // GC roots -> NativeContext
+            2,
+            7,
+            n(4), // GC roots -> ordinary Context
+            2,
+            8,
+            n(3), // NativeContext -> owned object
+            2,
+            8,
+            n(5), // ordinary Context -> owned object
+        ],
+        s(&[
+            "",
+            "(GC roots)",
+            "system / NativeContext",
+            "NativeOwned",
+            "system / Context / scope @100",
+            "ContextOwned",
+            "native",
+            "ctx",
+            "owned",
+        ]),
+    );
+
+    assert!(snap.is_native_context(NodeOrdinal(2)));
+    assert!(!snap.is_context_object(NodeOrdinal(2)));
+    assert!(snap.is_context_object(NodeOrdinal(4)));
+
+    let stats = snap.get_statistics();
+    assert_eq!(stats.total, 130);
+    assert_eq!(stats.context_count, 1);
+    assert_eq!(stats.context_covered_size, 50);
+    assert_eq!(stats.reachable_without_contexts_size, 80);
+}
+
+#[test]
+fn test_statistics_context_coverage_uses_all_system_roots() {
+    let nfc = 5u32;
+    let n = |ord: u32| ord * nfc;
+    let snap = build_snapshot(
+        standard_node_fields(),
+        vec![
+            9, 0, 1, 0, 2, // node 0: synthetic root
+            9, 1, 3, 0, 1, // node 1: (GC roots)
+            9, 2, 5, 0, 1, // node 2: (Persistent roots)
+            3, 3, 7, 20, 1, // node 3: ordinary Context
+            3, 4, 9, 30, 0, // node 4: object only reachable through ordinary Context
+            3, 5, 11, 40, 0, // node 5: object reachable through sibling system root
+        ],
+        vec![
+            1,
+            0,
+            n(1), // root -> GC roots
+            1,
+            0,
+            n(2), // root -> Persistent roots
+            2,
+            6,
+            n(3), // GC roots -> ordinary Context
+            2,
+            7,
+            n(5), // Persistent roots -> system-root object
+            2,
+            8,
+            n(4), // ordinary Context -> owned object
+        ],
+        s(&[
+            "",
+            "(GC roots)",
+            "(Persistent roots)",
+            "system / Context / scope @100",
+            "ContextOwned",
+            "SystemOwned",
+            "ctx",
+            "system",
+            "owned",
+        ]),
+    );
+
+    assert_eq!(snap.root_kind(NodeOrdinal(1)), RootKind::SystemRoot);
+    assert_eq!(snap.root_kind(NodeOrdinal(2)), RootKind::SystemRoot);
+
+    let stats = snap.get_statistics();
+    assert_eq!(stats.context_count, 1);
+    assert_eq!(stats.context_covered_size, 50);
+    assert_eq!(stats.reachable_without_contexts_size, 40);
+}
+
+#[test]
+fn test_context_coverage_excludes_unreachable_objects() {
+    let nfc = 5u32;
+    let n = |ord: u32| ord * nfc;
+    let snap = build_snapshot(
+        standard_node_fields(),
+        vec![
+            9, 0, 1, 0, 1, // node 0: synthetic root
+            9, 1, 3, 0, 1, // node 1: (GC roots)
+            3, 2, 5, 20, 1, // node 2: reachable ordinary Context
+            3, 3, 7, 30, 0, // node 3: object only reachable through reachable Context
+            3, 4, 9, 40, 1, // node 4: unreachable ordinary Context
+            3, 5, 11, 50, 0, // node 5: object only reachable through unreachable Context
+        ],
+        vec![
+            1,
+            0,
+            n(1), // root -> GC roots
+            2,
+            6,
+            n(2), // GC roots -> reachable Context
+            2,
+            7,
+            n(3), // reachable Context -> owned object
+            2,
+            7,
+            n(5), // unreachable Context -> owned object
+        ],
+        s(&[
+            "",
+            "(GC roots)",
+            "system / Context / reachable @100",
+            "ReachableContextOwned",
+            "system / Context / unreachable @200",
+            "UnreachableContextOwned",
+            "ctx",
+            "owned",
+        ]),
+    );
+
+    let stats = snap.get_statistics();
+    assert_eq!(stats.context_count, 2);
+    assert_eq!(stats.context_covered_size, 50);
+    assert_eq!(stats.reachable_without_contexts_size, 0);
+
+    let context_covered_ordinals: Vec<_> = snap
+        .aggregates_for_context_covered_objects()
+        .iter()
+        .flat_map(|agg| agg.node_ordinals.iter().copied())
+        .collect();
+    assert!(context_covered_ordinals.contains(&NodeOrdinal(2)));
+    assert!(context_covered_ordinals.contains(&NodeOrdinal(3)));
+    assert!(!context_covered_ordinals.contains(&NodeOrdinal(4)));
+    assert!(!context_covered_ordinals.contains(&NodeOrdinal(5)));
+
+    let non_context_covered_ordinals: Vec<_> = snap
+        .aggregates_for_non_context_covered_objects()
+        .iter()
+        .flat_map(|agg| agg.node_ordinals.iter().copied())
+        .collect();
+    assert!(!non_context_covered_ordinals.contains(&NodeOrdinal(4)));
+    assert!(!non_context_covered_ordinals.contains(&NodeOrdinal(5)));
+}
+
+#[test]
+fn test_aggregates_for_context_covered_objects_excludes_native_contexts() {
+    let nfc = 5u32;
+    let n = |ord: u32| ord * nfc;
+    let snap = build_snapshot(
+        standard_node_fields(),
+        vec![
+            9, 0, 1, 0, 1, // node 0: synthetic root
+            9, 1, 2, 0, 4, // node 1: (GC roots)
+            3, 2, 5, 10, 1, // node 2: NativeContext
+            3, 3, 7, 20, 1, // node 3: ordinary Context
+            3, 4, 9, 30, 0, // node 4: named ordinary Context
+            3, 5, 11, 40, 0, // node 5: regular object
+            3, 6, 13, 15, 0, // node 6: object only reachable through NativeContext
+            3, 7, 15, 50, 0, // node 7: object only reachable through ordinary Context
+        ],
+        vec![
+            1,
+            0,
+            n(1), // root -> GC roots
+            2,
+            6,
+            n(2), // GC roots -> NativeContext
+            2,
+            7,
+            n(3), // GC roots -> ordinary Context
+            2,
+            8,
+            n(4), // GC roots -> named ordinary Context
+            2,
+            9,
+            n(5), // GC roots -> regular object
+            2,
+            10,
+            n(6), // NativeContext -> owned object
+            2,
+            10,
+            n(7), // ordinary Context -> owned object
+        ],
+        s(&[
+            "",
+            "(GC roots)",
+            "system / NativeContext",
+            "system / Context",
+            "system / Context / scope @100",
+            "RegularObject",
+            "NativeOwned",
+            "ContextOwned",
+            "native",
+            "ctx",
+            "named_ctx",
+            "obj",
+            "owned",
+        ]),
+    );
+
+    let context_aggs = snap.aggregates_for_context_covered_objects();
+    assert_eq!(
+        context_aggs.iter().map(|agg| agg.self_size).sum::<u64>(),
+        100
+    );
+    let context_ordinals: Vec<_> = context_aggs
+        .iter()
+        .flat_map(|agg| agg.node_ordinals.iter().copied())
+        .collect();
+    assert!(context_ordinals.contains(&NodeOrdinal(3)));
+    assert!(context_ordinals.contains(&NodeOrdinal(4)));
+    assert!(context_ordinals.contains(&NodeOrdinal(7)));
+    assert!(
+        context_aggs.iter().any(|agg| agg.name == "ContextOwned"),
+        "context-covered objects should include objects only reachable through a Context"
+    );
+
+    let reachable_without_aggs = snap.aggregates_for_non_context_covered_objects();
+    assert_eq!(
+        reachable_without_aggs
+            .iter()
+            .map(|agg| agg.self_size)
+            .sum::<u64>(),
+        65
+    );
+    let reachable_without_ordinals: Vec<_> = reachable_without_aggs
+        .iter()
+        .flat_map(|agg| agg.node_ordinals.iter().copied())
+        .collect();
+    assert!(reachable_without_ordinals.contains(&NodeOrdinal(2)));
+    assert!(reachable_without_ordinals.contains(&NodeOrdinal(5)));
+    assert!(reachable_without_ordinals.contains(&NodeOrdinal(6)));
+    assert!(
+        !reachable_without_ordinals.contains(&NodeOrdinal(3)),
+        "ordinary Context should be blocked"
+    );
+    assert!(
+        reachable_without_aggs
+            .iter()
+            .any(|agg| agg.name == "system / NativeContext")
+    );
+    assert!(
+        reachable_without_aggs
+            .iter()
+            .any(|agg| agg.name == "NativeOwned")
+    );
 }
 
 #[test]
@@ -7861,6 +8140,8 @@ fn test_root_kinds() {
     assert_eq!(snap.root_kind(NodeOrdinal(2)), RootKind::SystemRoot);
     assert_eq!(snap.root_kind(NodeOrdinal(3)), RootKind::UserRoot);
     assert_eq!(snap.root_kind(NodeOrdinal(4)), RootKind::NonRoot);
+    assert_eq!(snap.system_roots(), &[NodeOrdinal(1), NodeOrdinal(2)]);
+    assert_eq!(snap.user_roots(), &[NodeOrdinal(3)]);
 }
 
 /// Builds a snapshot with JSFunction and SharedFunctionInfo nodes to test

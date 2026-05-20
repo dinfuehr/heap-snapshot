@@ -61,7 +61,7 @@ enum Command {
         /// Expand a node's edges: @id, @id:start, or @id:start:count (can be repeated)
         #[arg(short = 'e', long, value_name = "ID")]
         expand: Vec<String>,
-        /// Filter objects: unreachable, unreachable-roots, detached-dom, console, event-handlers
+        /// Filter objects: attached, detached, context-covered, non-context-covered, unreachable, unreachable-roots, detached-dom, console, event-handlers
         #[arg(long, value_name = "FILTER")]
         filter: Option<String>,
         /// Show summary for a specific allocation timeline interval (0-based index)
@@ -413,6 +413,8 @@ fn main() {
                 match filter.as_deref() {
                     Some("attached") => print::summary::SummaryFilter::Attached,
                     Some("detached") => print::summary::SummaryFilter::Detached,
+                    Some("context-covered") => print::summary::SummaryFilter::ContextCovered,
+                    Some("non-context-covered") => print::summary::SummaryFilter::NonContextCovered,
                     Some("unreachable") => print::summary::SummaryFilter::Unreachable,
                     Some("unreachable-roots") => print::summary::SummaryFilter::UnreachableRoots,
                     Some("detached-dom") => print::summary::SummaryFilter::RetainedByDetachedDom,
@@ -423,7 +425,7 @@ fn main() {
                     None => print::summary::SummaryFilter::All,
                     Some(other) => {
                         eprintln!(
-                            "Error: unknown filter '{other}'. Valid filters: attached, detached, unreachable, unreachable-roots, detached-dom, console, event-handlers"
+                            "Error: unknown filter '{other}'. Valid filters: attached, detached, context-covered, non-context-covered, unreachable, unreachable-roots, detached-dom, console, event-handlers"
                         );
                         std::process::exit(1);
                     }

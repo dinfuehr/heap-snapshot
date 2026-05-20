@@ -36,6 +36,21 @@ const numTd = {
 
 const PAGE_SIZE = 100;
 
+// Keep in sync with WasmHeapSnapshot.get_summary_with_filter.
+const SUMMARY_FILTER_MODE = {
+  all: '0',
+  unreachable: '1',
+  unreachableRoots: '2',
+  detachedDom: '3',
+  console: '4',
+  eventHandlers: '5',
+  attached: '6',
+  detached: '7',
+  duplicateStrings: '8',
+  contextCovered: '9',
+  nonContextCovered: '10',
+} as const;
+
 interface FocusTarget {
   nodeId: number;
   constructorIndex: number;
@@ -631,15 +646,33 @@ export function SummaryView(props: {
             'font-size': '13px',
           }}
         >
-          <option value="0">All objects</option>
-          <option value="6">Attached</option>
-          <option value="7">Detached</option>
-          <option value="1">Unreachable (all)</option>
-          <option value="2">Unreachable (roots only)</option>
-          <option value="3">Retained by detached DOM</option>
-          <option value="4">Retained by DevTools console</option>
-          <option value="5">Retained by event handlers</option>
-          <option value="8">Duplicate strings</option>
+          <option value={SUMMARY_FILTER_MODE.all}>All objects</option>
+          <option value={SUMMARY_FILTER_MODE.attached}>Attached</option>
+          <option value={SUMMARY_FILTER_MODE.detached}>Detached</option>
+          <optgroup label="Context coverage">
+            <option value={SUMMARY_FILTER_MODE.contextCovered}>
+              Context-covered objects
+            </option>
+            <option value={SUMMARY_FILTER_MODE.nonContextCovered}>
+              Non-context-covered objects
+            </option>
+          </optgroup>
+          <option value={SUMMARY_FILTER_MODE.unreachable}>Unreachable (all)</option>
+          <option value={SUMMARY_FILTER_MODE.unreachableRoots}>
+            Unreachable (roots only)
+          </option>
+          <option value={SUMMARY_FILTER_MODE.detachedDom}>
+            Retained by detached DOM
+          </option>
+          <option value={SUMMARY_FILTER_MODE.console}>
+            Retained by DevTools console
+          </option>
+          <option value={SUMMARY_FILTER_MODE.eventHandlers}>
+            Retained by event handlers
+          </option>
+          <option value={SUMMARY_FILTER_MODE.duplicateStrings}>
+            Duplicate strings
+          </option>
           <Show when={contexts() && contexts()!.length > 0}>
             <optgroup label="Native contexts">
               <For each={contexts()!}>

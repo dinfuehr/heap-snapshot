@@ -107,6 +107,11 @@ Statistics (total 125 kB):
     Extra Native: 0 B
   Unreachable:    0 B (0 objects)
 
+Context Coverage:
+  Context Objects                         2
+  Kept Alive by Contexts               2 kB    1.8%
+  Non-context-covered                123 kB   98.2%
+
 Native Context Attribution:
   [utility] #0 @7271                       118 kB
   Shared                                   0 B
@@ -158,6 +163,28 @@ fn summary_filter_event_handlers() {
     assert!(
         output.contains("Computing aggregates") || output.contains("No matching objects"),
         "expected valid output for event-handlers filter, got: {output}"
+    );
+}
+
+#[test]
+fn summary_filter_context_covered() {
+    let output = run_summary("heap-1.heapsnapshot", &["--filter", "context-covered"]);
+    assert!(
+        output.contains("system / Context"),
+        "expected context-covered objects in filtered summary, got: {output}"
+    );
+}
+
+#[test]
+fn summary_filter_non_context_covered() {
+    let output = run_summary("heap-1.heapsnapshot", &["--filter", "non-context-covered"]);
+    assert!(
+        output.contains("system / NativeContext"),
+        "expected NativeContext objects in filtered summary, got: {output}"
+    );
+    assert!(
+        !output.contains("system / Context"),
+        "expected ordinary context objects to be hidden, got: {output}"
     );
 }
 

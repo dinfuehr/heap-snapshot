@@ -15,7 +15,7 @@ use crate::display::truncate_str;
 use crate::parser;
 use crate::print::closure_leaks;
 use crate::print::diff::{format_signed_count, format_signed_size};
-use crate::print::format_size;
+use crate::print::{format_count, format_size};
 use crate::retaining_path::{
     DEFAULT_RETAINER_SEARCH_MAX_DEPTH, DEFAULT_RETAINER_SEARCH_MAX_NODES, RetainerAutoExpandLimits,
     RetainerPathEdge, plan_gc_root_retainer_paths,
@@ -109,7 +109,7 @@ struct GetSummaryParams {
     offset: Option<usize>,
     /// Maximum number of objects to return when expanding a constructor (default: 20)
     limit: Option<usize>,
-    /// Filter objects: attached, detached, unreachable, unreachable-roots, detached-dom, console, event-handlers
+    /// Filter objects: attached, detached, context-covered, non-context-covered, unreachable, unreachable-roots, detached-dom, console, event-handlers
     filter: Option<String>,
     /// Show only objects allocated in a specific timeline interval (0-based index)
     filter_interval: Option<usize>,
@@ -536,7 +536,7 @@ impl McpServer {
     }
 
     #[tool(
-        description = "Get memory statistics for a snapshot: total size, V8 heap, native, code, strings, arrays, system, and unreachable objects."
+        description = "Get memory statistics for a snapshot: total size, V8 heap, native, code, strings, arrays, system, unreachable objects, and context coverage."
     )]
     async fn get_statistics(
         &self,
@@ -568,6 +568,15 @@ impl McpServer {
             format!(
                 "  Unreachable:  {:.0} bytes ({} objects)",
                 stats.unreachable_size, stats.unreachable_count
+            ),
+            format!("  Context objects: {}", format_count(stats.context_count)),
+            format!(
+                "  Kept alive by contexts: {:.0} bytes",
+                stats.context_covered_size
+            ),
+            format!(
+                "  Non-context-covered objects: {:.0} bytes",
+                stats.reachable_without_contexts_size
             ),
         ];
 
@@ -1368,6 +1377,8 @@ fn resolve_summary_filter(
         None | Some("") => Ok(snapshot.aggregates_with_filter()),
         Some("attached") => Ok(snapshot.aggregates_attached()),
         Some("detached") => Ok(snapshot.aggregates_detached()),
+        Some("context-covered") => Ok(snapshot.aggregates_for_context_covered_objects()),
+        Some("non-context-covered") => Ok(snapshot.aggregates_for_non_context_covered_objects()),
         Some("unreachable") => Ok(snapshot.unreachable_aggregates()),
         Some("unreachable-roots") => Ok(snapshot.unreachable_root_aggregates()),
         Some("detached-dom") => Ok(snapshot.retained_by_detached_dom()),
@@ -1375,7 +1386,7 @@ fn resolve_summary_filter(
         Some("event-handlers") => Ok(snapshot.retained_by_event_handlers()),
         Some(other) => Err(McpError::invalid_params(
             format!(
-                "Unknown filter '{other}'. Valid filters: attached, detached, unreachable, unreachable-roots, detached-dom, console, event-handlers"
+                "Unknown filter '{other}'. Valid filters: attached, detached, context-covered, non-context-covered, unreachable, unreachable-roots, detached-dom, console, event-handlers"
             ),
             None,
         )),

@@ -2,7 +2,7 @@ use ratatui::prelude::*;
 use ratatui::widgets::{Paragraph, Wrap};
 
 use crate::display::truncate_str;
-use crate::print::format_size;
+use crate::print::{format_percent, format_size};
 use crate::snapshot::HeapSnapshot;
 
 use super::super::App;
@@ -115,6 +115,59 @@ impl App {
                     "{:>12}  ({} objects)",
                     format_size(stats.unreachable_size),
                     crate::print::format_count(stats.unreachable_count),
+                )),
+            ]));
+            lines.push(Line::from(""));
+        }
+
+        // Context coverage
+        {
+            lines.push(Line::from(Span::styled(
+                "Context Coverage",
+                Style::default().bold(),
+            )));
+            lines.push(Line::from(""));
+            lines.push(Line::from(vec![
+                Span::styled("  ", Style::default()),
+                Span::styled(format!("{:<28}", "Context Objects"), Style::default().dim()),
+                Span::raw(format!(
+                    "{:>12}",
+                    crate::print::format_count(stats.context_count)
+                )),
+            ]));
+
+            let coverage_total = stats.context_covered_size + stats.reachable_without_contexts_size;
+            let kept_pct = format!(
+                "{:>6}",
+                format_percent(stats.context_covered_size, coverage_total)
+            );
+            lines.push(Line::from(vec![
+                Span::styled("  ", Style::default()),
+                Span::styled(
+                    format!("{:<28}", "Kept Alive by Contexts"),
+                    Style::default().fg(Color::Green).bold(),
+                ),
+                Span::raw(format!(
+                    "{:>12}  {}",
+                    format_size(stats.context_covered_size),
+                    kept_pct
+                )),
+            ]));
+
+            let without_pct = format!(
+                "{:>6}",
+                format_percent(stats.reachable_without_contexts_size, coverage_total)
+            );
+            lines.push(Line::from(vec![
+                Span::styled("  ", Style::default()),
+                Span::styled(
+                    format!("{:<28}", "Non-context-covered"),
+                    Style::default().fg(Color::DarkGray).bold(),
+                ),
+                Span::raw(format!(
+                    "{:>12}  {}",
+                    format_size(stats.reachable_without_contexts_size),
+                    without_pct
                 )),
             ]));
             lines.push(Line::from(""));

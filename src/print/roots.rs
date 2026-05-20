@@ -1,26 +1,10 @@
 use super::format_size;
-use crate::snapshot::{HeapSnapshot, RootKind};
+use crate::snapshot::HeapSnapshot;
 
 pub fn print_roots(snap: &HeapSnapshot) {
-    let synthetic_root = snap.synthetic_root_ordinal();
-
-    // Collect children of the synthetic root, split by kind.
-    let mut system_roots = Vec::new();
-    let mut user_roots = Vec::new();
-
-    for (edge_idx, child_ord) in snap.iter_edges(synthetic_root) {
-        let kind = snap.root_kind(child_ord);
-        let entry = (edge_idx, child_ord);
-        match kind {
-            RootKind::SystemRoot => system_roots.push(entry),
-            RootKind::UserRoot => user_roots.push(entry),
-            _ => {}
-        }
-    }
-
     // System roots
-    println!("System roots ({}):", system_roots.len());
-    for &(_edge_idx, child_ord) in &system_roots {
+    println!("System roots ({}):", snap.system_roots().len());
+    for &child_ord in snap.system_roots() {
         let label = snap.format_node_label(child_ord);
         let self_size = snap.node_self_size(child_ord) as u64;
         let retained = snap.node_retained_size(child_ord);
@@ -51,8 +35,8 @@ pub fn print_roots(snap: &HeapSnapshot) {
     }
 
     // User roots
-    println!("\nUser roots ({}):", user_roots.len());
-    for &(_edge_idx, child_ord) in &user_roots {
+    println!("\nUser roots ({}):", snap.user_roots().len());
+    for &child_ord in snap.user_roots() {
         let label = snap.format_node_label(child_ord);
         let self_size = snap.node_self_size(child_ord) as u64;
         let retained = snap.node_retained_size(child_ord);

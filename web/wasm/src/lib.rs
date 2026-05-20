@@ -21,26 +21,29 @@ use heap_snapshot::types::{EdgeId, NodeId, NodeOrdinal};
 #[derive(Serialize)]
 struct JsStatistics {
     node_count: usize,
-    total: f64,
-    v8heap_total: f64,
-    native_total: f64,
-    code: f64,
-    strings: f64,
-    js_arrays: f64,
-    typed_arrays: f64,
-    system: f64,
-    extra_native_bytes: f64,
-    unreachable_size: f64,
+    total: u64,
+    v8heap_total: u64,
+    native_total: u64,
+    code: u64,
+    strings: u64,
+    js_arrays: u64,
+    typed_arrays: u64,
+    system: u64,
+    extra_native_bytes: u64,
+    unreachable_size: u64,
     unreachable_count: u32,
+    context_count: u32,
+    context_covered_size: u64,
+    reachable_without_contexts_size: u64,
     context_sizes: Vec<JsContextSize>,
-    shared_size: f64,
-    unattributed_size: f64,
+    shared_size: u64,
+    unattributed_size: u64,
 }
 
 #[derive(Serialize)]
 struct JsContextSize {
     label: String,
-    size: f64,
+    size: u64,
 }
 
 #[derive(Serialize)]
@@ -307,25 +310,28 @@ impl WasmHeapSnapshot {
             .iter()
             .map(|ctx| JsContextSize {
                 label: snap.native_context_label(ctx.ordinal),
-                size: ctx.size as f64,
+                size: ctx.size,
             })
             .collect();
         to_json(&JsStatistics {
             node_count: snap.node_count(),
-            total: stats.total as f64,
-            v8heap_total: stats.v8heap_total as f64,
-            native_total: stats.native_total as f64,
-            code: stats.code as f64,
-            strings: stats.strings as f64,
-            js_arrays: stats.js_arrays as f64,
-            typed_arrays: stats.typed_arrays as f64,
-            system: stats.system as f64,
-            extra_native_bytes: stats.extra_native_bytes as f64,
-            unreachable_size: stats.unreachable_size as f64,
+            total: stats.total,
+            v8heap_total: stats.v8heap_total,
+            native_total: stats.native_total,
+            code: stats.code,
+            strings: stats.strings,
+            js_arrays: stats.js_arrays,
+            typed_arrays: stats.typed_arrays,
+            system: stats.system,
+            extra_native_bytes: stats.extra_native_bytes,
+            unreachable_size: stats.unreachable_size,
             unreachable_count: stats.unreachable_count,
+            context_count: stats.context_count,
+            context_covered_size: stats.context_covered_size,
+            reachable_without_contexts_size: stats.reachable_without_contexts_size,
             context_sizes,
-            shared_size: snap.shared_attributable_size() as f64,
-            unattributed_size: snap.unattributed_size() as f64,
+            shared_size: snap.shared_attributable_size(),
+            unattributed_size: snap.unattributed_size(),
         })
     }
 
@@ -335,7 +341,8 @@ impl WasmHeapSnapshot {
     /// 0 = all objects, 1 = all unreachable, 2 = unreachable roots only,
     /// 3 = retained by detached DOM, 4 = retained by console,
     /// 5 = retained by event handlers, 6 = attached, 7 = detached,
-    /// 8 = duplicate strings.
+    /// 8 = duplicate strings, 9 = context-covered objects,
+    /// 10 = non-context-covered objects.
     pub fn get_summary_with_filter(&mut self, mode: u32) -> String {
         self.cached_summary_aggregates = Some(match mode {
             1 => self.inner.unreachable_aggregates(),
@@ -346,6 +353,8 @@ impl WasmHeapSnapshot {
             6 => self.inner.aggregates_attached(),
             7 => self.inner.aggregates_detached(),
             8 => self.inner.aggregates_for_duplicate_strings(),
+            9 => self.inner.aggregates_for_context_covered_objects(),
+            10 => self.inner.aggregates_for_non_context_covered_objects(),
             _ => self.inner.aggregates_with_filter(),
         });
         self.format_summary()

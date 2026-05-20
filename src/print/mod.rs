@@ -96,6 +96,14 @@ pub(crate) fn format_count(n: u32) -> String {
     result.chars().rev().collect()
 }
 
+pub(crate) fn format_percent(value: u64, total: u64) -> String {
+    if total == 0 {
+        return "0.0%".to_string();
+    }
+
+    format!("{:.1}%", value as f64 * 100.0 / total as f64)
+}
+
 /// Format a distance value for display.
 /// Reachable nodes show their numeric distance.
 /// Unreachable nodes show "U" (root) or "U+N" (N hops from an unreachable root).

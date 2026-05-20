@@ -1,6 +1,6 @@
 use crate::snapshot::HeapSnapshot;
 
-use super::{format_count, format_size};
+use super::{format_count, format_percent, format_size};
 
 pub fn print_statistics(snap: &HeapSnapshot) {
     let stats = snap.get_statistics();
@@ -20,6 +20,26 @@ pub fn print_statistics(snap: &HeapSnapshot) {
         "  Unreachable:    {} ({} objects)",
         format_size(stats.unreachable_size),
         format_count(stats.unreachable_count),
+    );
+    println!();
+    println!("Context Coverage:");
+    let coverage_total = stats.context_covered_size + stats.reachable_without_contexts_size;
+    println!(
+        "  {:<28} {:>12}",
+        "Context Objects",
+        format_count(stats.context_count)
+    );
+    println!(
+        "  {:<28} {:>12} {:>7}",
+        "Kept Alive by Contexts",
+        format_size(stats.context_covered_size),
+        format_percent(stats.context_covered_size, coverage_total)
+    );
+    println!(
+        "  {:<28} {:>12} {:>7}",
+        "Non-context-covered",
+        format_size(stats.reachable_without_contexts_size),
+        format_percent(stats.reachable_without_contexts_size, coverage_total)
     );
 
     let contexts = snap.native_contexts();

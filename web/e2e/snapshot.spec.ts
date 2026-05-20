@@ -79,6 +79,9 @@ test.describe('Heap Snapshot Viewer', () => {
 
     // Default should be "All objects"
     await expect(select).toHaveValue('0');
+    await expect(
+      select.locator('optgroup[label="Context coverage"]'),
+    ).toHaveCount(1);
 
     // Switch to "Unreachable (all)"
     await select.selectOption('1');
@@ -86,6 +89,12 @@ test.describe('Heap Snapshot Viewer', () => {
     // Wait for reload — the loading indicator or new content should appear
     // heap-1 has 0 unreachable objects, so the table should be empty or show no rows
     await page.waitForTimeout(500);
+
+    await select.selectOption('9');
+    await expect(select).toHaveValue('9');
+
+    await select.selectOption('10');
+    await expect(select).toHaveValue('10');
   });
 
   test('summary filter "Duplicate strings" lists duplicate groups', async ({
@@ -133,6 +142,10 @@ test.describe('Heap Snapshot Viewer', () => {
     ).toBeVisible();
     await expect(
       page.getByRole('cell', { name: 'Unreachable', exact: true }),
+    ).toBeVisible();
+    await expect(page.getByText('Context Coverage')).toBeVisible();
+    await expect(
+      page.getByRole('cell', { name: 'Kept Alive by Contexts', exact: true }),
     ).toBeVisible();
   });
 

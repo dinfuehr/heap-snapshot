@@ -181,10 +181,74 @@ export function StatisticsView(props: { call: SnapshotCall }): JSX.Element {
               </div>
             ))}
           </div>
+          <ContextCoverage stats={stats()!} />
           <ContextAttribution stats={stats()!} />
         </>
       )}
     </div>
+  );
+}
+
+function ContextCoverage(props: { stats: Statistics }): JSX.Element {
+  const coverageTotal =
+    props.stats.context_covered_size +
+    props.stats.reachable_without_contexts_size;
+
+  return (
+    <>
+      <h3
+        style={{
+          'font-size': '14px',
+          'font-weight': 'bold',
+          'margin-top': '24px',
+          'margin-bottom': '8px',
+        }}
+      >
+        Context Coverage
+      </h3>
+      <table
+        style={{
+          'border-collapse': 'collapse',
+          width: '100%',
+          'font-size': '14px',
+        }}
+      >
+        <tbody>
+          <tr>
+            <td style={{ padding: '3px 0', color: '#888' }}>Context Objects</td>
+            <td style={{ padding: '3px 12px', 'text-align': 'right' }}>
+              {props.stats.context_count.toLocaleString()}
+            </td>
+            <td />
+          </tr>
+          <tr style={{ 'border-top': '1px solid #ddd' }}>
+            <td style={{ padding: '3px 0', 'font-weight': '600' }}>
+              Kept Alive by Contexts
+            </td>
+            <td style={{ padding: '3px 12px', 'text-align': 'right' }}>
+              {formatBytes(props.stats.context_covered_size)}
+            </td>
+            <td style={{ padding: '3px 0', color: '#888' }}>
+              {pct(props.stats.context_covered_size, coverageTotal)}
+            </td>
+          </tr>
+          <tr>
+            <td style={{ padding: '3px 0', color: '#888' }}>
+              Non-context-covered
+            </td>
+            <td style={{ padding: '3px 12px', 'text-align': 'right' }}>
+              {formatBytes(props.stats.reachable_without_contexts_size)}
+            </td>
+            <td style={{ padding: '3px 0', color: '#888' }}>
+              {pct(
+                props.stats.reachable_without_contexts_size,
+                coverageTotal,
+              )}
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </>
   );
 }
 

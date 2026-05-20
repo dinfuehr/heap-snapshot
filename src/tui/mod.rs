@@ -129,6 +129,10 @@ pub(super) enum SummaryFilterMode {
     Attached,
     /// Show only detached objects (detachedness == 2).
     Detached,
+    /// Show objects that stop being reachable when ordinary Context objects are blocked.
+    ContextCovered,
+    /// Show objects that remain reachable when ordinary Context objects are blocked.
+    NonContextCovered,
     /// Show all unreachable objects (distance >= UNREACHABLE_BASE).
     Unreachable,
     /// Show only fully unreachable roots (distance == UNREACHABLE_BASE).
@@ -155,6 +159,8 @@ impl SummaryFilterMode {
             Self::All => "All objects".to_string(),
             Self::Attached => "Attached".to_string(),
             Self::Detached => "Detached".to_string(),
+            Self::ContextCovered => "Context-covered objects".to_string(),
+            Self::NonContextCovered => "Non-context-covered objects".to_string(),
             Self::Unreachable => "Unreachable (all)".to_string(),
             Self::UnreachableRoots => "Unreachable (roots only)".to_string(),
             Self::RetainedByDetachedDom => "Retained by detached DOM".to_string(),
@@ -548,6 +554,10 @@ impl App {
             SummaryFilterMode::All => snap.aggregates_with_filter(),
             SummaryFilterMode::Attached => snap.aggregates_attached(),
             SummaryFilterMode::Detached => snap.aggregates_detached(),
+            SummaryFilterMode::ContextCovered => snap.aggregates_for_context_covered_objects(),
+            SummaryFilterMode::NonContextCovered => {
+                snap.aggregates_for_non_context_covered_objects()
+            }
             SummaryFilterMode::Unreachable => snap.unreachable_aggregates(),
             SummaryFilterMode::UnreachableRoots => snap.unreachable_root_aggregates(),
             SummaryFilterMode::RetainedByDetachedDom => snap.retained_by_detached_dom(),
@@ -587,6 +597,17 @@ impl App {
             SummaryFilterMode::RetainedByConsole,
             SummaryFilterMode::RetainedByEventHandlers,
             SummaryFilterMode::DuplicateStrings,
+        ] {
+            items.push(FilterOverlayItem::Filter {
+                label: mode.label(snap),
+                mode,
+            });
+        }
+
+        items.push(FilterOverlayItem::Header("Context coverage".to_string()));
+        for mode in [
+            SummaryFilterMode::ContextCovered,
+            SummaryFilterMode::NonContextCovered,
         ] {
             items.push(FilterOverlayItem::Filter {
                 label: mode.label(snap),

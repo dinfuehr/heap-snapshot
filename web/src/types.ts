@@ -11,6 +11,9 @@ export interface Statistics {
   extra_native_bytes: number;
   unreachable_size: number;
   unreachable_count: number;
+  context_count: number;
+  context_covered_size: number;
+  reachable_without_contexts_size: number;
   context_sizes: { label: string; size: number }[];
   shared_size: number;
   unattributed_size: number;
