@@ -9,6 +9,10 @@ function detachednessLabel(d: number): string {
   return 'Unknown';
 }
 
+function detachednessOriginLabel(isOriginal: boolean): string {
+  return isOriginal ? 'original' : 'propagated';
+}
+
 export function InspectDialog(props: {
   info: NodeInfo;
   edgeInfo?: EdgeInfo;
@@ -43,7 +47,12 @@ export function InspectDialog(props: {
     ['Self size', `${formatBytes(n.self_size)} (${n.self_size})`],
     ['Retained size', `${formatBytes(n.retained_size)} (${n.retained_size})`],
     ['Distance', `${n.distance}`],
-    ['Detachedness', detachednessLabel(n.detachedness)],
+    [
+      'Detachedness',
+      `${detachednessLabel(n.detachedness)} (${detachednessOriginLabel(
+        n.detachedness_is_original,
+      )})`,
+    ],
     ['Edge count', `${n.edge_count}`],
   ];
   if (n.ctx) {

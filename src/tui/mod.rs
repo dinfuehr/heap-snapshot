@@ -682,6 +682,11 @@ impl App {
         let node_type = snap.node_type_name(ordinal);
         let class_name = snap.node_class_name(ordinal);
         let det = snap.node_detachedness(ordinal);
+        let det_origin = if snap.node_detachedness_is_original(ordinal) {
+            "original"
+        } else {
+            "propagated"
+        };
         let self_size = snap.node_self_size(ordinal);
         let retained = snap.node_retained_size(ordinal);
         let distance = snap.node_distance(ordinal);
@@ -702,7 +707,7 @@ impl App {
             format_size(retained)
         ));
         lines.push(format!("  distance:     {distance}"));
-        lines.push(format!("  detachedness: {det:?}"));
+        lines.push(format!("  detachedness: {det:?} ({det_origin})"));
         lines.push(format!("  edge count:   {edge_count}"));
 
         // Edge info: find how this node is referenced from its parent row

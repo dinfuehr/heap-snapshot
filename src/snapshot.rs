@@ -63,6 +63,14 @@ pub enum Detachedness {
     Detached = 2,
 }
 
+fn decode_detachedness(raw: u32) -> Detachedness {
+    match raw & BITMASK_FOR_DOM_LINK_STATE {
+        1 => Detachedness::Attached,
+        2 => Detachedness::Detached,
+        _ => Detachedness::Unknown,
+    }
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct SnapshotOptions {
     /// Treat weak edges as reachable when computing distances.
@@ -1532,12 +1540,8 @@ impl HeapSnapshot {
         // raw: 0 = unknown, 1 = attached, 2 = detached
         for ordinal in 0..self.node_count {
             let node_index = ordinal * nfc;
-            let raw = self.nodes[node_index + det_offset] & BITMASK_FOR_DOM_LINK_STATE;
-            let det = match raw {
-                1 => Detachedness::Attached,
-                2 => Detachedness::Detached,
-                _ => Detachedness::Unknown,
-            };
+            let raw = self.nodes[node_index + det_offset];
+            let det = decode_detachedness(raw);
             self.detachedness[ordinal] = det;
 
             let node_type = self.nodes[node_index + self.node_type_offset];
@@ -3779,6 +3783,22 @@ impl HeapSnapshot {
 
     pub fn node_detachedness(&self, ordinal: NodeOrdinal) -> Detachedness {
         self.detachedness[ordinal.0]
+    }
+
+    /// Returns the raw detachedness value encoded in the heap snapshot.
+    /// Snapshots without a detachedness field report Unknown.
+    pub fn node_original_detachedness(&self, ordinal: NodeOrdinal) -> Detachedness {
+        if self.node_detachedness_offset == -1 {
+            return Detachedness::Unknown;
+        }
+        let node_index = ordinal.0 * self.node_field_count;
+        let det_offset = self.node_detachedness_offset as usize;
+        decode_detachedness(self.nodes[node_index + det_offset])
+    }
+
+    /// Returns true when the propagated value still matches the original snapshot value.
+    pub fn node_detachedness_is_original(&self, ordinal: NodeOrdinal) -> bool {
+        self.node_detachedness(ordinal) == self.node_original_detachedness(ordinal)
     }
 
     /// Returns the detachedness of a NativeContext inferred from its global object.

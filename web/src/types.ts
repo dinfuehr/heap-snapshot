@@ -38,6 +38,7 @@ export interface NodeInfo {
   distance: number;
   edge_count: number;
   detachedness: number; // 0=unknown, 1=attached, 2=detached
+  detachedness_is_original: boolean;
   ctx: string;
   ctx_label: string;
   // For JSFunction / SharedFunctionInfo, formatted as

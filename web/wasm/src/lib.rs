@@ -67,6 +67,7 @@ struct JsNodeInfo {
     distance: u32,
     edge_count: u32,
     detachedness: u8,
+    detachedness_is_original: bool,
     ctx: String,
     ctx_label: String,
     /// For JSFunction / SharedFunctionInfo, formatted as
@@ -258,6 +259,7 @@ impl WasmHeapSnapshot {
             distance: snap.node_distance(ordinal).0,
             edge_count: snap.node_edge_count(ordinal) as u32,
             detachedness: snap.node_detachedness(ordinal) as u8,
+            detachedness_is_original: snap.node_detachedness_is_original(ordinal),
             ctx: format_ctx_bucket(bucket),
             ctx_label: format_ctx_label(snap, bucket),
             location,

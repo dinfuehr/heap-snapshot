@@ -1681,6 +1681,27 @@ fn test_propagate_detachedness_to_children() {
 }
 
 #[test]
+fn test_node_detachedness_origin_tracks_propagation() {
+    let snap = make_detachedness_snapshot();
+
+    assert_eq!(
+        snap.node_original_detachedness(NodeOrdinal(2)),
+        Detachedness::Attached
+    );
+    assert!(snap.node_detachedness_is_original(NodeOrdinal(2)));
+
+    assert_eq!(
+        snap.node_original_detachedness(NodeOrdinal(4)),
+        Detachedness::Unknown
+    );
+    assert_eq!(
+        snap.node_detachedness(NodeOrdinal(4)),
+        Detachedness::Attached
+    );
+    assert!(!snap.node_detachedness_is_original(NodeOrdinal(4)));
+}
+
+#[test]
 fn test_detachedness_without_field() {
     // make_test_snapshot has no "detachedness" in node_fields
     let snap = make_test_snapshot();

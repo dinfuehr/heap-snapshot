@@ -1454,6 +1454,11 @@ test.describe('Heap Snapshot Viewer', () => {
     await expect(
       inspectDialog.locator('td', { hasText: /^Retained size$/ }),
     ).toBeVisible();
+    await expect(
+      inspectDialog.locator('td', {
+        hasText: /^(Unknown|Attached|Detached) \((original|propagated)\)$/,
+      }),
+    ).toBeVisible();
 
     // Click outside to close the dialog
     await page.mouse.click(10, 10);
