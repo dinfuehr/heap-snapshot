@@ -91,7 +91,7 @@ impl App {
             if self.diff.has_diff {
                 tabs.push(("5:Diff".into(), ViewType::Diff));
             }
-            tabs.push(("6:Contexts".into(), ViewType::Contexts));
+            tabs.push(("6:Realms".into(), ViewType::Contexts));
             tabs.push(("7:History".into(), ViewType::History));
             tabs.push(("8:Statistics".into(), ViewType::Statistics));
             if snap.has_allocation_data() {

@@ -5122,7 +5122,7 @@ fn make_test_tabs() -> Vec<(String, ViewType)> {
         ("2:Containment".into(), ViewType::Containment),
         ("3:Dominators".into(), ViewType::Dominators),
         ("4:Retainers".into(), ViewType::Retainers),
-        ("6:Contexts".into(), ViewType::Contexts),
+        ("6:Realms".into(), ViewType::Contexts),
         ("7:History".into(), ViewType::History),
         ("8:Statistics".into(), ViewType::Statistics),
         ("?:Help".into(), ViewType::Help),
@@ -5137,7 +5137,7 @@ fn tab_labels(tabs: &[(String, ViewType)]) -> Vec<&str> {
 fn test_fit_tabs_wide_enough() {
     let mut tabs = make_test_tabs();
     // Each tab: " label " = label.len() + 2. Total with full labels:
-    // 9+2 + 13+2 + 12+2 + 11+2 + 10+2 + 9+2 + 12+2 + 6+2 = 98
+    // 9+2 + 13+2 + 12+2 + 11+2 + 8+2 + 9+2 + 12+2 + 6+2 = 96
     fit_tabs(&mut tabs, 200);
     assert_eq!(
         tab_labels(&tabs),
@@ -5146,7 +5146,7 @@ fn test_fit_tabs_wide_enough() {
             "2:Containment",
             "3:Dominators",
             "4:Retainers",
-            "6:Contexts",
+            "6:Realms",
             "7:History",
             "8:Statistics",
             "?:Help"
@@ -5157,8 +5157,8 @@ fn test_fit_tabs_wide_enough() {
 #[test]
 fn test_fit_tabs_shortens_help_first() {
     let mut tabs = make_test_tabs();
-    // Total with full labels = 98. Set width to 95 — just need to shorten Help.
-    // "?:Help" (6+2=8) → "?" (1+2=3), saves 5. New total = 93.
+    // Total with full labels = 96. Set width to 95 — just need to shorten Help.
+    // "?:Help" (6+2=8) -> "?" (1+2=3), saves 5. New total = 91.
     fit_tabs(&mut tabs, 95);
     let labels = tab_labels(&tabs);
     assert_eq!(labels.last().unwrap(), &"?");

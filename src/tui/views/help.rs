@@ -33,9 +33,9 @@ impl App {
             Line::from(Span::styled("Views", Style::default().bold())),
             Line::from("  1 Summary, 2 Containment, 3 Dominators, 4 Retainers"),
             Line::from(if self.diff.has_diff {
-                "  5 Diff, 6 Contexts, 7 History, 8 Statistics, 9 Timeline, ? Help"
+                "  5 Diff, 6 Realms, 7 History, 8 Statistics, 9 Timeline, ? Help"
             } else {
-                "  6 Contexts, 7 History, 8 Statistics, 9 Timeline, ? Help"
+                "  6 Realms, 7 History, 8 Statistics, 9 Timeline, ? Help"
             }),
             Line::from("  Tab / Shift-Tab cycle between views"),
             Line::from(""),
@@ -103,7 +103,7 @@ impl App {
             Line::from("  Det: 0 unknown, 1 attached, 2 detached."),
             Line::from(""),
             Line::from(Span::styled(
-                "Contexts And Window Types",
+                "Realms And Window Types",
                 Style::default().bold(),
             )),
             Line::from("  V8 snapshots carry a NativeContext tag from the embedder, typically"),

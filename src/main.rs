@@ -140,8 +140,9 @@ enum Command {
         #[arg(short = 'e', long, value_name = "ID")]
         expand: Vec<String>,
     },
-    /// Dump native context info
-    Contexts {
+    /// Dump JavaScript realm info
+    #[command(alias = "contexts")]
+    Realms {
         #[command(flatten)]
         snap_args: SnapshotArgs,
         /// Path to .heapsnapshot file
@@ -513,7 +514,7 @@ fn main() {
             let expand = parse_expand(&expand);
             print::containment::print_containment(&snap, node_ordinal, depth, &expand);
         }
-        Command::Contexts { snap_args, file } => {
+        Command::Realms { snap_args, file } => {
             let snap = load_snapshot(&snap_args.to_options(), &file);
             let contexts: Vec<_> = snap
                 .native_contexts()
@@ -536,7 +537,7 @@ fn main() {
             let max_label = contexts.iter().map(|(l, ..)| l.len()).max().unwrap_or(0);
             println!(
                 "{:<max_label$}  {:>3}  {:>14}  {:>14}  {:>14}",
-                "Context", "Det", "Shallow Size", "Retained Size", "Reachable Size"
+                "Realm", "Det", "Shallow Size", "Retained Size", "Reachable Size"
             );
             println!("{}", "-".repeat(max_label + 54));
             for (label, det, shallow, retained, reachable, vars) in &contexts {

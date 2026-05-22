@@ -1,10 +1,10 @@
 mod common;
 use common::{heap_snapshot_bin, test_dir};
 
-fn run_contexts(file: &str) -> String {
+fn run_realms(file: &str) -> String {
     let path = format!("{}/{}", test_dir(), file);
     let output = heap_snapshot_bin()
-        .arg("contexts")
+        .arg("realms")
         .arg(&path)
         .output()
         .expect("failed to run heap-snapshot");
@@ -13,8 +13,8 @@ fn run_contexts(file: &str) -> String {
 }
 
 #[test]
-fn contexts_finds_native_context() {
-    let output = run_contexts("heap-1.heapsnapshot");
+fn realms_finds_native_context() {
+    let output = run_realms("heap-1.heapsnapshot");
     assert!(
         output.contains("[utility] #0"),
         "expected native context in output, got:\n{output}"
@@ -22,10 +22,11 @@ fn contexts_finds_native_context() {
 }
 
 #[test]
-fn contexts_shows_all_columns() {
-    let output = run_contexts("heap-1.heapsnapshot");
+fn realms_shows_all_columns() {
+    let output = run_realms("heap-1.heapsnapshot");
     assert!(
-        output.contains("Det")
+        output.contains("Realm")
+            && output.contains("Det")
             && output.contains("Shallow Size")
             && output.contains("Retained Size")
             && output.contains("Reachable Size"),
@@ -34,8 +35,8 @@ fn contexts_shows_all_columns() {
 }
 
 #[test]
-fn contexts_formats_sizes() {
-    let output = run_contexts("heap-1.heapsnapshot");
+fn realms_formats_sizes() {
+    let output = run_realms("heap-1.heapsnapshot");
     // Sizes should be formatted with units (kB, MB, B), not raw numbers
     assert!(
         output.contains("kB") || output.contains("MB") || output.contains(" B"),

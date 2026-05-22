@@ -54,8 +54,8 @@ heap-snapshot diff main.heapsnapshot baseline.heapsnapshot
 # Print stack roots
 heap-snapshot stack snapshot.heapsnapshot
 
-# Dump native context info
-heap-snapshot contexts snapshot.heapsnapshot
+# Dump JavaScript realm info
+heap-snapshot realms snapshot.heapsnapshot
 
 # Print allocation timeline (for snapshots with allocation tracking)
 heap-snapshot timeline snapshot.heaptimeline

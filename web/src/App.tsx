@@ -30,7 +30,7 @@ const TABS = [
   'Dominators',
   'Retainers',
   'Diff',
-  'Contexts',
+  'Realms',
   'History',
   'Statistics',
   'Timeline',
@@ -497,7 +497,7 @@ export function App(): JSX.Element {
                     currentIndex={i}
                   />
                 </div>
-                <div class="tab-panel" hidden={inst.tab[0]() !== 'Contexts'}>
+                <div class="tab-panel" hidden={inst.tab[0]() !== 'Realms'}>
                   <ContextsView
                     call={inst.call}
                     onNavigate={navigate}

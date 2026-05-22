@@ -1126,12 +1126,12 @@ test.describe('Heap Snapshot Viewer', () => {
     }
   });
 
-  test('contexts view auto-computes reachable sizes for all native contexts', async ({
+  test('realms view auto-computes reachable sizes for all native contexts', async ({
     page,
   }) => {
-    await page.locator('button:has-text("Contexts")').click();
+    await page.locator('button:has-text("Realms")').click();
 
-    // Wait for contexts to load — scope to visible rows only
+    // Wait for realms to load — scope to visible rows only
     const contextRows = page
       .locator('tr:visible')
       .filter({ has: page.locator('a[href="#"]') });
@@ -1172,8 +1172,8 @@ test.describe('Heap Snapshot Viewer', () => {
     }
   });
 
-  test('contexts view can expand children recursively', async ({ page }) => {
-    await page.locator('button:has-text("Contexts")').click();
+  test('realms view can expand children recursively', async ({ page }) => {
+    await page.locator('button:has-text("Realms")').click();
 
     // Wait for context rows to load
     const contextRows = page
