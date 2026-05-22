@@ -1525,13 +1525,23 @@ fn make_multi_property_snapshot() -> HeapSnapshot {
 /// Node 1 (GC roots): synthetic, det=0
 /// Node 2: native, "Document", det=1 (attached)
 /// Node 3: native, "DetachedDiv", det=2 (detached)
-/// Node 4: object, "ChildObj", det=0 (becomes 1 via propagation from node 2)
+/// Node 4: native, "ChildNative", det=0 (becomes 1 via propagation from node 2)
+/// Node 5: object, "ChildObj", det=0 (stays unknown because it is not native)
+/// Node 6: native, "DetachedChild", det=0 (becomes 2 via propagation from node 3)
+/// Node 7: object, "DetachedObj", det=0 (becomes 2 because it is only reachable through node 3)
+/// Node 8: object, "SharedObj", det=0 (stays unknown because node 2 can reach it)
+/// Node 9: object, "Orphan", det=0 (stays unknown because it is unreachable in general)
 ///
 /// Edges:
 ///   root --element[0]--> (GC roots)
 ///   (GC roots) --"doc"--> node2
 ///   (GC roots) --"div"--> node3
-///   node2 --"child"--> node4
+///   node2 --"nativeChild"--> node4
+///   node2 --"objectChild"--> node5
+///   node2 --"shared"--> node8
+///   node3 --"detachedChild"--> node6
+///   node3 --"detachedObj"--> node7
+///   node3 --"shared"--> node8
 /// ```
 fn make_detachedness_snapshot() -> HeapSnapshot {
     let nfc = 6u32;
@@ -1549,33 +1559,62 @@ fn make_detachedness_snapshot() -> HeapSnapshot {
             //  type name id  size edges det
             9, 0, 1, 0, 1, 0, // node 0: synthetic root
             9, 1, 2, 0, 2, 0, // node 1: (GC roots)
-            8, 2, 3, 100, 1, 1, // node 2: Document (native, attached)
-            8, 3, 5, 50, 0, 2, // node 3: DetachedDiv (native, detached)
-            3, 4, 7, 30, 0, 0, // node 4: ChildObj (object, unknown)
+            8, 2, 3, 100, 3, 1, // node 2: Document (native, attached)
+            8, 3, 5, 50, 3, 2, // node 3: DetachedDiv (native, detached)
+            8, 4, 7, 30, 0, 0, // node 4: ChildNative (native, unknown)
+            3, 5, 9, 30, 0, 0, // node 5: ChildObj (object, unknown)
+            8, 6, 11, 30, 0, 0, // node 6: DetachedChild (native, unknown)
+            3, 7, 13, 30, 0, 0, // node 7: DetachedObj (object, unknown)
+            3, 8, 15, 30, 0, 0, // node 8: SharedObj (object, unknown)
+            3, 16, 17, 30, 0, 0, // node 9: Orphan (object, unknown)
         ],
         vec![
             1,
             0,
             n(1), // root -> GC roots (element)
             2,
-            5,
+            9,
             n(2), // GC roots -> Document (property "doc")
             2,
-            6,
+            10,
             n(3), // GC roots -> DetachedDiv (property "div")
             2,
-            7,
-            n(4), // Document -> ChildObj (property "child")
+            11,
+            n(4), // Document -> ChildNative (property "nativeChild")
+            2,
+            12,
+            n(5), // Document -> ChildObj (property "objectChild")
+            2,
+            13,
+            n(8), // Document -> SharedObj (property "shared")
+            2,
+            14,
+            n(6), // DetachedDiv -> DetachedChild (property "detachedChild")
+            2,
+            15,
+            n(7), // DetachedDiv -> DetachedObj (property "detachedObj")
+            2,
+            13,
+            n(8), // DetachedDiv -> SharedObj (property "shared")
         ],
         s(&[
             "",
             "(GC roots)",
             "Document",
             "DetachedDiv",
+            "ChildNative",
             "ChildObj",
+            "DetachedChild",
+            "DetachedObj",
+            "SharedObj",
             "doc",
             "div",
-            "child",
+            "nativeChild",
+            "objectChild",
+            "shared",
+            "detachedChild",
+            "detachedObj",
+            "Orphan",
         ]),
     )
 }
@@ -1672,11 +1711,49 @@ fn test_node_detachedness_values() {
 #[test]
 fn test_propagate_detachedness_to_children() {
     let snap = make_detachedness_snapshot();
-    // Node 4 (object) is child of attached node 2 (native, det=1)
-    // propagate_detachedness should propagate attached state to node 4
+    // Native children inherit DOM state from native parents.
     assert_eq!(
         snap.node_detachedness(NodeOrdinal(4)),
         Detachedness::Attached
+    );
+    assert_eq!(
+        snap.node_detachedness(NodeOrdinal(6)),
+        Detachedness::Detached
+    );
+}
+
+#[test]
+fn test_propagate_detachedness_skips_non_native_children() {
+    let snap = make_detachedness_snapshot();
+
+    // Node 5 is ChildObj, a non-native child of attached Document, so native
+    // detachedness propagation does not mark it as attached.
+    assert_eq!(
+        snap.node_detachedness(NodeOrdinal(5)),
+        Detachedness::Unknown
+    );
+}
+
+#[test]
+fn test_marks_nodes_only_retained_by_detached_nodes() {
+    let snap = make_detachedness_snapshot();
+
+    // Node 7 is DetachedObj, reachable only through detached DetachedDiv.
+    assert_eq!(
+        snap.node_detachedness(NodeOrdinal(7)),
+        Detachedness::Detached
+    );
+    // Node 8 is SharedObj, reachable through both attached Document and
+    // detached DetachedDiv, so it is not marked as detached.
+    assert_eq!(
+        snap.node_detachedness(NodeOrdinal(8)),
+        Detachedness::Unknown
+    );
+    // Node 9 is Orphan, unreachable from roots, so it is not retained by a
+    // detached node and remains unknown.
+    assert_eq!(
+        snap.node_detachedness(NodeOrdinal(9)),
+        Detachedness::Unknown
     );
 }
 
@@ -1684,12 +1761,15 @@ fn test_propagate_detachedness_to_children() {
 fn test_node_detachedness_origin_tracks_propagation() {
     let snap = make_detachedness_snapshot();
 
+    // Node 2 is Document, originally marked attached in the snapshot.
     assert_eq!(
         snap.node_original_detachedness(NodeOrdinal(2)),
         Detachedness::Attached
     );
     assert!(snap.node_detachedness_is_original(NodeOrdinal(2)));
 
+    // Node 4 is ChildNative, a native child that becomes attached through
+    // propagation from Document.
     assert_eq!(
         snap.node_original_detachedness(NodeOrdinal(4)),
         Detachedness::Unknown
@@ -1699,6 +1779,29 @@ fn test_node_detachedness_origin_tracks_propagation() {
         Detachedness::Attached
     );
     assert!(!snap.node_detachedness_is_original(NodeOrdinal(4)));
+
+    // Node 5 is ChildObj, a non-native child of Document that propagation skips.
+    assert_eq!(
+        snap.node_original_detachedness(NodeOrdinal(5)),
+        Detachedness::Unknown
+    );
+    assert_eq!(
+        snap.node_detachedness(NodeOrdinal(5)),
+        Detachedness::Unknown
+    );
+    assert!(snap.node_detachedness_is_original(NodeOrdinal(5)));
+
+    // Node 7 is DetachedObj, marked as detached because it is retained only
+    // through detached DetachedDiv.
+    assert_eq!(
+        snap.node_original_detachedness(NodeOrdinal(7)),
+        Detachedness::Unknown
+    );
+    assert_eq!(
+        snap.node_detachedness(NodeOrdinal(7)),
+        Detachedness::Detached
+    );
+    assert!(!snap.node_detachedness_is_original(NodeOrdinal(7)));
 }
 
 #[test]

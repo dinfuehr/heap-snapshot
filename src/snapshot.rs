@@ -1561,9 +1561,10 @@ impl HeapSnapshot {
             }
         }
 
-        // Propagate attached state to all reachable children.
-        // NOTE: DevTools only propagates to native (DOM) nodes. We propagate
-        // to all node types so the Det column is useful for JS objects too.
+        // Propagate attached state through native (DOM) nodes only. That is a
+        // little unfortunate because JS objects do not get this state, but
+        // crossing JS nodes would let an event listener closure propagate
+        // "attached" to a Window that it leaks.
         while let Some(ordinal) = attached.pop() {
             let first_edge = self.first_edge_indexes[ordinal.0] as usize;
             let last_edge = self.first_edge_indexes[ordinal.0 + 1] as usize;
@@ -1576,6 +1577,10 @@ impl HeapSnapshot {
                 }
                 let child_index = self.edges[edge_index + eto] as usize;
                 let child_ordinal = child_index / nfc;
+                if self.nodes[child_index + self.node_type_offset] != self.node_native_type {
+                    edge_index += efc;
+                    continue;
+                }
                 if visited[child_ordinal] != 0 {
                     edge_index += efc;
                     continue;
@@ -1587,9 +1592,8 @@ impl HeapSnapshot {
             }
         }
 
-        // Propagate detached state to all reachable children.
-        // NOTE: DevTools only propagates to native (DOM) nodes. We propagate
-        // to all node types so the Det column is useful for JS objects too.
+        // Propagate detached state through native (DOM) nodes only. Keep this
+        // in sync with attached propagation above.
         while let Some(ordinal) = detached.pop() {
             let first_edge = self.first_edge_indexes[ordinal.0] as usize;
             let last_edge = self.first_edge_indexes[ordinal.0 + 1] as usize;
@@ -1602,6 +1606,10 @@ impl HeapSnapshot {
                 }
                 let child_index = self.edges[edge_index + eto] as usize;
                 let child_ordinal = child_index / nfc;
+                if self.nodes[child_index + self.node_type_offset] != self.node_native_type {
+                    edge_index += efc;
+                    continue;
+                }
                 if visited[child_ordinal] != 0 {
                     edge_index += efc;
                     continue;
@@ -1612,6 +1620,76 @@ impl HeapSnapshot {
                 edge_index += efc;
             }
         }
+
+        // Mark nodes as detached which are only retained through detached DOM nodes.
+        self.mark_nodes_retained_by_detached_nodes();
+    }
+
+    fn mark_nodes_retained_by_detached_nodes(&mut self) {
+        // Fill in nodes, including JS objects, that are only reachable through
+        // detached nodes: they are normally reachable, but not if detached
+        // nodes are treated as terminal during root traversal.
+        let normal_reachable = self.reachable_from_roots(false);
+        let reachable_without_detached = self.reachable_from_roots(true);
+
+        for ordinal in 0..self.node_count {
+            if normal_reachable[ordinal] && !reachable_without_detached[ordinal] {
+                self.detachedness[ordinal] = Detachedness::Detached;
+            }
+        }
+    }
+
+    fn reachable_from_roots(&self, stop_at_detached: bool) -> Vec<bool> {
+        let nfc = self.node_field_count;
+        let efc = self.edge_fields_count;
+        let eto = self.edge_to_node_offset;
+        let etype_off = self.edge_type_offset;
+
+        let mut pending_ephemerons = FxHashSet::default();
+        let mut reachable = vec![false; self.node_count];
+        let mut queue = VecDeque::new();
+        for root in &self.system_roots {
+            assert!(!reachable[root.0], "duplicate system root: {root:?}");
+            reachable[root.0] = true;
+            queue.push_back(root.0);
+        }
+
+        while let Some(ordinal) = queue.pop_front() {
+            if stop_at_detached && self.detachedness[ordinal] == Detachedness::Detached {
+                continue;
+            }
+
+            let node_index = ordinal * nfc;
+            let first_edge = self.first_edge_indexes[ordinal] as usize;
+            let last_edge = self.first_edge_indexes[ordinal + 1] as usize;
+            let mut ei = first_edge;
+            while ei < last_edge {
+                let edge_type = self.edges[ei + etype_off];
+                if edge_type == self.edge_weak_type {
+                    ei += efc;
+                    continue;
+                }
+
+                let child_index = self.edges[ei + eto] as usize;
+                let child_ordinal = child_index / nfc;
+                if reachable[child_ordinal] {
+                    ei += efc;
+                    continue;
+                }
+
+                if !self.should_traverse_reachability_edge(node_index, ei, &mut pending_ephemerons)
+                {
+                    ei += efc;
+                    continue;
+                }
+
+                reachable[child_ordinal] = true;
+                queue.push_back(child_ordinal);
+                ei += efc;
+            }
+        }
+
+        reachable
     }
 
     fn calculate_flags(&mut self) {
