@@ -1,0 +1,4 @@
+Realm               Det    Shallow Size   Retained Size  Reachable Size
+------------------------------------------------------------------------
+[utility] #0 @7271    ?            1 kB           23 kB          117 kB
+                    Vars: InitialObject, NewObject, refs

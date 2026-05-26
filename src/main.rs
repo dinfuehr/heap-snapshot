@@ -141,12 +141,24 @@ enum Command {
         expand: Vec<String>,
     },
     /// Dump JavaScript realm info
-    #[command(alias = "contexts")]
     Realms {
         #[command(flatten)]
         snap_args: SnapshotArgs,
         /// Path to .heapsnapshot file
         file: String,
+    },
+    /// List ordinary Context objects grouped by scope
+    Contexts {
+        #[command(flatten)]
+        snap_args: SnapshotArgs,
+        /// Path to .heapsnapshot file
+        file: String,
+        /// Only show scope groups with at least this retained size
+        #[arg(long, default_value = "8K", value_parser = parse_size_bytes, value_name = "SIZE")]
+        minimum_retained_size: u64,
+        /// Only show context vars whose target retains at least this size
+        #[arg(long, default_value = "1K", value_parser = parse_size_bytes, value_name = "SIZE")]
+        minimum_var_retained_size: u64,
     },
     /// Print stack roots (Stack roots and C++ native stack roots)
     Stack {
@@ -358,6 +370,40 @@ fn parse_expand_group(groups: &[String]) -> GroupExpandMap {
     map
 }
 
+fn parse_size_bytes(value: &str) -> Result<u64, String> {
+    let value = value.trim();
+    if value.is_empty() {
+        return Err("size cannot be empty".to_string());
+    }
+
+    let suffix_start = value
+        .find(|ch: char| !ch.is_ascii_digit())
+        .unwrap_or(value.len());
+    if suffix_start == 0 {
+        return Err(format!("invalid size '{value}'"));
+    }
+
+    let number = value[..suffix_start]
+        .parse::<u64>()
+        .map_err(|_| format!("invalid size '{value}'"))?;
+    let suffix = value[suffix_start..].trim().to_ascii_lowercase();
+    let multiplier = match suffix.as_str() {
+        "" | "b" => 1,
+        "k" | "kb" | "kib" => 1024,
+        "m" | "mb" | "mib" => 1024 * 1024,
+        "g" | "gb" | "gib" => 1024 * 1024 * 1024,
+        _ => {
+            return Err(format!(
+                "invalid size suffix '{suffix}' (expected B, K, KB, M, MB, G, or GB)"
+            ));
+        }
+    };
+
+    number
+        .checked_mul(multiplier)
+        .ok_or_else(|| format!("size '{value}' is too large"))
+}
+
 fn load_snapshot(options: &SnapshotOptions, path: &str) -> HeapSnapshot {
     eprintln!("Reading and parsing {path}...");
     let file = File::open(path).unwrap_or_else(|e| {
@@ -553,6 +599,19 @@ fn main() {
                     println!("{:max_label$}  Vars: {vars}", "");
                 }
             }
+        }
+        Command::Contexts {
+            snap_args,
+            file,
+            minimum_retained_size,
+            minimum_var_retained_size,
+        } => {
+            let snap = load_snapshot(&snap_args.to_options(), &file);
+            print::contexts::print_contexts(
+                &snap,
+                minimum_retained_size,
+                minimum_var_retained_size,
+            );
         }
         Command::Stack {
             snap_args,
@@ -861,5 +920,27 @@ mod tests {
             split_name_window("(string):0:50"),
             ("(string)", Some(0), Some(50))
         );
+    }
+
+    #[test]
+    fn test_parse_size_bytes_plain() {
+        assert_eq!(parse_size_bytes("512"), Ok(512));
+    }
+
+    #[test]
+    fn test_parse_size_bytes_kilobytes() {
+        assert_eq!(parse_size_bytes("8K"), Ok(8 * 1024));
+        assert_eq!(parse_size_bytes("8kb"), Ok(8 * 1024));
+    }
+
+    #[test]
+    fn test_parse_size_bytes_megabytes() {
+        assert_eq!(parse_size_bytes("2MB"), Ok(2 * 1024 * 1024));
+    }
+
+    #[test]
+    fn test_parse_size_bytes_invalid() {
+        assert!(parse_size_bytes("K").is_err());
+        assert!(parse_size_bytes("8XB").is_err());
     }
 }

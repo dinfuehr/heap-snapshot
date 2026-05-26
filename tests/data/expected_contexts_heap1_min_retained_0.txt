@@ -1,0 +1,14 @@
+2 Context objects in 2 scope groups (NativeContexts excluded)
+  Scope group retained size >= 0 B (excluded: 0 scope groups, 0 contexts)
+  Context var target retained size >= 1 kB
+
+Scope: @7285 (name: snapshot_diffs.js, script: snapshot_diffs.js @7635, contexts: 1, retained: 2 kB)
+  Context     Name                              Det     Self Size   Retained Size
+  ------------------------------------------------------------------------------
+  @7287       system / Context / scope @7285                 20 B            2 kB
+    refs -> @27897 {a, b, keep} (retained: 2 kB)
+
+Scope: @421 (name: SCRIPT_SCOPE, script: -, contexts: 1, retained: 20 B)
+  Context     Name                              Det     Self Size   Retained Size
+  ------------------------------------------------------------------------------
+  @26433      system / Context / scope @421                  20 B            20 B

@@ -1,0 +1,4 @@
+0 Context objects in 0 scope groups (NativeContexts excluded)
+  Scope group retained size >= 8 kB (excluded: 2 scope groups, 2 contexts)
+  Context var target retained size >= 1 kB
+No Context scope groups with retained size >= 8 kB.

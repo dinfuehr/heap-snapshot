@@ -57,6 +57,11 @@ heap-snapshot stack snapshot.heapsnapshot
 # Dump JavaScript realm info
 heap-snapshot realms snapshot.heapsnapshot
 
+# List ordinary Context objects grouped by scope
+heap-snapshot contexts snapshot.heapsnapshot
+heap-snapshot contexts --minimum-retained-size 64K snapshot.heapsnapshot
+heap-snapshot contexts --minimum-retained-size 64K --minimum-var-retained-size 4K snapshot.heapsnapshot
+
 # Print allocation timeline (for snapshots with allocation tracking)
 heap-snapshot timeline snapshot.heaptimeline
 ```

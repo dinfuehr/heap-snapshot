@@ -7,6 +7,7 @@ pub mod closure_leaks;
 pub mod closures;
 pub mod containment;
 pub mod context_tree;
+pub mod contexts;
 pub mod diff;
 pub mod retainers;
 pub mod roots;

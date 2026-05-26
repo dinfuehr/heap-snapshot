@@ -1,0 +1,69 @@
+12 Context objects in 10 scope groups (NativeContexts excluded)
+  Scope group retained size >= 0 B (excluded: 0 scope groups, 0 contexts)
+  Context var target retained size >= 0 B
+
+Scope: @28099 (name: outer, script: closures.js @7649, contexts: 1, retained: 168 B)
+  Context     Name                              Det     Self Size   Retained Size
+  ------------------------------------------------------------------------------
+  @28197      system / Context / scope @28099                20 B           168 B
+    innerOnly -> @8201 inner-value (retained: 24 B)
+
+Scope: @27999 (name: makeNested, script: closures.js @7649, contexts: 1, retained: 148 B)
+  Context     Name                              Det     Self Size   Retained Size
+  ------------------------------------------------------------------------------
+  @28193      system / Context / scope @27999                20 B           148 B
+    shared -> @28195 {tag} (retained: 128 B)
+
+Scope: @7289 (name: closures.js, script: closures.js @7649, contexts: 1, retained: 68 B)
+  Context     Name                              Det     Self Size   Retained Size
+  ------------------------------------------------------------------------------
+  @7291       system / Context / scope @7289                 44 B            68 B
+    emitter -> @7281 Emitter (retained: 316 B)
+    fns -> @26715 Array (retained: 248 B)
+    nested -> @26703 inner [JSFunction] (retained: 200 B)
+    counter -> @26713 counter [JSFunction] (retained: 76 B)
+    greeter -> @26707 greet [JSFunction] (retained: 60 B)
+    secret -> @26717 getSecret [JSFunction] (retained: 52 B)
+    Emitter -> @28073 system / ContextCell (retained: 24 B)
+
+Scope: @27979 (name: BLOCK_SCOPE, script: closures.js @7649, contexts: 3, retained: 60 B)
+  Context     Name                              Det     Self Size   Retained Size
+  ------------------------------------------------------------------------------
+  @28207      system / Context / scope @27979                20 B            20 B
+  @28209      system / Context / scope @27979                20 B            20 B
+  @28211      system / Context / scope @27979                20 B            20 B
+
+Scope: @27985 (name: makeCounter, script: closures.js @7649, contexts: 1, retained: 44 B)
+  Context     Name                              Det     Self Size   Retained Size
+  ------------------------------------------------------------------------------
+  @28187      system / Context / scope @27985                20 B            44 B
+    count -> @28189 system / ContextCell (retained: 24 B)
+
+Scope: @27993 (name: makeGreeter, script: closures.js @7649, contexts: 1, retained: 28 B)
+  Context     Name                              Det     Self Size   Retained Size
+  ------------------------------------------------------------------------------
+  @28191      system / Context / scope @27993                28 B            28 B
+    prefix -> @9119 [greeter] (retained: 24 B)
+    greeting -> @9399 Hello (retained: 20 B)
+    punctuation -> @797 ! (retained: 0 B)
+
+Scope: @421 (name: SCRIPT_SCOPE, script: -, contexts: 1, retained: 20 B)
+  Context     Name                              Det     Self Size   Retained Size
+  ------------------------------------------------------------------------------
+  @26469      system / Context / scope @421                  20 B            20 B
+
+Scope: @27969 (name: FUNCTION_SCOPE, script: closures.js @7649, contexts: 1, retained: 20 B)
+  Context     Name                              Det     Self Size   Retained Size
+  ------------------------------------------------------------------------------
+  @28213      system / Context / scope @27969                20 B            20 B
+    hidden -> @8307 super-secret-value (retained: 32 B)
+
+Scope: @28029 (name: addListener, script: closures.js @7649, contexts: 1, retained: 20 B)
+  Context     Name                              Det     Self Size   Retained Size
+  ------------------------------------------------------------------------------
+  @28227      system / Context / scope @28029                20 B            20 B
+
+Scope: @27957 (name: CLASS_SCOPE, script: closures.js @7649, contexts: 1, retained: 16 B)
+  Context     Name                              Det     Self Size   Retained Size
+  ------------------------------------------------------------------------------
+  @28215      system / Context / scope @27957                16 B            16 B

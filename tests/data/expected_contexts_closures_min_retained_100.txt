@@ -1,0 +1,15 @@
+2 Context objects in 2 scope groups (NativeContexts excluded)
+  Scope group retained size >= 100 B (excluded: 8 scope groups, 10 contexts)
+  Context var target retained size >= 1 kB
+
+Scope: @28099 (name: outer, script: closures.js @7649, contexts: 1, retained: 168 B)
+  Context     Name                              Det     Self Size   Retained Size
+  ------------------------------------------------------------------------------
+  @28197      system / Context / scope @28099                20 B           168 B
+    1 context variable omitted below 1 kB
+
+Scope: @27999 (name: makeNested, script: closures.js @7649, contexts: 1, retained: 148 B)
+  Context     Name                              Det     Self Size   Retained Size
+  ------------------------------------------------------------------------------
+  @28193      system / Context / scope @27999                20 B           148 B
+    1 context variable omitted below 1 kB
