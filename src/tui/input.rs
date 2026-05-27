@@ -46,6 +46,7 @@ impl App {
                     } else {
                         self.summary_filter.clear();
                         self.summary_state = TreeState::new();
+                        self.update_summary_matching_aggregates(snap);
                         self.current_view = ViewType::Summary;
                     }
                     self.search_error = None;
@@ -79,6 +80,7 @@ impl App {
                     // Text → filter constructors in Summary view
                     self.summary_filter = input.to_lowercase();
                     self.summary_state = TreeState::new();
+                    self.update_summary_matching_aggregates(snap);
                     self.search_error = None;
                     self.current_view = ViewType::Summary;
                     self.mark_rows_dirty();
