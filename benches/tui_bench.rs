@@ -96,7 +96,7 @@ fn bench_summary_filter(c: &mut Criterion) {
                 app
             },
             |mut app| {
-                app.set_summary_filter("string");
+                app.set_summary_filter("string", &snap);
                 app.rebuild_rows(&snap);
             },
             criterion::BatchSize::SmallInput,
@@ -211,7 +211,7 @@ fn bench_flatten_summary_filtered(c: &mut Criterion) {
     let snap = load_snapshot();
     let mut app = BenchApp::new(&snap);
     app.set_view_summary(&snap);
-    app.set_summary_filter("string");
+    app.set_summary_filter("string", &snap);
     app.rebuild_rows(&snap);
 
     c.bench_function("flatten/summary_filtered", |b| {

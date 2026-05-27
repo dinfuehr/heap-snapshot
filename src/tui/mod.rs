@@ -200,6 +200,8 @@ struct App {
     summary_filter: String,
     // unreachable filter mode for Summary view
     summary_filter_mode: SummaryFilterMode,
+    // indices of aggregates in sorted_aggregates that match the summary filter
+    summary_matching_aggregates: Vec<usize>,
     // node whose edges are being filtered ("f" prompt)
     edge_filter_target: Option<NodeOrdinal>,
     // NodeId of the row whose edges are being filtered
@@ -364,7 +366,7 @@ impl App {
             .map(|_| mint_id(&next_id))
             .collect();
 
-        App {
+        let mut app = App {
             current_view: ViewType::Summary,
             input_mode: InputMode::Normal,
             next_id,
@@ -378,6 +380,7 @@ impl App {
             search_error: None,
             summary_filter: String::new(),
             summary_filter_mode: SummaryFilterMode::All,
+            summary_matching_aggregates: Vec::new(),
             tab_cache: Vec::new(),
             tab_cache_width: 0,
             edge_filter_target: None,
@@ -412,7 +415,9 @@ impl App {
             filter_overlay_scroll: 0,
             inspect_lines: Vec::new(),
             action_menu: ActionMenu::default(),
-        }
+        };
+        app.set_summary_text_filter("", snap);
+        app
     }
 
     fn current_tree_state(&self) -> &TreeState {
@@ -580,7 +585,33 @@ impl App {
         self.summary_total_retained = sorted.iter().map(|e| e.max_ret).sum();
         self.sorted_aggregates = sorted;
         self.summary_state = TreeState::new();
+        self.update_summary_matching_aggregates(snap);
         self.mark_rows_dirty();
+    }
+
+    fn set_summary_text_filter(&mut self, filter: &str, snap: &HeapSnapshot) {
+        self.summary_filter = filter.to_lowercase();
+        self.update_summary_matching_aggregates(snap);
+    }
+
+    fn update_summary_matching_aggregates(&mut self, snap: &HeapSnapshot) {
+        let filter = &self.summary_filter;
+        let mut matching = Vec::new();
+        for (i, agg) in self.sorted_aggregates.iter().enumerate() {
+            let group_matches = filter.is_empty() || contains_ignore_case(&agg.name, filter);
+            if group_matches {
+                matching.push(i);
+                continue;
+            }
+            let any_member_match = agg
+                .node_ordinals
+                .iter()
+                .any(|ord| contains_ignore_case(snap.node_raw_name(*ord), filter));
+            if any_member_match {
+                matching.push(i);
+            }
+        }
+        self.summary_matching_aggregates = matching;
     }
 
     fn open_filter_overlay(&mut self, snap: &HeapSnapshot) {

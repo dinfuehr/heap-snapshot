@@ -12,18 +12,9 @@ impl App {
         snap: &HeapSnapshot,
     ) {
         let filter = &self.summary_filter;
-        for (i, agg) in self.sorted_aggregates.iter().enumerate() {
+        for &i in &self.summary_matching_aggregates {
+            let agg = &self.sorted_aggregates[i];
             let group_matches = filter.is_empty() || contains_ignore_case(&agg.name, filter);
-            if !group_matches {
-                // Group name didn't match — check if any member matches
-                let any_member_match = agg
-                    .node_ordinals
-                    .iter()
-                    .any(|ord| contains_ignore_case(snap.node_raw_name(*ord), filter));
-                if !any_member_match {
-                    continue;
-                }
-            }
 
             let id = self.summary_ids[i];
             let is_expanded = state.expanded.contains(&id);

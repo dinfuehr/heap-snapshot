@@ -456,7 +456,11 @@ impl App {
 
         // Switch to Summary view and clear filter
         self.current_view = ViewType::Summary;
-        self.summary_filter.clear();
+        let had_summary_filter = !self.summary_filter.is_empty();
+        self.set_summary_text_filter("", snap);
+        if had_summary_filter {
+            self.summary_state = TreeState::new();
+        }
 
         // Adjust the class member window so the target ordinal is visible.
         let agg = &self.sorted_aggregates[agg_idx];

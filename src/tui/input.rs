@@ -44,7 +44,7 @@ impl App {
                         self.diff.filter.clear();
                         self.diff.tree_state = TreeState::new();
                     } else {
-                        self.summary_filter.clear();
+                        self.set_summary_text_filter("", snap);
                         self.summary_state = TreeState::new();
                         self.current_view = ViewType::Summary;
                     }
@@ -77,7 +77,7 @@ impl App {
                     self.mark_rows_dirty();
                 } else {
                     // Text → filter constructors in Summary view
-                    self.summary_filter = input.to_lowercase();
+                    self.set_summary_text_filter(&input, snap);
                     self.summary_state = TreeState::new();
                     self.search_error = None;
                     self.current_view = ViewType::Summary;

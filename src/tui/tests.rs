@@ -1103,7 +1103,7 @@ fn test_search_id_clears_constructor_filter() {
     let (snap, mut app, _work_rx) = make_paged_summary_app(count);
 
     // Apply a text filter first.
-    app.summary_filter = "something".to_string();
+    app.set_summary_text_filter("something", &snap);
 
     let target = app.sorted_aggregates[0].node_ordinals[0];
     let target_id = snap.node_id(target);
@@ -1115,6 +1115,10 @@ fn test_search_id_clears_constructor_filter() {
     // The text filter should be cleared by show_in_summary.
     assert!(app.summary_filter.is_empty());
     assert_eq!(app.current_view, ViewType::Summary);
+    assert_eq!(
+        app.cached_rows[app.summary_state.cursor].node_ordinal(),
+        Some(target)
+    );
 }
 
 #[test]
@@ -1382,7 +1386,7 @@ fn test_summary_filter_by_group_name_shows_all_members() {
     let mut app = App::new(&snap, Vec::new(), work_tx, result_rx);
 
     // Filter by group name "SharedFunctionInfo"
-    app.summary_filter = "SharedFunctionInfo".to_string();
+    app.set_summary_text_filter("SharedFunctionInfo", &snap);
     app.rebuild_rows(&snap);
 
     // Only SharedFunctionInfo group should be visible (BytecodeArray, MyObj filtered out)
@@ -1504,7 +1508,7 @@ fn test_summary_filter_by_member_name_filters_members() {
 
     // Filter by member name "bytecodearray" (lowercase) — matches the
     // BytecodeArray group by group name, not by member name.
-    app.summary_filter = "bytecodearray".to_string();
+    app.set_summary_text_filter("bytecodearray", &snap);
     app.rebuild_rows(&snap);
 
     // BytecodeArray group should appear
@@ -1559,10 +1563,25 @@ fn test_summary_filter_no_match_hides_group() {
     let (_result_tx, result_rx) = mpsc::channel();
     let mut app = App::new(&snap, Vec::new(), work_tx, result_rx);
 
-    app.summary_filter = "nonexistent".to_string();
+    app.set_summary_text_filter("nonexistent", &snap);
     app.rebuild_rows(&snap);
 
     assert!(app.cached_rows.is_empty());
+}
+
+#[test]
+fn test_summary_text_filter_clear_rebuilds_matching_aggregates() {
+    let snap = make_summary_filter_snapshot();
+    let (work_tx, _work_rx) = mpsc::channel();
+    let (_result_tx, result_rx) = mpsc::channel();
+    let mut app = App::new(&snap, Vec::new(), work_tx, result_rx);
+    let all_aggregates = app.sorted_aggregates.len();
+
+    app.set_summary_text_filter("nonexistent", &snap);
+    assert!(app.summary_matching_aggregates.is_empty());
+
+    app.set_summary_text_filter("", &snap);
+    assert_eq!(app.summary_matching_aggregates.len(), all_aggregates);
 }
 
 #[test]
@@ -1609,7 +1628,7 @@ fn test_summary_filter_member_match_paged() {
     let mut app = App::new(&snap, Vec::new(), work_tx, result_rx);
 
     // Filter by "targetfunc" — matches the TargetFunc group by name
-    app.summary_filter = "targetfunc".to_string();
+    app.set_summary_text_filter("targetfunc", &snap);
     app.rebuild_rows(&snap);
 
     let group_rows: Vec<_> = app
@@ -1965,7 +1984,7 @@ fn test_filtered_status_row_node_ordinal_is_none() {
     let mut app = App::new(&snap, Vec::new(), work_tx, result_rx);
 
     // Apply filter and expand
-    app.summary_filter = "targetfunc".to_string();
+    app.set_summary_text_filter("targetfunc", &snap);
     app.rebuild_rows(&snap);
     let id = app.cached_rows[0].nav.id;
     let ck = app.cached_rows[0].nav.children_key.clone();
@@ -3763,7 +3782,7 @@ fn test_unreachable_plus_text_filter_hides_group_matching_only_reachable() {
 
     // Enable unreachable-only + text filter "hello"
     app.set_summary_filter(SummaryFilterMode::Unreachable, &snap);
-    app.summary_filter = "hello".to_string();
+    app.set_summary_text_filter("hello", &snap);
     app.rebuild_rows(&snap);
 
     let groups: Vec<&str> = app
@@ -3782,7 +3801,7 @@ fn test_unreachable_plus_text_filter_hides_group_matching_only_reachable() {
     );
 
     // Now filter "world" — that one IS unreachable, group should appear
-    app.summary_filter = "world".to_string();
+    app.set_summary_text_filter("world", &snap);
     app.rebuild_rows(&snap);
 
     let groups: Vec<&str> = app

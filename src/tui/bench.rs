@@ -89,8 +89,9 @@ impl BenchApp {
             .handle_normal_key(KeyEvent::new(KeyCode::Up, KeyModifiers::NONE), snap);
     }
 
-    pub fn set_summary_filter(&mut self, filter: &str) {
-        self.inner.summary_filter = filter.to_lowercase();
+    pub fn set_summary_filter(&mut self, filter: &str, snap: &HeapSnapshot) {
+        self.inner.set_summary_text_filter(filter, snap);
+        self.inner.summary_state = TreeState::new();
         self.inner.rows_dirty = true;
     }
 
