@@ -240,10 +240,7 @@ function ContextCoverage(props: { stats: Statistics }): JSX.Element {
               {formatBytes(props.stats.reachable_without_contexts_size)}
             </td>
             <td style={{ padding: '3px 0', color: '#888' }}>
-              {pct(
-                props.stats.reachable_without_contexts_size,
-                coverageTotal,
-              )}
+              {pct(props.stats.reachable_without_contexts_size, coverageTotal)}
             </td>
           </tr>
         </tbody>

@@ -657,7 +657,9 @@ export function SummaryView(props: {
               Non-context-covered objects
             </option>
           </optgroup>
-          <option value={SUMMARY_FILTER_MODE.unreachable}>Unreachable (all)</option>
+          <option value={SUMMARY_FILTER_MODE.unreachable}>
+            Unreachable (all)
+          </option>
           <option value={SUMMARY_FILTER_MODE.unreachableRoots}>
             Unreachable (roots only)
           </option>
