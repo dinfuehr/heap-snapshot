@@ -16,6 +16,7 @@ import type {
   NodeInfo,
   ReachableSizeInfo,
   NativeContext,
+  Statistics,
 } from '../types.ts';
 import type { SnapshotCall } from '../worker/use-snapshot.ts';
 import type { NavigateOptions, EdgeInfo } from '../components/ObjectLink.tsx';
@@ -512,6 +513,9 @@ export function SummaryView(props: {
   const [contexts] = createResource(() =>
     props.call<NativeContext[]>({ type: 'getNativeContexts' }),
   );
+  const [stats] = createResource(() =>
+    props.call<Statistics>({ type: 'getStatistics' }),
+  );
   const [summaryFilter, setSummaryFilter] = createSignal('0');
   const [entries, { refetch: refetchEntries }] = createResource(
     summaryFilter,
@@ -646,42 +650,80 @@ export function SummaryView(props: {
             'font-size': '13px',
           }}
         >
-          <option value={SUMMARY_FILTER_MODE.all}>All objects</option>
-          <option value={SUMMARY_FILTER_MODE.attached}>Attached</option>
-          <option value={SUMMARY_FILTER_MODE.detached}>Detached</option>
+          <option value={SUMMARY_FILTER_MODE.all}>
+            All objects{stats() ? ` (${formatBytes(stats()!.total)})` : ''}
+          </option>
+          <option value={SUMMARY_FILTER_MODE.attached}>
+            Attached{stats() ? ` (${formatBytes(stats()!.attached_size)})` : ''}
+          </option>
+          <option value={SUMMARY_FILTER_MODE.detached}>
+            Detached{stats() ? ` (${formatBytes(stats()!.detached_size)})` : ''}
+          </option>
           <optgroup label="Context coverage">
             <option value={SUMMARY_FILTER_MODE.contextCovered}>
               Context-covered objects
+              {stats()
+                ? ` (${formatBytes(stats()!.context_covered_size)})`
+                : ''}
             </option>
             <option value={SUMMARY_FILTER_MODE.nonContextCovered}>
               Non-context-covered objects
+              {stats()
+                ? ` (${formatBytes(stats()!.reachable_without_contexts_size)})`
+                : ''}
             </option>
           </optgroup>
           <option value={SUMMARY_FILTER_MODE.unreachable}>
             Unreachable (all)
+            {stats() ? ` (${formatBytes(stats()!.unreachable_size)})` : ''}
           </option>
           <option value={SUMMARY_FILTER_MODE.unreachableRoots}>
             Unreachable (roots only)
+            {stats()
+              ? ` (${formatBytes(stats()!.unreachable_roots_size)})`
+              : ''}
           </option>
           <option value={SUMMARY_FILTER_MODE.detachedDom}>
             Retained by detached DOM
+            {stats()
+              ? ` (${formatBytes(stats()!.retained_by_detached_dom_size)})`
+              : ''}
           </option>
           <option value={SUMMARY_FILTER_MODE.console}>
             Retained by DevTools console
+            {stats()
+              ? ` (${formatBytes(stats()!.retained_by_console_size)})`
+              : ''}
           </option>
           <option value={SUMMARY_FILTER_MODE.eventHandlers}>
             Retained by event handlers
+            {stats()
+              ? ` (${formatBytes(stats()!.retained_by_event_handlers_size)})`
+              : ''}
           </option>
           <option value={SUMMARY_FILTER_MODE.duplicateStrings}>
             Duplicate strings
+            {stats()
+              ? ` (${formatBytes(stats()!.duplicate_strings_size)})`
+              : ''}
           </option>
           <Show when={contexts() && contexts()!.length > 0}>
             <optgroup label="Native contexts">
               <For each={contexts()!}>
-                {(ctx, i) => <option value={`ctx:${i()}`}>{ctx.label}</option>}
+                {(ctx, i) => (
+                  <option value={`ctx:${i()}`}>
+                    {ctx.label} ({formatBytes(ctx.retained_size)})
+                  </option>
+                )}
               </For>
-              <option value="ctx:shared">Shared (multiple contexts)</option>
-              <option value="ctx:unattributed">Unattributed</option>
+              <option value="ctx:shared">
+                Shared (multiple contexts)
+                {stats() ? ` (${formatBytes(stats()!.shared_size)})` : ''}
+              </option>
+              <option value="ctx:unattributed">
+                Unattributed
+                {stats() ? ` (${formatBytes(stats()!.unattributed_size)})` : ''}
+              </option>
             </optgroup>
           </Show>
         </select>

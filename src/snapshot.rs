@@ -574,6 +574,13 @@ impl HeapSnapshot {
                 context_count: 0,
                 context_covered_size: 0,
                 reachable_without_contexts_size: 0,
+                attached_size: 0,
+                detached_size: 0,
+                unreachable_roots_size: 0,
+                retained_by_detached_dom_size: 0,
+                retained_by_console_size: 0,
+                retained_by_event_handlers_size: 0,
+                duplicate_strings_size: 0,
             },
         };
 
@@ -2833,6 +2840,9 @@ impl HeapSnapshot {
         let mut size_system = 0u64;
         let mut unreachable_count = 0u32;
         let mut unreachable_size = 0u64;
+        let mut unreachable_roots_size = 0u64;
+        let mut size_attached = 0u64;
+        let mut size_detached = 0u64;
         let context_coverage = self.context_coverage;
 
         for ordinal in 0..self.node_count {
@@ -2843,6 +2853,16 @@ impl HeapSnapshot {
             if self.node_distances[ordinal].is_unreachable() && node_size > 0 {
                 unreachable_count += 1;
                 unreachable_size += node_size;
+                if self.node_distances[ordinal].is_unreachable_root() {
+                    unreachable_roots_size += node_size;
+                }
+            }
+
+            let detachedness = self.node_detachedness(NodeOrdinal(ordinal));
+            if detachedness == Detachedness::Attached {
+                size_attached += node_size;
+            } else if detachedness == Detachedness::Detached {
+                size_detached += node_size;
             }
 
             if node_type == self.node_hidden_type {
@@ -2873,6 +2893,15 @@ impl HeapSnapshot {
 
         let total = self.retained_sizes[self.gc_roots_ordinal] + self.extra_native_bytes;
 
+        let retained_by_detached_dom_size = self.detached_dom_retained_nodes().1;
+        let retained_by_console_size = self.console_retained_nodes().1;
+        let retained_by_event_handlers_size = self.event_handlers_retained_nodes().1;
+
+        let duplicate_strings_size = {
+            let result = self.duplicate_strings();
+            result.duplicates.iter().map(|info| info.total_size).sum()
+        };
+
         self.statistics = Statistics {
             total,
             native_total: size_native,
@@ -2888,6 +2917,13 @@ impl HeapSnapshot {
             context_count: context_coverage.context_count,
             context_covered_size: context_coverage.context_covered_size,
             reachable_without_contexts_size: context_coverage.reachable_without_contexts_size,
+            attached_size: size_attached,
+            detached_size: size_detached,
+            unreachable_roots_size,
+            retained_by_detached_dom_size,
+            retained_by_console_size,
+            retained_by_event_handlers_size,
+            duplicate_strings_size,
         };
     }
 
@@ -4386,7 +4422,7 @@ impl HeapSnapshot {
     fn compute_retained_bitmap(
         &self,
         skip_edge: impl Fn(EdgeId, usize, usize) -> bool, // (edge_idx, source_ord, target_ord)
-    ) -> Vec<bool> {
+    ) -> (Vec<bool>, u64) {
         let nfc = self.node_field_count;
         let efc = self.edge_fields_count;
         let eto = self.edge_to_node_offset;
@@ -4436,46 +4472,45 @@ impl HeapSnapshot {
             nr
         };
 
-        // Retained = normally reachable AND not reachable with filter
-        reachable
-            .iter()
-            .zip(normal_reachable.iter())
-            .map(|(&filtered_reachable, &normally_reachable)| {
-                normally_reachable && !filtered_reachable
-            })
-            .collect()
+        let mut retained = vec![false; self.node_count];
+        let mut sum_size = 0u64;
+        for ord in 0..self.node_count {
+            let normally_reachable = normal_reachable[ord];
+            let filtered_reachable = reachable[ord];
+            let is_retained = normally_reachable && !filtered_reachable;
+            retained[ord] = is_retained;
+            if is_retained {
+                sum_size += self.node_self_size(NodeOrdinal(ord)) as u64;
+            }
+        }
+        (retained, sum_size)
     }
 
     /// Objects only retained by detached DOM nodes.
-    pub fn retained_by_detached_dom(&self) -> AggregateMap {
+    fn detached_dom_retained_nodes(&self) -> (Vec<bool>, u64) {
         if self.node_detachedness_offset < 0 {
-            return Vec::new();
+            return (Vec::new(), 0);
         }
-        let retained = self.compute_retained_bitmap(|_ei, _src, target| {
+        self.compute_retained_bitmap(|_ei, _src, target| {
             self.detachedness[target] == Detachedness::Detached
-        });
-        self.compute_aggregates(|ordinal| retained[ordinal])
+        })
     }
 
-    /// Objects only retained by DevTools console references.
-    pub fn retained_by_console(&self) -> AggregateMap {
+    fn console_retained_nodes(&self) -> (Vec<bool>, u64) {
         let nfc = self.node_field_count;
-        let retained = self.compute_retained_bitmap(|ei, src, _target| {
+        self.compute_retained_bitmap(|ei, src, _target| {
             let src_type = self.nodes[src * nfc + self.node_type_offset];
             if src_type != self.node_synthetic_type {
                 return false;
             }
             self.edge_name(ei).ends_with(" / DevTools console")
-        });
-        self.compute_aggregates(|ordinal| retained[ordinal])
+        })
     }
 
-    /// Objects only retained by event handler functions.
-    pub fn retained_by_event_handlers(&self) -> AggregateMap {
+    fn event_handlers_retained_nodes(&self) -> (Vec<bool>, u64) {
         let nfc = self.node_field_count;
         let nmo = self.node_name_offset;
 
-        // Step 1: identify event handler nodes via V8EventListener -> callback_object_
         let mut is_handler = vec![false; self.node_count];
 
         for ordinal in 0..self.node_count {
@@ -4487,7 +4522,6 @@ impl HeapSnapshot {
                 if self.edge_name(edge_idx) != "callback_object_" {
                     continue;
                 }
-                // Direct handler: callback has a "code" edge
                 if self
                     .iter_edges(callback_ord)
                     .any(|(ei, _)| self.edge_name(ei) == "code")
@@ -4495,7 +4529,6 @@ impl HeapSnapshot {
                     is_handler[callback_ord.0] = true;
                     continue;
                 }
-                // Framework wrapper: a child of callback has a "code" edge
                 let mut found = false;
                 for (_, child_ord) in self.iter_edges(callback_ord) {
                     if self
@@ -4513,8 +4546,27 @@ impl HeapSnapshot {
             }
         }
 
-        // Step 2: BFS skipping handler nodes
-        let retained = self.compute_retained_bitmap(|_ei, _src, target| is_handler[target]);
+        self.compute_retained_bitmap(|_ei, _src, target| is_handler[target])
+    }
+
+    /// Objects only retained by detached DOM nodes.
+    pub fn retained_by_detached_dom(&self) -> AggregateMap {
+        let (retained, _) = self.detached_dom_retained_nodes();
+        if retained.is_empty() {
+            return Vec::new();
+        }
+        self.compute_aggregates(|ordinal| retained[ordinal])
+    }
+
+    /// Objects only retained by DevTools console references.
+    pub fn retained_by_console(&self) -> AggregateMap {
+        let (retained, _) = self.console_retained_nodes();
+        self.compute_aggregates(|ordinal| retained[ordinal])
+    }
+
+    /// Objects only retained by event handler functions.
+    pub fn retained_by_event_handlers(&self) -> AggregateMap {
+        let (retained, _) = self.event_handlers_retained_nodes();
         self.compute_aggregates(|ordinal| retained[ordinal])
     }
 

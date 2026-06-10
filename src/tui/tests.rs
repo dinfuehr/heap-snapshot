@@ -5260,17 +5260,41 @@ fn test_filter_overlay_contains_static_modes() {
             _ => None,
         })
         .collect();
-    assert!(labels.contains(&"All objects"));
-    assert!(labels.contains(&"Attached"));
-    assert!(labels.contains(&"Detached"));
-    assert!(labels.contains(&"Context-covered objects"));
-    assert!(labels.contains(&"Non-context-covered objects"));
-    assert!(labels.contains(&"Unreachable (all)"));
-    assert!(labels.contains(&"Unreachable (roots only)"));
-    assert!(labels.contains(&"Retained by detached DOM"));
-    assert!(labels.contains(&"Retained by DevTools console"));
-    assert!(labels.contains(&"Retained by event handlers"));
-    assert!(labels.contains(&"Duplicate strings"));
+    assert!(labels.iter().any(|l| l.starts_with("All objects")));
+    assert!(labels.iter().any(|l| l.starts_with("Attached")));
+    assert!(labels.iter().any(|l| l.starts_with("Detached")));
+    assert!(
+        labels
+            .iter()
+            .any(|l| l.starts_with("Context-covered objects"))
+    );
+    assert!(
+        labels
+            .iter()
+            .any(|l| l.starts_with("Non-context-covered objects"))
+    );
+    assert!(labels.iter().any(|l| l.starts_with("Unreachable (all)")));
+    assert!(
+        labels
+            .iter()
+            .any(|l| l.starts_with("Unreachable (roots only)"))
+    );
+    assert!(
+        labels
+            .iter()
+            .any(|l| l.starts_with("Retained by detached DOM"))
+    );
+    assert!(
+        labels
+            .iter()
+            .any(|l| l.starts_with("Retained by DevTools console"))
+    );
+    assert!(
+        labels
+            .iter()
+            .any(|l| l.starts_with("Retained by event handlers"))
+    );
+    assert!(labels.iter().any(|l| l.starts_with("Duplicate strings")));
 
     let has_context_coverage_header = app
         .filter_overlay_items

@@ -124,6 +124,13 @@ pub struct Statistics {
     pub context_covered_size: u64,
     /// Bytes still reachable when ordinary Context objects are blocked.
     pub reachable_without_contexts_size: u64,
+    pub attached_size: u64,
+    pub detached_size: u64,
+    pub unreachable_roots_size: u64,
+    pub retained_by_detached_dom_size: u64,
+    pub retained_by_console_size: u64,
+    pub retained_by_event_handlers_size: u64,
+    pub duplicate_strings_size: u64,
 }
 
 pub struct DuplicateStringsResult {

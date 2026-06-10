@@ -17,6 +17,13 @@ export interface Statistics {
   context_sizes: { label: string; size: number }[];
   shared_size: number;
   unattributed_size: number;
+  attached_size: number;
+  detached_size: number;
+  unreachable_roots_size: number;
+  retained_by_detached_dom_size: number;
+  retained_by_console_size: number;
+  retained_by_event_handlers_size: number;
+  duplicate_strings_size: number;
 }
 
 export interface AggregateEntry {

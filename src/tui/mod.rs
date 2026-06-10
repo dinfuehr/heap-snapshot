@@ -154,25 +154,66 @@ pub(super) enum SummaryFilterMode {
 }
 
 impl SummaryFilterMode {
-    fn label(self, snap: &HeapSnapshot) -> String {
+    fn label(self, snap: &HeapSnapshot, extension_names: &FxHashMap<String, String>) -> String {
+        let stats = snap.get_statistics();
         match self {
-            Self::All => "All objects".to_string(),
-            Self::Attached => "Attached".to_string(),
-            Self::Detached => "Detached".to_string(),
-            Self::ContextCovered => "Context-covered objects".to_string(),
-            Self::NonContextCovered => "Non-context-covered objects".to_string(),
-            Self::Unreachable => "Unreachable (all)".to_string(),
-            Self::UnreachableRoots => "Unreachable (roots only)".to_string(),
-            Self::RetainedByDetachedDom => "Retained by detached DOM".to_string(),
-            Self::RetainedByConsole => "Retained by DevTools console".to_string(),
-            Self::RetainedByEventHandlers => "Retained by event handlers".to_string(),
+            Self::All => format!("All objects ({})", format_size(stats.total)),
+            Self::Attached => format!("Attached ({})", format_size(stats.attached_size)),
+            Self::Detached => format!("Detached ({})", format_size(stats.detached_size)),
+            Self::ContextCovered => format!(
+                "Context-covered objects ({})",
+                format_size(stats.context_covered_size)
+            ),
+            Self::NonContextCovered => format!(
+                "Non-context-covered objects ({})",
+                format_size(stats.reachable_without_contexts_size)
+            ),
+            Self::Unreachable => format!(
+                "Unreachable (all) ({})",
+                format_size(stats.unreachable_size)
+            ),
+            Self::UnreachableRoots => format!(
+                "Unreachable (roots only) ({})",
+                format_size(stats.unreachable_roots_size)
+            ),
+            Self::RetainedByDetachedDom => format!(
+                "Retained by detached DOM ({})",
+                format_size(stats.retained_by_detached_dom_size)
+            ),
+            Self::RetainedByConsole => format!(
+                "Retained by DevTools console ({})",
+                format_size(stats.retained_by_console_size)
+            ),
+            Self::RetainedByEventHandlers => format!(
+                "Retained by event handlers ({})",
+                format_size(stats.retained_by_event_handlers_size)
+            ),
             Self::NativeContext(id) => {
                 let ctx = &snap.native_contexts()[id.0 as usize];
-                snap.native_context_label(ctx.ordinal)
+                let mut label = snap.native_context_label(ctx.ordinal);
+                if let Some(url) = snap.native_context_url(ctx.ordinal) {
+                    if let Some(ext_id) = url
+                        .strip_prefix("chrome-extension://")
+                        .and_then(|s| s.split('/').next())
+                    {
+                        if let Some(name) = extension_names.get(ext_id) {
+                            label = label.replace(url, &format!("{name} ({ext_id})"));
+                        }
+                    }
+                }
+                format!("{} ({})", label, format_size(ctx.size))
             }
-            Self::SharedContext => "Shared (multiple contexts)".to_string(),
-            Self::UnattributedContext => "Unattributed".to_string(),
-            Self::DuplicateStrings => "Duplicate strings".to_string(),
+            Self::SharedContext => format!(
+                "Shared (multiple contexts) ({})",
+                format_size(snap.shared_attributable_size())
+            ),
+            Self::UnattributedContext => {
+                format!("Unattributed ({})", format_size(snap.unattributed_size()))
+            }
+            Self::DuplicateStrings => format!(
+                "Duplicate strings ({})",
+                format_size(stats.duplicate_strings_size)
+            ),
         }
     }
 }
@@ -630,7 +671,7 @@ impl App {
             SummaryFilterMode::DuplicateStrings,
         ] {
             items.push(FilterOverlayItem::Filter {
-                label: mode.label(snap),
+                label: mode.label(snap, &self.extension_names),
                 mode,
             });
         }
@@ -641,7 +682,7 @@ impl App {
             SummaryFilterMode::NonContextCovered,
         ] {
             items.push(FilterOverlayItem::Filter {
-                label: mode.label(snap),
+                label: mode.label(snap, &self.extension_names),
                 mode,
             });
         }
@@ -649,34 +690,22 @@ impl App {
         // Native contexts
         if !snap.native_contexts().is_empty() {
             items.push(FilterOverlayItem::Header("Native contexts".to_string()));
-            for (idx, ctx) in snap.native_contexts().iter().enumerate() {
-                let mut label = snap.native_context_label(ctx.ordinal);
-                if let Some(url) = snap.native_context_url(ctx.ordinal) {
-                    if let Some(ext_id) = url
-                        .strip_prefix("chrome-extension://")
-                        .and_then(|s| s.split('/').next())
-                    {
-                        if let Some(name) = self.extension_names.get(ext_id) {
-                            label = label.replace(url, &format!("{name} ({ext_id})"));
-                        }
-                    }
-                }
-                let label = format!("{} ({})", label, format_size(ctx.size));
+            for idx in 0..snap.native_contexts().len() {
+                let mode = SummaryFilterMode::NativeContext(NativeContextId(idx as u32));
                 items.push(FilterOverlayItem::Filter {
-                    label,
-                    mode: SummaryFilterMode::NativeContext(NativeContextId(idx as u32)),
+                    label: mode.label(snap, &self.extension_names),
+                    mode,
                 });
             }
+            let shared_mode = SummaryFilterMode::SharedContext;
             items.push(FilterOverlayItem::Filter {
-                label: format!(
-                    "Shared (multiple contexts) ({})",
-                    format_size(snap.shared_attributable_size())
-                ),
-                mode: SummaryFilterMode::SharedContext,
+                label: shared_mode.label(snap, &self.extension_names),
+                mode: shared_mode,
             });
+            let unattributed_mode = SummaryFilterMode::UnattributedContext;
             items.push(FilterOverlayItem::Filter {
-                label: format!("Unattributed ({})", format_size(snap.unattributed_size())),
-                mode: SummaryFilterMode::UnattributedContext,
+                label: unattributed_mode.label(snap, &self.extension_names),
+                mode: unattributed_mode,
             });
         }
 

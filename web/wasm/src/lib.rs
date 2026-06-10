@@ -38,6 +38,13 @@ struct JsStatistics {
     context_sizes: Vec<JsContextSize>,
     shared_size: u64,
     unattributed_size: u64,
+    attached_size: u64,
+    detached_size: u64,
+    unreachable_roots_size: u64,
+    retained_by_detached_dom_size: u64,
+    retained_by_console_size: u64,
+    retained_by_event_handlers_size: u64,
+    duplicate_strings_size: u64,
 }
 
 #[derive(Serialize)]
@@ -334,6 +341,13 @@ impl WasmHeapSnapshot {
             context_sizes,
             shared_size: snap.shared_attributable_size(),
             unattributed_size: snap.unattributed_size(),
+            attached_size: stats.attached_size,
+            detached_size: stats.detached_size,
+            unreachable_roots_size: stats.unreachable_roots_size,
+            retained_by_detached_dom_size: stats.retained_by_detached_dom_size,
+            retained_by_console_size: stats.retained_by_console_size,
+            retained_by_event_handlers_size: stats.retained_by_event_handlers_size,
+            duplicate_strings_size: stats.duplicate_strings_size,
         })
     }
 

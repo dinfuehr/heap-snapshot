@@ -158,7 +158,7 @@ impl App {
             let count: u32 = self.sorted_aggregates.iter().map(|a| a.count).sum();
             let spans: Vec<Span<'static>> = vec![
                 Span::styled(
-                    format!(" {} ", mode.label(snap)),
+                    format!(" {} ", mode.label(snap, &self.extension_names)),
                     Style::default().fg(Color::Yellow),
                 ),
                 Span::styled(
@@ -524,7 +524,7 @@ impl App {
                     let mode = self.summary_filter_mode;
                     if mode != SummaryFilterMode::All {
                         spans.push(Span::styled(
-                            mode.label(snap),
+                            mode.label(snap, &self.extension_names),
                             Style::default().fg(Color::Yellow),
                         ));
                     }
