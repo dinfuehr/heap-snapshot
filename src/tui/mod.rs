@@ -675,10 +675,7 @@ impl App {
                 mode: SummaryFilterMode::SharedContext,
             });
             items.push(FilterOverlayItem::Filter {
-                label: format!(
-                    "Unattributed ({})",
-                    format_size(snap.unattributed_size())
-                ),
+                label: format!("Unattributed ({})", format_size(snap.unattributed_size())),
                 mode: SummaryFilterMode::UnattributedContext,
             });
         }
