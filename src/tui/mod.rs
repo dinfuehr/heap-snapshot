@@ -661,17 +661,24 @@ impl App {
                         }
                     }
                 }
+                let label = format!("{} ({})", label, format_size(ctx.size));
                 items.push(FilterOverlayItem::Filter {
                     label,
                     mode: SummaryFilterMode::NativeContext(NativeContextId(idx as u32)),
                 });
             }
             items.push(FilterOverlayItem::Filter {
-                label: "Shared (multiple contexts)".to_string(),
+                label: format!(
+                    "Shared (multiple contexts) ({})",
+                    format_size(snap.shared_attributable_size())
+                ),
                 mode: SummaryFilterMode::SharedContext,
             });
             items.push(FilterOverlayItem::Filter {
-                label: "Unattributed".to_string(),
+                label: format!(
+                    "Unattributed ({})",
+                    format_size(snap.unattributed_size())
+                ),
                 mode: SummaryFilterMode::UnattributedContext,
             });
         }
