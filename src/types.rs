@@ -55,12 +55,11 @@ pub struct NodeOrdinal(pub usize);
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct NodeId(pub u64);
 
-/// Offset of an edge record in the snapshot's flat `edges: Vec<u32>` array.
+/// Internal index of an edge record within one loaded heap snapshot.
 ///
-/// Points at the first field of a multi-field edge record (type / name /
-/// to_node). Unique within a single snapshot, but only meaningful within
-/// that snapshot. Pass to [`crate::snapshot::HeapSnapshot`] accessors like
-/// `edge_name`, `edge_type_name`, `is_invisible_edge`, etc.
+/// Unique within a single snapshot, but only meaningful within that snapshot.
+/// Pass to [`crate::snapshot::HeapSnapshot`] accessors like `edge_name`,
+/// `edge_type_name`, `is_invisible_edge`, etc.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct EdgeId(pub usize);
 

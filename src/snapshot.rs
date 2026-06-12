@@ -251,26 +251,41 @@ pub fn parse_edge_refs(edge_name: &str) -> Vec<ParsedEdgeRef> {
     ]
 }
 
+#[derive(Clone, Copy, Debug)]
+struct NodeRecord {
+    type_id: u32,
+    name: u32,
+    id: u32,
+    self_size: u32,
+    edge_count: u32,
+    detachedness: u32,
+    trace_node_id: u32,
+    first_edge: u32,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct EdgeRecord {
+    type_id: u32,
+    name_or_index: u32,
+    to_node_ordinal: u32,
+    _padding: u32,
+}
+
+const _: () = {
+    assert!(std::mem::size_of::<NodeRecord>().is_power_of_two());
+    assert!(std::mem::size_of::<EdgeRecord>().is_power_of_two());
+};
+
 pub struct HeapSnapshot {
-    // Raw data
-    nodes: Vec<u32>,
-    edges: Vec<u32>,
+    // Cooked graph data. Node and edge handles are ordinals into these arrays.
+    nodes: Vec<NodeRecord>,
+    edges: Vec<EdgeRecord>,
     strings: Vec<String>,
 
-    // Field offsets and counts
+    // Field metadata still needed after parsing.
     node_field_count: usize,
-    node_type_offset: usize,
-    node_name_offset: usize,
-    node_id_offset: usize,
-    node_self_size_offset: usize,
-    node_edge_count_offset: usize,
     node_detachedness_offset: i32,  // -1 if not present
     node_trace_node_id_offset: i32, // -1 if not present
-
-    edge_fields_count: usize,
-    edge_type_offset: usize,
-    edge_name_offset: usize,
-    edge_to_node_offset: usize,
 
     // Node type constants
     node_types: Vec<String>,
@@ -304,7 +319,6 @@ pub struct HeapSnapshot {
     edge_count: usize,
     root_node_index: usize,
     gc_roots_ordinal: usize,
-    first_edge_indexes: Vec<u32>,
     node_distances: Vec<Distance>,
     retained_sizes: Vec<u64>,
     dominators_tree: Vec<u32>,
@@ -331,7 +345,7 @@ pub struct HeapSnapshot {
     // when the snapshot does not carry a detachedness field.
     detachedness: Vec<Detachedness>,
 
-    // Location map: node_index -> SourceLocation
+    // Location map: node ordinal -> SourceLocation
     location_map: FxHashMap<usize, SourceLocation>,
     // Script ID -> script name (e.g. "file.js")
     script_names: FxHashMap<u32, String>,
@@ -390,12 +404,125 @@ pub struct HeapSnapshot {
 }
 
 impl HeapSnapshot {
+    fn build_node_records(
+        raw_nodes: &[u32],
+        node_field_count: usize,
+        node_type_offset: usize,
+        node_name_offset: usize,
+        node_id_offset: usize,
+        node_self_size_offset: usize,
+        node_edge_count_offset: usize,
+        node_detachedness_offset: i32,
+        node_trace_node_id_offset: i32,
+    ) -> Vec<NodeRecord> {
+        let node_count = raw_nodes.len() / node_field_count;
+        let mut records = Vec::with_capacity(node_count);
+        let mut first_edge = 0u32;
+        for ordinal in 0..node_count {
+            let node_index = ordinal * node_field_count;
+            let edge_count = raw_nodes[node_index + node_edge_count_offset];
+            records.push(NodeRecord {
+                type_id: raw_nodes[node_index + node_type_offset],
+                name: raw_nodes[node_index + node_name_offset],
+                id: raw_nodes[node_index + node_id_offset],
+                self_size: raw_nodes[node_index + node_self_size_offset],
+                edge_count,
+                detachedness: if node_detachedness_offset >= 0 {
+                    raw_nodes[node_index + node_detachedness_offset as usize]
+                } else {
+                    0
+                },
+                trace_node_id: if node_trace_node_id_offset >= 0 {
+                    raw_nodes[node_index + node_trace_node_id_offset as usize]
+                } else {
+                    0
+                },
+                first_edge,
+            });
+            first_edge += edge_count;
+        }
+        records
+    }
+
+    fn build_edge_records(
+        raw_edges: &[u32],
+        edge_fields_count: usize,
+        edge_type_offset: usize,
+        edge_name_offset: usize,
+        edge_to_node_offset: usize,
+        node_field_count: usize,
+    ) -> Vec<EdgeRecord> {
+        let edge_count = raw_edges.len() / edge_fields_count;
+        let mut records = Vec::with_capacity(edge_count);
+        for edge_ordinal in 0..edge_count {
+            let edge_index = edge_ordinal * edge_fields_count;
+            records.push(EdgeRecord {
+                type_id: raw_edges[edge_index + edge_type_offset],
+                name_or_index: raw_edges[edge_index + edge_name_offset],
+                to_node_ordinal: (raw_edges[edge_index + edge_to_node_offset] as usize
+                    / node_field_count) as u32,
+                _padding: 0,
+            });
+        }
+        records
+    }
+
+    #[inline]
+    fn first_edge_index(&self, ordinal: usize) -> usize {
+        if ordinal == self.node_count {
+            self.edge_count
+        } else {
+            self.nodes[ordinal].first_edge as usize
+        }
+    }
+
+    #[inline]
+    fn root_ordinal(&self) -> usize {
+        self.root_node_index / self.node_field_count
+    }
+
+    #[inline]
+    fn node_type_raw(&self, ordinal: usize) -> u32 {
+        self.nodes[ordinal].type_id
+    }
+
+    #[inline]
+    fn node_name_index(&self, ordinal: usize) -> usize {
+        self.nodes[ordinal].name as usize
+    }
+
+    #[inline]
+    fn edge_type_raw(&self, edge_ordinal: usize) -> u32 {
+        self.edges[edge_ordinal].type_id
+    }
+
+    #[inline]
+    fn edge_name_or_index(&self, edge_ordinal: usize) -> u32 {
+        self.edges[edge_ordinal].name_or_index
+    }
+
+    #[inline]
+    fn edge_to_node_ordinal(&self, edge_ordinal: usize) -> usize {
+        self.edges[edge_ordinal].to_node_ordinal as usize
+    }
+
     pub fn new(raw: RawHeapSnapshot) -> Self {
         Self::new_with_options(raw, SnapshotOptions::default())
     }
 
     pub fn new_with_options(raw: RawHeapSnapshot, options: SnapshotOptions) -> Self {
-        let meta = &raw.snapshot.meta;
+        let RawHeapSnapshot {
+            snapshot,
+            nodes: raw_nodes,
+            edges: raw_edges,
+            strings,
+            locations,
+            trace_function_infos,
+            trace_tree_parents,
+            trace_tree_func_idxs,
+            samples,
+        } = raw;
+        let meta = snapshot.meta;
 
         // Node field offsets
         let node_type_offset = meta.node_fields.iter().position(|f| f == "type").unwrap();
@@ -502,15 +629,12 @@ impl HeapSnapshot {
             location_fields.len()
         };
 
-        let node_count = raw.nodes.len() / node_field_count;
-        let edge_count = raw.edges.len() / edge_fields_count;
-        let root_node_index = raw.snapshot.root_index.unwrap_or(0);
-        let extra_native_bytes = raw.snapshot.extra_native_bytes.unwrap_or(0);
-
-        let mut snap = HeapSnapshot {
-            nodes: raw.nodes,
-            edges: raw.edges,
-            strings: raw.strings,
+        let node_count = raw_nodes.len() / node_field_count;
+        let edge_count = raw_edges.len() / edge_fields_count;
+        let root_node_index = snapshot.root_index.unwrap_or(0);
+        let extra_native_bytes = snapshot.extra_native_bytes.unwrap_or(0);
+        let nodes = Self::build_node_records(
+            &raw_nodes,
             node_field_count,
             node_type_offset,
             node_name_offset,
@@ -519,10 +643,23 @@ impl HeapSnapshot {
             node_edge_count_offset,
             node_detachedness_offset,
             node_trace_node_id_offset,
+        );
+        let edges = Self::build_edge_records(
+            &raw_edges,
             edge_fields_count,
             edge_type_offset,
             edge_name_offset,
             edge_to_node_offset,
+            node_field_count,
+        );
+
+        let mut snap = HeapSnapshot {
+            nodes,
+            edges,
+            strings,
+            node_field_count,
+            node_detachedness_offset,
+            node_trace_node_id_offset,
             node_types,
             node_array_type,
             node_hidden_type,
@@ -548,8 +685,7 @@ impl HeapSnapshot {
             node_count,
             edge_count,
             root_node_index,
-            gc_roots_ordinal: root_node_index / node_field_count, // updated after build_edge_indexes
-            first_edge_indexes: vec![0u32; node_count + 1],
+            gc_roots_ordinal: root_node_index / node_field_count,
             node_distances: vec![Distance::NONE; node_count],
             retained_sizes: vec![0u64; node_count],
             dominators_tree: vec![0u32; node_count],
@@ -611,9 +747,6 @@ impl HeapSnapshot {
             },
         };
 
-        // Build edge indexes
-        snap.build_edge_indexes();
-
         // Find native contexts and their common fields
         snap.find_native_contexts();
         snap.build_native_context_global_fields();
@@ -625,20 +758,16 @@ impl HeapSnapshot {
         snap.gc_roots_ordinal = match snap.find_gc_roots_ordinal() {
             Some(ord) => ord,
             None => {
-                let nfc = snap.node_field_count;
-                let efc = snap.edge_fields_count;
-                let eto = snap.edge_to_node_offset;
-                let root_ord = snap.root_node_index / nfc;
-                let first = snap.first_edge_indexes[root_ord] as usize;
-                let last = snap.first_edge_indexes[root_ord + 1] as usize;
+                let root_ord = snap.root_ordinal();
+                let first = snap.first_edge_index(root_ord);
+                let last = snap.first_edge_index(root_ord + 1);
                 let mut children = Vec::new();
                 let mut ei = first;
                 while ei < last {
-                    let child_index = snap.edges[ei + eto] as usize;
-                    let name =
-                        &snap.strings[snap.nodes[child_index + snap.node_name_offset] as usize];
+                    let child_ordinal = snap.edge_to_node_ordinal(ei);
+                    let name = &snap.strings[snap.node_name_index(child_ordinal)];
                     children.push(name.clone());
-                    ei += efc;
+                    ei += 1;
                 }
                 panic!(
                     "Could not find (GC roots) among root node's {} children: [{}]",
@@ -650,24 +779,20 @@ impl HeapSnapshot {
 
         // Classify root kinds for direct children of the synthetic root.
         {
-            let nfc = snap.node_field_count;
-            let efc = snap.edge_fields_count;
-            let root_ord = snap.root_node_index / nfc;
+            let root_ord = snap.root_ordinal();
             snap.root_kinds[root_ord] = RootKind::SyntheticRoot;
-            let first = snap.first_edge_indexes[root_ord] as usize;
-            let last = snap.first_edge_indexes[root_ord + 1] as usize;
+            let first = snap.first_edge_index(root_ord);
+            let last = snap.first_edge_index(root_ord + 1);
             let mut ei = first;
             while ei < last {
-                let child_index = snap.edges[ei + snap.edge_to_node_offset] as usize;
-                let child_ordinal = child_index / nfc;
-                let child_type = snap.nodes[child_index + snap.node_type_offset];
+                let child_ordinal = snap.edge_to_node_ordinal(ei);
+                let child_type = snap.node_type_raw(child_ordinal);
                 if child_type != snap.node_synthetic_type {
                     // Non-synthetic child of the synthetic root is a user root.
                     snap.root_kinds[child_ordinal] = RootKind::UserRoot;
                     snap.user_roots.push(NodeOrdinal(child_ordinal));
                 } else {
-                    let name =
-                        &snap.strings[snap.nodes[child_index + snap.node_name_offset] as usize];
+                    let name = &snap.strings[snap.node_name_index(child_ordinal)];
                     if name == "(Document DOM trees)" {
                         // "(Document DOM trees)" is synthetic but treated as a user root.
                         snap.root_kinds[child_ordinal] = RootKind::UserRoot;
@@ -677,7 +802,7 @@ impl HeapSnapshot {
                         snap.system_roots.push(NodeOrdinal(child_ordinal));
                     }
                 }
-                ei += efc;
+                ei += 1;
             }
         }
 
@@ -727,13 +852,13 @@ impl HeapSnapshot {
 
         // Build location map
         {
-            let locations = &raw.locations;
             let mut map = FxHashMap::default();
             let mut i = 0;
             while i < locations.len() {
                 let node_index = locations[i + snap.location_index_offset] as usize;
+                let node_ordinal = node_index / snap.node_field_count;
                 map.insert(
-                    node_index,
+                    node_ordinal,
                     SourceLocation {
                         script_id: locations[i + snap.location_script_id_offset],
                         line: locations[i + snap.location_line_offset],
@@ -748,15 +873,15 @@ impl HeapSnapshot {
         snap.compute_script_names();
 
         // Build allocation trace data
-        if !raw.trace_tree_parents.is_empty() {
-            snap.trace_parents = raw.trace_tree_parents;
-            snap.trace_func_idxs = raw.trace_tree_func_idxs;
-            snap.build_trace_functions(&raw.trace_function_infos, &meta);
+        if !trace_tree_parents.is_empty() {
+            snap.trace_parents = trace_tree_parents;
+            snap.trace_func_idxs = trace_tree_func_idxs;
+            snap.build_trace_functions(&trace_function_infos, &meta);
         }
 
         // Build allocation timeline from samples
-        if !raw.samples.is_empty() {
-            snap.build_timeline(&raw.samples, &meta);
+        if !samples.is_empty() {
+            snap.build_timeline(&samples, &meta);
         }
 
         // Calculate statistics
@@ -821,11 +946,6 @@ impl HeapSnapshot {
             }
         }
 
-        let nfc = self.node_field_count;
-        let efc = self.edge_fields_count;
-        let eto = self.edge_to_node_offset;
-        let etype_off = self.edge_type_offset;
-
         while let Some(ordinal) = queue.pop_front() {
             let current = match fixed_owner[ordinal] {
                 Some(ctx_idx) => ReachClass::One(ctx_idx),
@@ -835,11 +955,11 @@ impl HeapSnapshot {
                 continue;
             }
 
-            let first_edge = self.first_edge_indexes[ordinal] as usize;
-            let last_edge = self.first_edge_indexes[ordinal + 1] as usize;
+            let first_edge = self.first_edge_index(ordinal);
+            let last_edge = self.first_edge_index(ordinal + 1);
             let mut ei = first_edge;
             while ei < last_edge {
-                let edge_type = self.edges[ei + etype_off];
+                let edge_type = self.edge_type_raw(ei);
                 // We intentionally propagate through weak edges here. The
                 // bucket answers "which native contexts can reach this object"
                 // rather than "which contexts strongly retain it", and weak
@@ -848,12 +968,12 @@ impl HeapSnapshot {
                 // V8 emits them as synthetic navigation aids, not structural
                 // graph edges.
                 if edge_type == self.edge_shortcut_type {
-                    ei += efc;
+                    ei += 1;
                     continue;
                 }
-                let child_ordinal = self.edges[ei + eto] as usize / nfc;
+                let child_ordinal = self.edge_to_node_ordinal(ei);
                 if child_ordinal == ordinal || fixed_owner[child_ordinal].is_some() {
-                    ei += efc;
+                    ei += 1;
                     continue;
                 }
                 let merged = Self::merge_reach_class(reach_owner[child_ordinal], current);
@@ -861,7 +981,7 @@ impl HeapSnapshot {
                     reach_owner[child_ordinal] = merged;
                     queue.push_back(child_ordinal);
                 }
-                ei += efc;
+                ei += 1;
             }
         }
 
@@ -1466,12 +1586,12 @@ impl HeapSnapshot {
         for &ord in ordinals {
             let mut fields = FxHashSet::default();
             for (edge_idx, _) in self.iter_edges(NodeOrdinal(ord)) {
-                let edge_type = self.edges[edge_idx.0 + self.edge_type_offset];
+                let edge_type = self.edge_type_raw(edge_idx.0);
                 if edge_type != self.edge_element_type
                     && edge_type != self.edge_hidden_type
                     && !self.is_invisible_edge(edge_idx)
                 {
-                    let name_idx = self.edges[edge_idx.0 + self.edge_name_offset] as usize;
+                    let name_idx = self.edge_name_or_index(edge_idx.0) as usize;
                     fields.insert(self.strings[name_idx].clone());
                 }
             }
@@ -1483,35 +1603,13 @@ impl HeapSnapshot {
         common.unwrap_or_default()
     }
 
-    fn build_edge_indexes(&mut self) {
-        let nfc = self.node_field_count;
-        let efc = self.edge_fields_count;
-        let eco = self.node_edge_count_offset;
-        self.first_edge_indexes[self.node_count] = self.edges.len() as u32;
-        let mut edge_index: u32 = 0;
-        for ordinal in 0..self.node_count {
-            self.first_edge_indexes[ordinal] = edge_index;
-            edge_index += self.nodes[ordinal * nfc + eco] * efc as u32;
-        }
-    }
-
     fn build_retainers(&mut self) {
-        let nfc = self.node_field_count;
-        let efc = self.edge_fields_count;
-        let eto = self.edge_to_node_offset;
-
-        // edge_to_node_ordinals
         let edge_count = self.edge_count;
-        let mut edge_to_node_ordinals = vec![0u32; edge_count];
-        for edge_ordinal in 0..edge_count {
-            let to_node_index = self.edges[edge_ordinal * efc + eto] as usize;
-            edge_to_node_ordinals[edge_ordinal] = (to_node_index / nfc) as u32;
-        }
 
         // Count retainers per node
         let mut first_retainer_index = vec![0u32; self.node_count + 1];
-        for &to_ord in &edge_to_node_ordinals {
-            first_retainer_index[to_ord as usize] += 1;
+        for edge in &self.edges {
+            first_retainer_index[edge.to_node_ordinal as usize] += 1;
         }
 
         // Prefix sum — also stash each node's retainer count into
@@ -1532,20 +1630,18 @@ impl HeapSnapshot {
 
         // Fill retainers
         let mut retaining_edges = vec![0u32; edge_count];
-        let mut next_first = self.first_edge_indexes[0];
         for src_ordinal in 0..self.node_count {
-            let first_edge = next_first;
-            next_first = self.first_edge_indexes[src_ordinal + 1];
-            let src_node_index = (src_ordinal * nfc) as u32;
+            let first_edge = self.first_edge_index(src_ordinal);
+            let next_first = self.first_edge_index(src_ordinal + 1);
             let mut edge_index = first_edge;
             while edge_index < next_first {
-                let to_ordinal = edge_to_node_ordinals[(edge_index / efc as u32) as usize];
-                let first_slot = first_retainer_index[to_ordinal as usize] as usize;
+                let to_ordinal = self.edge_to_node_ordinal(edge_index);
+                let first_slot = first_retainer_index[to_ordinal] as usize;
                 retaining_nodes[first_slot] -= 1;
                 let slot = first_slot + retaining_nodes[first_slot] as usize;
-                retaining_nodes[slot] = src_node_index;
-                retaining_edges[slot] = edge_index;
-                edge_index += efc as u32;
+                retaining_nodes[slot] = src_ordinal as u32;
+                retaining_edges[slot] = edge_index as u32;
+                edge_index += 1;
             }
         }
 
@@ -1559,12 +1655,6 @@ impl HeapSnapshot {
             return;
         }
 
-        let nfc = self.node_field_count;
-        let det_offset = self.node_detachedness_offset as usize;
-        let efc = self.edge_fields_count;
-        let eto = self.edge_to_node_offset;
-        let etype_off = self.edge_type_offset;
-
         let mut visited = vec![0u8; self.node_count];
         let mut attached: Vec<NodeOrdinal> = Vec::new();
         let mut detached: Vec<NodeOrdinal> = Vec::new();
@@ -1573,13 +1663,11 @@ impl HeapSnapshot {
         // then seed BFS from native nodes that carry an attached/detached bit.
         // raw: 0 = unknown, 1 = attached, 2 = detached
         for ordinal in 0..self.node_count {
-            let node_index = ordinal * nfc;
-            let raw = self.nodes[node_index + det_offset];
+            let raw = self.nodes[ordinal].detachedness;
             let det = decode_detachedness(raw);
             self.detachedness[ordinal] = det;
 
-            let node_type = self.nodes[node_index + self.node_type_offset];
-            if node_type != self.node_native_type {
+            if self.node_type_raw(ordinal) != self.node_native_type {
                 continue;
             }
             match det {
@@ -1600,58 +1688,56 @@ impl HeapSnapshot {
         // crossing JS nodes would let an event listener closure propagate
         // "attached" to a Window that it leaks.
         while let Some(ordinal) = attached.pop() {
-            let first_edge = self.first_edge_indexes[ordinal.0] as usize;
-            let last_edge = self.first_edge_indexes[ordinal.0 + 1] as usize;
+            let first_edge = self.first_edge_index(ordinal.0);
+            let last_edge = self.first_edge_index(ordinal.0 + 1);
             let mut edge_index = first_edge;
             while edge_index < last_edge {
-                let edge_type = self.edges[edge_index + etype_off];
+                let edge_type = self.edge_type_raw(edge_index);
                 if edge_type == self.edge_weak_type || edge_type == self.edge_invisible_type {
-                    edge_index += efc;
+                    edge_index += 1;
                     continue;
                 }
-                let child_index = self.edges[edge_index + eto] as usize;
-                let child_ordinal = child_index / nfc;
-                if self.nodes[child_index + self.node_type_offset] != self.node_native_type {
-                    edge_index += efc;
+                let child_ordinal = self.edge_to_node_ordinal(edge_index);
+                if self.node_type_raw(child_ordinal) != self.node_native_type {
+                    edge_index += 1;
                     continue;
                 }
                 if visited[child_ordinal] != 0 {
-                    edge_index += efc;
+                    edge_index += 1;
                     continue;
                 }
                 visited[child_ordinal] = 1;
                 self.detachedness[child_ordinal] = Detachedness::Attached;
                 attached.push(NodeOrdinal(child_ordinal));
-                edge_index += efc;
+                edge_index += 1;
             }
         }
 
         // Propagate detached state through native (DOM) nodes only. Keep this
         // in sync with attached propagation above.
         while let Some(ordinal) = detached.pop() {
-            let first_edge = self.first_edge_indexes[ordinal.0] as usize;
-            let last_edge = self.first_edge_indexes[ordinal.0 + 1] as usize;
+            let first_edge = self.first_edge_index(ordinal.0);
+            let last_edge = self.first_edge_index(ordinal.0 + 1);
             let mut edge_index = first_edge;
             while edge_index < last_edge {
-                let edge_type = self.edges[edge_index + etype_off];
+                let edge_type = self.edge_type_raw(edge_index);
                 if edge_type == self.edge_weak_type || edge_type == self.edge_invisible_type {
-                    edge_index += efc;
+                    edge_index += 1;
                     continue;
                 }
-                let child_index = self.edges[edge_index + eto] as usize;
-                let child_ordinal = child_index / nfc;
-                if self.nodes[child_index + self.node_type_offset] != self.node_native_type {
-                    edge_index += efc;
+                let child_ordinal = self.edge_to_node_ordinal(edge_index);
+                if self.node_type_raw(child_ordinal) != self.node_native_type {
+                    edge_index += 1;
                     continue;
                 }
                 if visited[child_ordinal] != 0 {
-                    edge_index += efc;
+                    edge_index += 1;
                     continue;
                 }
                 visited[child_ordinal] = 1;
                 self.detachedness[child_ordinal] = Detachedness::Detached;
                 detached.push(NodeOrdinal(child_ordinal));
-                edge_index += efc;
+                edge_index += 1;
             }
         }
 
@@ -1674,11 +1760,6 @@ impl HeapSnapshot {
     }
 
     fn reachable_from_roots(&self, stop_at_detached: bool) -> Vec<bool> {
-        let nfc = self.node_field_count;
-        let efc = self.edge_fields_count;
-        let eto = self.edge_to_node_offset;
-        let etype_off = self.edge_type_offset;
-
         let mut pending_ephemerons = FxHashSet::default();
         let mut reachable = vec![false; self.node_count];
         let mut queue = VecDeque::new();
@@ -1693,33 +1774,30 @@ impl HeapSnapshot {
                 continue;
             }
 
-            let node_index = ordinal * nfc;
-            let first_edge = self.first_edge_indexes[ordinal] as usize;
-            let last_edge = self.first_edge_indexes[ordinal + 1] as usize;
+            let first_edge = self.first_edge_index(ordinal);
+            let last_edge = self.first_edge_index(ordinal + 1);
             let mut ei = first_edge;
             while ei < last_edge {
-                let edge_type = self.edges[ei + etype_off];
+                let edge_type = self.edge_type_raw(ei);
                 if edge_type == self.edge_weak_type {
-                    ei += efc;
+                    ei += 1;
                     continue;
                 }
 
-                let child_index = self.edges[ei + eto] as usize;
-                let child_ordinal = child_index / nfc;
+                let child_ordinal = self.edge_to_node_ordinal(ei);
                 if reachable[child_ordinal] {
-                    ei += efc;
+                    ei += 1;
                     continue;
                 }
 
-                if !self.should_traverse_reachability_edge(node_index, ei, &mut pending_ephemerons)
-                {
-                    ei += efc;
+                if !self.should_traverse_reachability_edge(ordinal, ei, &mut pending_ephemerons) {
+                    ei += 1;
                     continue;
                 }
 
                 reachable[child_ordinal] = true;
                 queue.push_back(child_ordinal);
-                ei += efc;
+                ei += 1;
             }
         }
 
@@ -1748,12 +1826,9 @@ impl HeapSnapshot {
         if self.node_detachedness_offset == -1 {
             return;
         }
-        let nfc = self.node_field_count;
         let flag: u8 = 2; // detachedDOMTreeNode
         for ordinal in 0..self.node_count {
-            let node_index = ordinal * nfc;
-            let node_type = self.nodes[node_index + self.node_type_offset];
-            if node_type != self.node_native_type {
+            if self.node_type_raw(ordinal) != self.node_native_type {
                 continue;
             }
             if self.detachedness[ordinal] == Detachedness::Detached {
@@ -1763,28 +1838,24 @@ impl HeapSnapshot {
     }
 
     fn init_essential_edges(&self) -> Vec<bool> {
-        let nfc = self.node_field_count;
-        let efc = self.edge_fields_count;
         let mut essential = vec![false; self.edge_count];
 
         for ordinal in 0..self.node_count {
-            let node_index = ordinal * nfc;
-            let first_edge = self.first_edge_indexes[ordinal] as usize;
-            let last_edge = self.first_edge_indexes[ordinal + 1] as usize;
+            let first_edge = self.first_edge_index(ordinal);
+            let last_edge = self.first_edge_index(ordinal + 1);
             let mut ei = first_edge;
             while ei < last_edge {
-                let edge_ordinal = ei / efc;
-                if self.is_essential_edge(node_index, ei) {
-                    essential[edge_ordinal] = true;
+                if self.is_essential_edge(ordinal, ei) {
+                    essential[ei] = true;
                 }
-                ei += efc;
+                ei += 1;
             }
         }
         essential
     }
 
-    fn is_essential_edge(&self, node_index: usize, edge_index: usize) -> bool {
-        let edge_type = self.edges[edge_index + self.edge_type_offset];
+    fn is_essential_edge(&self, source_ordinal: usize, edge_ordinal: usize) -> bool {
+        let edge_type = self.edge_type_raw(edge_ordinal);
 
         // Difference from DevTools:
         // WeakMap ephemeron edges are emitted twice: key→value and table→value.
@@ -1793,11 +1864,11 @@ impl HeapSnapshot {
         // That keeps retained sizes from charging ephemeron values to keys that
         // do not actually own them.
         if edge_type == self.edge_internal_type {
-            let edge_name_index = self.edges[edge_index + self.edge_name_offset] as usize;
+            let edge_name_index = self.edge_name_or_index(edge_ordinal) as usize;
             let edge_name = &self.strings[edge_name_index];
             if let Some(caps) = weak_map_ephemeron_edge_regex().captures(edge_name) {
                 if let Some(table_id_str) = caps.get(2) {
-                    let node_id = self.nodes[node_index + self.node_id_offset];
+                    let node_id = self.nodes[source_ordinal].id;
                     if let Ok(table_id) = table_id_str.as_str().parse::<u32>() {
                         if node_id != table_id {
                             return false;
@@ -1812,14 +1883,12 @@ impl HeapSnapshot {
             return false;
         }
 
-        let child_index = self.edges[edge_index + self.edge_to_node_offset] as usize;
         // Ignore self edges
-        if node_index == child_index {
+        if source_ordinal == self.edge_to_node_ordinal(edge_ordinal) {
             return false;
         }
 
-        let nfc = self.node_field_count;
-        if node_index != self.gc_roots_ordinal * nfc {
+        if source_ordinal != self.gc_roots_ordinal {
             // Similar to DevTools, shortcut edges only have root-entry meaning
             // at the top of the root set, so non-root shortcuts are ignored.
             if edge_type == self.edge_shortcut_type {
@@ -1833,7 +1902,7 @@ impl HeapSnapshot {
         // synthetic root as a serialization artifact and root dominators at
         // `(GC roots)`, so every outgoing edge from the synthetic root is
         // marked non-essential.
-        if node_index == self.root_node_index {
+        if source_ordinal == self.root_ordinal() {
             return false;
         }
 
@@ -1847,8 +1916,6 @@ impl HeapSnapshot {
     }
 
     fn calculate_dominators_and_retained_sizes(&mut self, essential_edges: &[bool]) {
-        let nfc = self.node_field_count;
-        let efc = self.edge_fields_count;
         let node_count = self.node_count;
         // DevTools builds the dominator tree from the snapshot's synthetic
         // root and does not mirror the user-root/system-root split it uses for
@@ -1857,13 +1924,6 @@ impl HeapSnapshot {
         // model; anything not reached from it is later attached back to this
         // same root.
         let root_ordinal = self.gc_roots_ordinal;
-
-        // Build edge_to_node_ordinals
-        let mut edge_to_node_ordinals = vec![0u32; self.edge_count];
-        for edge_ordinal in 0..self.edge_count {
-            let to_node_index = self.edges[edge_ordinal * efc + self.edge_to_node_offset] as usize;
-            edge_to_node_ordinals[edge_ordinal] = (to_node_index / nfc) as u32;
-        }
 
         // Lengauer-Tarjan algorithm (1-indexed)
         let array_len = node_count + 1;
@@ -1887,12 +1947,11 @@ impl HeapSnapshot {
                           label: &mut Vec<u32>,
                           parent: &mut Vec<u32>,
                           next_edge_index: &mut Vec<u32>,
-                          first_edge_indexes: &[u32],
-                          efc: usize,
+                          nodes: &[NodeRecord],
                           essential_edges: &[bool],
-                          edge_to_node_ordinals: &[u32]| {
+                          edges: &[EdgeRecord]| {
                 let root_ord = root - 1;
-                next_edge_index[root_ord as usize] = first_edge_indexes[root_ord as usize];
+                next_edge_index[root_ord as usize] = nodes[root_ord as usize].first_edge;
                 let mut v = root;
                 loop {
                     if semi[v as usize] == 0 {
@@ -1903,24 +1962,23 @@ impl HeapSnapshot {
                     }
                     let mut v_next = parent[v as usize];
                     let v_ord = (v - 1) as usize;
-                    let edge_end = first_edge_indexes[v_ord + 1];
+                    let edge_end = nodes[v_ord].first_edge + nodes[v_ord].edge_count;
                     while next_edge_index[v_ord] < edge_end {
-                        let ei = next_edge_index[v_ord] as usize;
-                        let edge_ordinal = ei / efc;
+                        let edge_ordinal = next_edge_index[v_ord] as usize;
                         if !essential_edges[edge_ordinal] {
-                            next_edge_index[v_ord] += efc as u32;
+                            next_edge_index[v_ord] += 1;
                             continue;
                         }
-                        let w_ord = edge_to_node_ordinals[edge_ordinal];
+                        let w_ord = edges[edge_ordinal].to_node_ordinal;
                         let w = w_ord + 1;
                         if semi[w as usize] == 0 {
                             parent[w as usize] = v;
-                            next_edge_index[w_ord as usize] = first_edge_indexes[w_ord as usize];
-                            next_edge_index[v_ord] += efc as u32;
+                            next_edge_index[w_ord as usize] = nodes[w_ord as usize].first_edge;
+                            next_edge_index[v_ord] += 1;
                             v_next = w;
                             break;
                         }
-                        next_edge_index[v_ord] += efc as u32;
+                        next_edge_index[v_ord] += 1;
                     }
                     if v_next == 0 && v == root {
                         break;
@@ -1944,10 +2002,9 @@ impl HeapSnapshot {
                 &mut label,
                 &mut parent,
                 &mut next_edge_index,
-                &self.first_edge_indexes,
-                efc,
+                &self.nodes,
                 essential_edges,
-                &edge_to_node_ordinals,
+                &self.edges,
             );
 
             // Handle unreachable nodes with only weak retainers
@@ -1965,10 +2022,9 @@ impl HeapSnapshot {
                                 &mut label,
                                 &mut parent,
                                 &mut next_edge_index,
-                                &self.first_edge_indexes,
-                                efc,
+                                &self.nodes,
                                 essential_edges,
-                                &edge_to_node_ordinals,
+                                &self.edges,
                             );
                         }
                     }
@@ -2040,14 +2096,12 @@ impl HeapSnapshot {
             let begin_ret = self.first_retainer_index[w_ord] as usize;
             let end_ret = self.first_retainer_index[w_ord + 1] as usize;
             for ret_idx in begin_ret..end_ret {
-                let ret_edge_index = self.retaining_edges[ret_idx] as usize;
-                let ret_edge_ordinal = ret_edge_index / efc;
+                let ret_edge_ordinal = self.retaining_edges[ret_idx] as usize;
                 if !essential_edges[ret_edge_ordinal] {
                     continue;
                 }
                 is_orphan = false;
-                let v_node_index = self.retaining_nodes[ret_idx] as usize;
-                let v_ord = v_node_index / nfc;
+                let v_ord = self.retaining_nodes[ret_idx] as usize;
                 let v = (v_ord + 1) as u32;
                 let u = evaluate(v, &mut ancestor, &mut label, &semi, &mut compression_stack);
                 if semi[u as usize] < semi[w as usize] {
@@ -2089,7 +2143,7 @@ impl HeapSnapshot {
         let mut retained_sizes = vec![0u64; node_count];
         for ord in 0..node_count {
             dominators_tree[ord] = dom[ord + 1] - 1;
-            retained_sizes[ord] = self.nodes[ord * nfc + self.node_self_size_offset] as u64;
+            retained_sizes[ord] = self.nodes[ord].self_size as u64;
         }
 
         // Propagate retained sizes up dominator tree
@@ -2104,12 +2158,10 @@ impl HeapSnapshot {
     }
 
     fn has_only_weak_retainers(&self, node_ordinal: NodeOrdinal, essential_edges: &[bool]) -> bool {
-        let efc = self.edge_fields_count;
         let begin = self.first_retainer_index[node_ordinal.0] as usize;
         let end = self.first_retainer_index[node_ordinal.0 + 1] as usize;
         for ret_idx in begin..end {
-            let edge_index = self.retaining_edges[ret_idx] as usize;
-            let edge_ordinal = edge_index / efc;
+            let edge_ordinal = self.retaining_edges[ret_idx] as usize;
             if essential_edges[edge_ordinal] {
                 return false;
             }
@@ -2119,7 +2171,6 @@ impl HeapSnapshot {
 
     fn build_dominated_nodes(&mut self) {
         let node_count = self.node_count;
-        let nfc = self.node_field_count;
         let root_ordinal = self.gc_roots_ordinal;
 
         let mut index_array = vec![0u32; node_count + 1];
@@ -2157,7 +2208,7 @@ impl HeapSnapshot {
             let dom_ref_idx = index_array[dom] as usize;
             dominated_nodes[dom_ref_idx] -= 1;
             let slot = dom_ref_idx + dominated_nodes[dom_ref_idx] as usize;
-            dominated_nodes[slot] = (ordinal * nfc) as u32;
+            dominated_nodes[slot] = ordinal as u32;
         }
 
         self.dominated_nodes = dominated_nodes;
@@ -2193,7 +2244,6 @@ impl HeapSnapshot {
     /// reached, picking up any nodes that are children of the synthetic
     /// root but not reachable from `(GC roots)` (e.g. detached contexts).
     fn calculate_distances(&mut self) {
-        let nfc = self.node_field_count;
         let node_count = self.node_count;
 
         self.node_distances = vec![Distance::NONE; node_count];
@@ -2203,13 +2253,13 @@ impl HeapSnapshot {
 
         let mut pending_ephemerons = rustc_hash::FxHashSet::default();
 
-        let root_ordinal = self.root_node_index / nfc;
+        let root_ordinal = self.root_ordinal();
         let gc_roots_ordinal = self.gc_roots_ordinal;
 
         // Phase 1: BFS from (GC roots).  Distance 0 at GC roots, 1 for
         // its direct children (the individual GC sub-roots), and so on.
         self.node_distances[gc_roots_ordinal] = Distance(0);
-        nodes_to_visit[0] = (gc_roots_ordinal * nfc) as u32;
+        nodes_to_visit[0] = gc_roots_ordinal as u32;
         visit_len = 1;
         self.bfs_with_filter(&mut nodes_to_visit, &mut visit_len, &mut pending_ephemerons);
 
@@ -2220,20 +2270,19 @@ impl HeapSnapshot {
         // Distance::NONE.
         self.node_distances[root_ordinal] = Distance(0);
         visit_len = 0;
-        let first = self.first_edge_indexes[root_ordinal] as usize;
-        let last = self.first_edge_indexes[root_ordinal + 1] as usize;
+        let first = self.first_edge_index(root_ordinal);
+        let last = self.first_edge_index(root_ordinal + 1);
         let mut ei = first;
         while ei < last {
-            let child_index = self.edges[ei + self.edge_to_node_offset] as usize;
-            let child_ordinal = child_index / nfc;
+            let child_ordinal = self.edge_to_node_ordinal(ei);
             if self.node_distances[child_ordinal] == Distance::NONE
                 && self.root_kinds[child_ordinal] != RootKind::UserRoot
             {
                 self.node_distances[child_ordinal] = Distance(1);
-                nodes_to_visit[visit_len] = child_index as u32;
+                nodes_to_visit[visit_len] = child_ordinal as u32;
                 visit_len += 1;
             }
-            ei += self.edge_fields_count;
+            ei += 1;
         }
         if visit_len > 0 {
             self.bfs_with_filter(&mut nodes_to_visit, &mut visit_len, &mut pending_ephemerons);
@@ -2252,8 +2301,6 @@ impl HeapSnapshot {
     /// Truly isolated unreachable nodes (no path from any reachable node)
     /// also get `Distance::UNREACHABLE_BASE` and display as plain "U".
     fn calculate_unreachable_depths(&mut self) {
-        let nfc = self.node_field_count;
-
         // When weak_is_reachable is set, we first seed nodes that are
         // directly weakly retained by nodes already reachable from the main
         // BFS, giving them min(retainer distance) + 1.  We BFS from those
@@ -2271,13 +2318,13 @@ impl HeapSnapshot {
                 let last = self.first_retainer_index[ordinal + 1] as usize;
                 let mut min_weak_reachable_dist = Distance::NONE;
                 for idx in first..last {
-                    let retainer_ordinal = self.retaining_nodes[idx] as usize / nfc;
+                    let retainer_ordinal = self.retaining_nodes[idx] as usize;
                     let ret_dist = self.node_distances[retainer_ordinal];
                     if !ret_dist.is_reachable() || ret_dist >= min_weak_reachable_dist {
                         continue;
                     }
                     let edge_index = self.retaining_edges[idx] as usize;
-                    let edge_type = self.edges[edge_index + self.edge_type_offset];
+                    let edge_type = self.edge_type_raw(edge_index);
                     if edge_type == self.edge_weak_type {
                         min_weak_reachable_dist = ret_dist;
                     }
@@ -2310,14 +2357,14 @@ impl HeapSnapshot {
             let mut has_reachable_retainer = false;
             let mut has_strong_unreachable_retainer = false;
             for idx in first..last {
-                let retainer_ordinal = self.retaining_nodes[idx] as usize / nfc;
+                let retainer_ordinal = self.retaining_nodes[idx] as usize;
                 let ret_dist = self.node_distances[retainer_ordinal];
                 if ret_dist.is_reachable() {
                     has_reachable_retainer = true;
                     break;
                 }
                 let edge_index = self.retaining_edges[idx] as usize;
-                let edge_type = self.edges[edge_index + self.edge_type_offset];
+                let edge_type = self.edge_type_raw(edge_index);
                 if edge_type != self.edge_weak_type {
                     has_strong_unreachable_retainer = true;
                 }
@@ -2344,11 +2391,6 @@ impl HeapSnapshot {
     /// BFS from seed nodes through non-weak forward edges, visiting only
     /// unreachable nodes still at `Distance::NONE`.
     fn unreachable_bfs(&mut self, seeds: &[usize]) {
-        let nfc = self.node_field_count;
-        let efc = self.edge_fields_count;
-        let eto = self.edge_to_node_offset;
-        let etype_off = self.edge_type_offset;
-
         // Use a min-heap so nodes are always processed in distance order.
         // Without this, seeds at different starting distances cause a plain
         // FIFO queue to visit high-distance seeds before lower-distance
@@ -2364,35 +2406,34 @@ impl HeapSnapshot {
                 continue;
             }
             let distance = Distance(dist + 1);
-            let first_edge = self.first_edge_indexes[ordinal] as usize;
-            let last_edge = self.first_edge_indexes[ordinal + 1] as usize;
+            let first_edge = self.first_edge_index(ordinal);
+            let last_edge = self.first_edge_index(ordinal + 1);
             let mut ei = first_edge;
             while ei < last_edge {
-                let edge_type = self.edges[ei + etype_off];
+                let edge_type = self.edge_type_raw(ei);
                 if edge_type == self.edge_weak_type && !self.weak_is_reachable {
-                    ei += efc;
+                    ei += 1;
                     continue;
                 }
-                if !self.is_structural_reachability_edge(ordinal * nfc, ei) {
-                    ei += efc;
+                if !self.is_structural_reachability_edge(ordinal, ei) {
+                    ei += 1;
                     continue;
                 }
-                let child_index = self.edges[ei + eto] as usize;
-                let child_ordinal = child_index / nfc;
+                let child_ordinal = self.edge_to_node_ordinal(ei);
                 if self.node_distances[child_ordinal] == Distance::NONE
                     || distance < self.node_distances[child_ordinal]
                 {
                     self.node_distances[child_ordinal] = distance;
                     heap.push(Reverse((distance.0, child_ordinal)));
                 }
-                ei += efc;
+                ei += 1;
             }
         }
     }
 
     /// Find the `(GC roots)` node among the root's direct children.
     fn find_gc_roots_ordinal(&self) -> Option<usize> {
-        let synthetic_root = NodeOrdinal(self.root_node_index / self.node_field_count);
+        let synthetic_root = NodeOrdinal(self.root_ordinal());
         self.find_child_by_node_name(synthetic_root, "(GC roots)")
             .map(|o| o.0)
     }
@@ -2403,58 +2444,51 @@ impl HeapSnapshot {
         visit_len: &mut usize,
         pending_ephemerons: &mut rustc_hash::FxHashSet<String>,
     ) {
-        let nfc = self.node_field_count;
-        let efc = self.edge_fields_count;
-        let eto = self.edge_to_node_offset;
-        let etype_off = self.edge_type_offset;
-
         let mut index = 0;
         while index < *visit_len {
-            let node_index = nodes_to_visit[index] as usize;
+            let node_ordinal = nodes_to_visit[index] as usize;
             index += 1;
-            let node_ordinal = node_index / nfc;
             let distance = Distance(self.node_distances[node_ordinal].0 + 1);
-            let first_edge = self.first_edge_indexes[node_ordinal] as usize;
-            let last_edge = self.first_edge_indexes[node_ordinal + 1] as usize;
+            let first_edge = self.first_edge_index(node_ordinal);
+            let last_edge = self.first_edge_index(node_ordinal + 1);
             let mut ei = first_edge;
             while ei < last_edge {
-                let edge_type = self.edges[ei + etype_off];
+                let edge_type = self.edge_type_raw(ei);
                 if edge_type == self.edge_weak_type {
-                    ei += efc;
+                    ei += 1;
                     continue;
                 }
-                let child_index = self.edges[ei + eto] as usize;
-                let child_ordinal = child_index / nfc;
+                let child_ordinal = self.edge_to_node_ordinal(ei);
                 if self.node_distances[child_ordinal] != Distance::NONE {
-                    ei += efc;
+                    ei += 1;
                     continue;
                 }
 
-                if !self.should_traverse_reachability_edge(node_index, ei, pending_ephemerons) {
-                    ei += efc;
+                if !self.should_traverse_reachability_edge(node_ordinal, ei, pending_ephemerons) {
+                    ei += 1;
                     continue;
                 }
 
                 self.node_distances[child_ordinal] = distance;
-                nodes_to_visit[*visit_len] = child_index as u32;
+                nodes_to_visit[*visit_len] = child_ordinal as u32;
                 *visit_len += 1;
-                ei += efc;
+                ei += 1;
             }
         }
     }
 
     fn should_traverse_reachability_edge(
         &self,
-        node_index: usize,
+        source_ordinal: usize,
         edge_index: usize,
         pending_ephemerons: &mut rustc_hash::FxHashSet<String>,
     ) -> bool {
-        if !self.is_structural_reachability_edge(node_index, edge_index) {
+        if !self.is_structural_reachability_edge(source_ordinal, edge_index) {
             return false;
         }
 
-        let edge_name_or_index = self.edges[edge_index + self.edge_name_offset];
-        let edge_type = self.edges[edge_index + self.edge_type_offset];
+        let edge_name_or_index = self.edge_name_or_index(edge_index);
+        let edge_type = self.edge_type_raw(edge_index);
 
         // WeakMap ephemeron filtering
         if edge_type == self.edge_internal_type {
@@ -2480,13 +2514,12 @@ impl HeapSnapshot {
     /// Returns `false` for edges that should never contribute to traversal
     /// (sloppy_function_map, descriptor-array internals).  Does *not* cover
     /// the stateful WeakMap/ephemeron filter.
-    fn is_structural_reachability_edge(&self, node_index: usize, edge_index: usize) -> bool {
-        let nfc = self.node_field_count;
-        let edge_type = self.edges[edge_index + self.edge_type_offset];
-        let edge_name_or_index = self.edges[edge_index + self.edge_name_offset];
+    fn is_structural_reachability_edge(&self, source_ordinal: usize, edge_index: usize) -> bool {
+        let edge_type = self.edge_type_raw(edge_index);
+        let edge_name_or_index = self.edge_name_or_index(edge_index);
 
         // Filter sloppy_function_map in NativeContext
-        if self.is_native_context(NodeOrdinal(node_index / nfc)) {
+        if self.is_native_context(NodeOrdinal(source_ordinal)) {
             if edge_type != self.edge_element_type && edge_type != self.edge_hidden_type {
                 let edge_name = &self.strings[edge_name_or_index as usize];
                 if edge_name == "sloppy_function_map" {
@@ -2496,9 +2529,9 @@ impl HeapSnapshot {
         }
 
         // Filter descriptor array edges
-        let node_type = self.nodes[node_index + self.node_type_offset];
+        let node_type = self.node_type_raw(source_ordinal);
         if node_type == self.node_array_type {
-            let node_name = &self.strings[self.nodes[node_index + self.node_name_offset] as usize];
+            let node_name = &self.strings[self.node_name_index(source_ordinal)];
             if node_name == "(map descriptors)" {
                 if edge_type == self.edge_element_type || edge_type == self.edge_hidden_type {
                     let index = edge_name_or_index;
@@ -2513,7 +2546,6 @@ impl HeapSnapshot {
     }
 
     fn calculate_object_names(&mut self) {
-        let nfc = self.node_field_count;
         let node_count = self.node_count;
 
         let mut string_table: FxHashMap<String, u32> = FxHashMap::default();
@@ -2534,9 +2566,8 @@ impl HeapSnapshot {
         let regexp_idx = get_index("RegExp", &mut self.strings, &mut string_table);
 
         for ordinal in 0..node_count {
-            let node_index = ordinal * nfc;
-            let raw_type = self.nodes[node_index + self.node_type_offset];
-            let raw_name_idx = self.nodes[node_index + self.node_name_offset];
+            let raw_type = self.node_type_raw(ordinal);
+            let raw_name_idx = self.nodes[ordinal].name;
 
             let class_index =
                 if raw_type == self.node_hidden_type || raw_type == self.node_code_type {
@@ -2600,8 +2631,6 @@ impl HeapSnapshot {
     }
 
     fn infer_and_apply_interface_definitions(&mut self) {
-        let efc = self.edge_fields_count;
-        let nfc = self.node_field_count;
         let edge_prop_type = self.edge_property_type;
 
         // Phase 1: Collect interface candidates
@@ -2615,9 +2644,8 @@ impl HeapSnapshot {
         let mut total_object_count = 0u32;
 
         for ordinal in 0..self.node_count {
-            let node_index = ordinal * nfc;
-            let raw_type = self.nodes[node_index + self.node_type_offset];
-            let raw_name_idx = self.nodes[node_index + self.node_name_offset] as usize;
+            let raw_type = self.node_type_raw(ordinal);
+            let raw_name_idx = self.node_name_index(ordinal);
             if raw_type != self.node_object_type || self.strings[raw_name_idx] != "Object" {
                 continue;
             }
@@ -2625,19 +2653,19 @@ impl HeapSnapshot {
 
             let mut interface_name = "{".to_string();
             let mut properties: Vec<String> = Vec::new();
-            let first_edge = self.first_edge_indexes[ordinal] as usize;
-            let last_edge = self.first_edge_indexes[ordinal + 1] as usize;
+            let first_edge = self.first_edge_index(ordinal);
+            let last_edge = self.first_edge_index(ordinal + 1);
             let mut ei = first_edge;
             while ei < last_edge {
-                let et = self.edges[ei + self.edge_type_offset];
+                let et = self.edge_type_raw(ei);
                 if et != edge_prop_type {
-                    ei += efc;
+                    ei += 1;
                     continue;
                 }
-                let name_idx = self.edges[ei + self.edge_name_offset] as usize;
+                let name_idx = self.edge_name_or_index(ei) as usize;
                 let edge_name = self.strings[name_idx].clone();
                 if edge_name == "__proto__" {
-                    ei += efc;
+                    ei += 1;
                     continue;
                 }
                 let formatted = Self::format_property_name(&edge_name);
@@ -2651,7 +2679,7 @@ impl HeapSnapshot {
                 }
                 interface_name.push_str(&formatted);
                 properties.push(edge_name);
-                ei += efc;
+                ei += 1;
             }
             interface_name.push('}');
 
@@ -2734,25 +2762,24 @@ impl HeapSnapshot {
         let mut interface_names: FxHashMap<String, u32> = FxHashMap::default();
 
         for ordinal in 0..self.node_count {
-            let node_index = ordinal * nfc;
-            let raw_type = self.nodes[node_index + self.node_type_offset];
-            let raw_name_idx = self.nodes[node_index + self.node_name_offset] as usize;
+            let raw_type = self.node_type_raw(ordinal);
+            let raw_name_idx = self.node_name_index(ordinal);
             if raw_type != self.node_object_type || self.strings[raw_name_idx] != "Object" {
                 continue;
             }
 
             // Collect and sort properties
             let mut properties: Vec<String> = Vec::new();
-            let first_edge = self.first_edge_indexes[ordinal] as usize;
-            let last_edge = self.first_edge_indexes[ordinal + 1] as usize;
+            let first_edge = self.first_edge_index(ordinal);
+            let last_edge = self.first_edge_index(ordinal + 1);
             let mut ei = first_edge;
             while ei < last_edge {
-                let et = self.edges[ei + self.edge_type_offset];
+                let et = self.edge_type_raw(ei);
                 if et == edge_prop_type {
-                    let name_idx = self.edges[ei + self.edge_name_offset] as usize;
+                    let name_idx = self.edge_name_or_index(ei) as usize;
                     properties.push(self.strings[name_idx].clone());
                 }
-                ei += efc;
+                ei += 1;
             }
             properties.sort();
 
@@ -2835,12 +2862,11 @@ impl HeapSnapshot {
     }
 
     fn class_key_internal(&self, ordinal: NodeOrdinal) -> ClassKey {
-        let node_index = ordinal.0 * self.node_field_count;
-        let raw_type = self.nodes[node_index + self.node_type_offset];
+        let raw_type = self.node_type_raw(ordinal.0);
         if raw_type != self.node_object_type {
             return ClassKey::Index(self.class_index(ordinal));
         }
-        if let Some(&loc) = self.location_map.get(&node_index) {
+        if let Some(&loc) = self.location_map.get(&ordinal.0) {
             ClassKey::Location(
                 loc.script_id,
                 loc.line,
@@ -2853,12 +2879,6 @@ impl HeapSnapshot {
     }
 
     fn calculate_statistics(&mut self) {
-        let nfc = self.node_field_count;
-        let sso = self.node_self_size_offset;
-        let tyo = self.node_type_offset;
-        let nmo = self.node_name_offset;
-        let _efc = self.edge_fields_count;
-
         let mut size_native = self.extra_native_bytes;
         let mut size_typed_arrays = 0u64;
         let mut size_code = 0u64;
@@ -2870,9 +2890,8 @@ impl HeapSnapshot {
         let context_coverage = self.context_coverage;
 
         for ordinal in 0..self.node_count {
-            let node_index = ordinal * nfc;
-            let node_size = self.nodes[node_index + sso] as u64;
-            let node_type = self.nodes[node_index + tyo];
+            let node_size = self.nodes[ordinal].self_size as u64;
+            let node_type = self.node_type_raw(ordinal);
 
             if self.node_distances[ordinal].is_unreachable() && node_size > 0 {
                 unreachable_count += 1;
@@ -2886,7 +2905,7 @@ impl HeapSnapshot {
 
             if node_type == self.node_native_type {
                 size_native += node_size;
-                let name = &self.strings[self.nodes[node_index + nmo] as usize];
+                let name = &self.strings[self.node_name_index(ordinal)];
                 if name == "system / JSArrayBufferData" {
                     size_typed_arrays += node_size;
                 }
@@ -2898,7 +2917,7 @@ impl HeapSnapshot {
             {
                 size_strings += node_size;
             } else {
-                let name = &self.strings[self.nodes[node_index + nmo] as usize];
+                let name = &self.strings[self.node_name_index(ordinal)];
                 if name == "Array" {
                     size_js_arrays += self.calculate_array_size(NodeOrdinal(ordinal));
                 }
@@ -2932,8 +2951,7 @@ impl HeapSnapshot {
         let mut reachable_without_contexts_size = 0u64;
 
         for ordinal in 0..self.node_count {
-            let size =
-                self.nodes[ordinal * self.node_field_count + self.node_self_size_offset] as u64;
+            let size = self.nodes[ordinal].self_size as u64;
             match reachability.context_covered[ordinal] {
                 ContextCovered::Covered => {
                     context_covered_size += size;
@@ -2982,11 +3000,6 @@ impl HeapSnapshot {
     }
 
     fn reachable_without_blocked_contexts(&self, blocked_contexts: &[bool]) -> Vec<bool> {
-        let nfc = self.node_field_count;
-        let efc = self.edge_fields_count;
-        let eto = self.edge_to_node_offset;
-        let etype_off = self.edge_type_offset;
-
         let mut pending_ephemerons = FxHashSet::default();
         let mut queue = VecDeque::new();
         let mut visited = vec![false; self.node_count];
@@ -2998,33 +3011,30 @@ impl HeapSnapshot {
         }
 
         while let Some(ordinal) = queue.pop_front() {
-            let node_index = ordinal * nfc;
-            let first_edge = self.first_edge_indexes[ordinal] as usize;
-            let last_edge = self.first_edge_indexes[ordinal + 1] as usize;
+            let first_edge = self.first_edge_index(ordinal);
+            let last_edge = self.first_edge_index(ordinal + 1);
             let mut ei = first_edge;
             while ei < last_edge {
-                let edge_type = self.edges[ei + etype_off];
+                let edge_type = self.edge_type_raw(ei);
                 if edge_type == self.edge_weak_type {
-                    ei += efc;
+                    ei += 1;
                     continue;
                 }
 
-                let child_index = self.edges[ei + eto] as usize;
-                let child_ordinal = child_index / nfc;
+                let child_ordinal = self.edge_to_node_ordinal(ei);
                 if blocked_contexts[child_ordinal] || visited[child_ordinal] {
-                    ei += efc;
+                    ei += 1;
                     continue;
                 }
 
-                if !self.should_traverse_reachability_edge(node_index, ei, &mut pending_ephemerons)
-                {
-                    ei += efc;
+                if !self.should_traverse_reachability_edge(ordinal, ei, &mut pending_ephemerons) {
+                    ei += 1;
                     continue;
                 }
 
                 visited[child_ordinal] = true;
                 queue.push_back(child_ordinal);
-                ei += efc;
+                ei += 1;
             }
         }
 
@@ -3032,33 +3042,29 @@ impl HeapSnapshot {
     }
 
     fn calculate_array_size(&self, ordinal: NodeOrdinal) -> u64 {
-        let nfc = self.node_field_count;
-        let node_index = ordinal.0 * nfc;
-        let mut size = self.nodes[node_index + self.node_self_size_offset] as u64;
+        let mut size = self.nodes[ordinal.0].self_size as u64;
 
-        let first_edge = self.first_edge_indexes[ordinal.0] as usize;
-        let last_edge = self.first_edge_indexes[ordinal.0 + 1] as usize;
-        let efc = self.edge_fields_count;
+        let first_edge = self.first_edge_index(ordinal.0);
+        let last_edge = self.first_edge_index(ordinal.0 + 1);
         let mut ei = first_edge;
         while ei < last_edge {
-            let et = self.edges[ei + self.edge_type_offset];
+            let et = self.edge_type_raw(ei);
             if et != self.edge_internal_type {
-                ei += efc;
+                ei += 1;
                 continue;
             }
             // Check if edge name is "elements"
-            let name_idx = self.edges[ei + self.edge_name_offset] as usize;
+            let name_idx = self.edge_name_or_index(ei) as usize;
             if self.strings[name_idx] != "elements" {
-                ei += efc;
+                ei += 1;
                 continue;
             }
-            let elements_node_index = self.edges[ei + self.edge_to_node_offset] as usize;
-            let elements_ordinal = elements_node_index / nfc;
+            let elements_ordinal = self.edge_to_node_ordinal(ei);
             // Check retainers count
             let ret_count = self.first_retainer_index[elements_ordinal + 1]
                 - self.first_retainer_index[elements_ordinal];
             if ret_count == 1 {
-                size += self.nodes[elements_node_index + self.node_self_size_offset] as u64;
+                size += self.nodes[elements_ordinal].self_size as u64;
             }
             break;
         }
@@ -3126,11 +3132,11 @@ impl HeapSnapshot {
         let mut unique: Vec<String> = self
             .iter_edges(global)
             .filter_map(|(edge_idx, _)| {
-                let edge_type = self.edges[edge_idx.0 + self.edge_type_offset];
+                let edge_type = self.edge_type_raw(edge_idx.0);
                 if edge_type == self.edge_element_type || edge_type == self.edge_hidden_type {
                     return None;
                 }
-                let name_idx = self.edges[edge_idx.0 + self.edge_name_offset] as usize;
+                let name_idx = self.edge_name_or_index(edge_idx.0) as usize;
                 let name = &self.strings[name_idx];
                 if self.native_context_global_fields.contains(name.as_str()) {
                     None
@@ -3152,17 +3158,17 @@ impl HeapSnapshot {
         let mut vars = Vec::new();
         // The ScriptContextTable has hidden edges to Context objects.
         for (edge_idx, child_ord) in self.iter_edges(table) {
-            let edge_type = self.edges[edge_idx.0 + self.edge_type_offset];
+            let edge_type = self.edge_type_raw(edge_idx.0);
             if edge_type != self.edge_hidden_type && edge_type != self.edge_element_type {
                 continue;
             }
             // Each Context has "context"-typed edges for its variables.
             for (ctx_edge_idx, _) in self.iter_edges(child_ord) {
-                let ctx_edge_type = self.edges[ctx_edge_idx.0 + self.edge_type_offset];
+                let ctx_edge_type = self.edge_type_raw(ctx_edge_idx.0);
                 if ctx_edge_type != self.edge_context_type {
                     continue;
                 }
-                let name_idx = self.edges[ctx_edge_idx.0 + self.edge_name_offset] as usize;
+                let name_idx = self.edge_name_or_index(ctx_edge_idx.0) as usize;
                 let name = &self.strings[name_idx];
                 // Skip "this" and other internal context vars.
                 if name != "this" {
@@ -3213,7 +3219,7 @@ impl HeapSnapshot {
     /// The snapshot's synthetic root (node 0).  Use this for views like
     /// containment that want to show `(GC roots)` as a visible child.
     pub fn synthetic_root_ordinal(&self) -> NodeOrdinal {
-        NodeOrdinal(self.root_node_index / self.node_field_count)
+        NodeOrdinal(self.root_ordinal())
     }
 
     /// Returns true when `ordinal` is a user root — a non-synthetic direct
@@ -3236,7 +3242,7 @@ impl HeapSnapshot {
 
     #[allow(dead_code)]
     pub fn node_type_name(&self, ordinal: NodeOrdinal) -> &str {
-        let t = self.nodes[ordinal.0 * self.node_field_count + self.node_type_offset] as usize;
+        let t = self.node_type_raw(ordinal.0) as usize;
         if t < self.node_types.len() {
             &self.node_types[t]
         } else {
@@ -3248,8 +3254,7 @@ impl HeapSnapshot {
     /// is not of type "string". This is for synthetic string nodes created
     /// by `AddStringEdge` in V8, where the node name *is* the value.
     pub fn node_value_as_str(&self, ordinal: NodeOrdinal) -> Option<&str> {
-        let ni = ordinal.0 * self.node_field_count;
-        if self.nodes[ni + self.node_type_offset] != self.node_string_type {
+        if self.node_type_raw(ordinal.0) != self.node_string_type {
             return None;
         }
         Some(self.node_raw_name(ordinal))
@@ -3259,8 +3264,7 @@ impl HeapSnapshot {
     /// its "value" edge. Returns `None` if the node is not an int-typed
     /// number node.
     pub fn node_value_as_int(&self, ordinal: NodeOrdinal) -> Option<i64> {
-        let ni = ordinal.0 * self.node_field_count;
-        if self.nodes[ni + self.node_type_offset] != self.node_number_type {
+        if self.node_type_raw(ordinal.0) != self.node_number_type {
             return None;
         }
         if self.node_raw_name(ordinal) != "int" {
@@ -3300,8 +3304,7 @@ impl HeapSnapshot {
     /// its "value" edge. Returns `None` if the node is not a bool-typed
     /// number node.
     pub fn node_value_as_bool(&self, ordinal: NodeOrdinal) -> Option<bool> {
-        let ni = ordinal.0 * self.node_field_count;
-        if self.nodes[ni + self.node_type_offset] != self.node_number_type {
+        if self.node_type_raw(ordinal.0) != self.node_number_type {
             return None;
         }
         if self.node_raw_name(ordinal) != "bool" {
@@ -3323,12 +3326,11 @@ impl HeapSnapshot {
             .values()
             .map(|loc| loc.script_id)
             .collect();
-        for (&node_index, loc) in &self.location_map {
+        for (&ordinal, loc) in &self.location_map {
             if !needed.contains(&loc.script_id) {
                 continue;
             }
-            let ordinal = NodeOrdinal(node_index / self.node_field_count);
-            if let Some(name) = self.find_script_name(ordinal) {
+            if let Some(name) = self.find_script_name(NodeOrdinal(ordinal)) {
                 self.script_names.insert(loc.script_id, name);
                 needed.remove(&loc.script_id);
                 if needed.is_empty() {
@@ -3363,15 +3365,13 @@ impl HeapSnapshot {
 
     /// Returns true if this node is a JSFunction (closure type).
     pub fn is_js_function(&self, ordinal: NodeOrdinal) -> bool {
-        let node_index = ordinal.0 * self.node_field_count;
-        self.nodes[node_index + self.node_type_offset] == self.node_closure_type
+        self.node_type_raw(ordinal.0) == self.node_closure_type
     }
 
     /// Returns true if this node is a SharedFunctionInfo.
     /// SFI nodes have V8 node type "code".
     pub fn is_shared_function_info(&self, ordinal: NodeOrdinal) -> bool {
-        let node_index = ordinal.0 * self.node_field_count;
-        if self.nodes[node_index + self.node_type_offset] != self.node_code_type {
+        if self.node_type_raw(ordinal.0) != self.node_code_type {
             return false;
         }
         let name = self.node_raw_name(ordinal);
@@ -3383,15 +3383,13 @@ impl HeapSnapshot {
     /// For JSFunction nodes, if the node itself has no location,
     /// follows the "shared" edge to the SharedFunctionInfo and returns its location.
     pub fn node_location(&self, ordinal: NodeOrdinal) -> Option<SourceLocation> {
-        let node_index = ordinal.0 * self.node_field_count;
-        if let Some(&loc) = self.location_map.get(&node_index) {
+        if let Some(&loc) = self.location_map.get(&ordinal.0) {
             return Some(loc);
         }
         if self.is_js_function(ordinal) {
             for (edge_idx, child_ord) in self.iter_edges(ordinal) {
                 if self.edge_name(edge_idx) == "shared" {
-                    let child_index = child_ord.0 * self.node_field_count;
-                    if let Some(&loc) = self.location_map.get(&child_index) {
+                    if let Some(&loc) = self.location_map.get(&child_ord.0) {
                         return Some(loc);
                     }
                     break;
@@ -3494,8 +3492,7 @@ impl HeapSnapshot {
         if !self.has_allocation_data() {
             return None;
         }
-        let node_index = ordinal.0 * self.node_field_count;
-        let trace_id = self.nodes[node_index + self.node_trace_node_id_offset as usize] as usize;
+        let trace_id = self.nodes[ordinal.0].trace_node_id as usize;
         if trace_id == 0 || trace_id >= self.trace_parents.len() {
             return None;
         }
@@ -3566,14 +3563,10 @@ impl HeapSnapshot {
         }
 
         // Collect all live object IDs and their sizes, sorted by ID.
-        let nfc = self.node_field_count;
-        let ido = self.node_id_offset;
-        let sso = self.node_self_size_offset;
         let mut objects: Vec<(u64, u32)> = Vec::with_capacity(self.node_count);
         for ordinal in 0..self.node_count {
-            let ni = ordinal * nfc;
-            let id = self.nodes[ni + ido] as u64;
-            let size = self.nodes[ni + sso];
+            let id = self.nodes[ordinal].id as u64;
+            let size = self.nodes[ordinal].self_size;
             if size > 0 {
                 objects.push((id, size));
             }
@@ -3623,10 +3616,8 @@ impl HeapSnapshot {
     }
 
     pub fn node_for_snapshot_object_id(&self, id: NodeId) -> Option<NodeOrdinal> {
-        let nfc = self.node_field_count;
-        let ido = self.node_id_offset;
         for ordinal in 0..self.node_count {
-            if self.nodes[ordinal * nfc + ido] as u64 == id.0 {
+            if self.nodes[ordinal].id as u64 == id.0 {
                 return Some(NodeOrdinal(ordinal));
             }
         }
@@ -3634,11 +3625,11 @@ impl HeapSnapshot {
     }
 
     pub fn node_id(&self, ordinal: NodeOrdinal) -> NodeId {
-        NodeId(self.nodes[ordinal.0 * self.node_field_count + self.node_id_offset] as u64)
+        NodeId(self.nodes[ordinal.0].id as u64)
     }
 
     pub fn node_self_size(&self, ordinal: NodeOrdinal) -> u32 {
-        self.nodes[ordinal.0 * self.node_field_count + self.node_self_size_offset]
+        self.nodes[ordinal.0].self_size
     }
 
     pub fn node_retained_size(&self, ordinal: NodeOrdinal) -> u64 {
@@ -3646,11 +3637,6 @@ impl HeapSnapshot {
     }
 
     pub fn reachable_size(&self, roots: &[NodeOrdinal]) -> ReachableInfo {
-        let nfc = self.node_field_count;
-        let efc = self.edge_fields_count;
-        let eto = self.edge_to_node_offset;
-        let etype_off = self.edge_type_offset;
-
         let mut visited = vec![false; self.node_count];
         let mut queue = std::collections::VecDeque::with_capacity(roots.len());
         let mut total: u64 = 0;
@@ -3668,18 +3654,18 @@ impl HeapSnapshot {
         }
 
         while let Some(ordinal) = queue.pop_front() {
-            let first_edge = self.first_edge_indexes[ordinal] as usize;
-            let last_edge = self.first_edge_indexes[ordinal + 1] as usize;
+            let first_edge = self.first_edge_index(ordinal);
+            let last_edge = self.first_edge_index(ordinal + 1);
             let mut ei = first_edge;
             while ei < last_edge {
-                let edge_type = self.edges[ei + etype_off];
+                let edge_type = self.edge_type_raw(ei);
                 if edge_type == self.edge_weak_type || edge_type == self.edge_shortcut_type {
-                    ei += efc;
+                    ei += 1;
                     continue;
                 }
-                let child_ordinal = self.edges[ei + eto] as usize / nfc;
+                let child_ordinal = self.edge_to_node_ordinal(ei);
                 if child_ordinal == ordinal || visited[child_ordinal] {
-                    ei += efc;
+                    ei += 1;
                     continue;
                 }
                 visited[child_ordinal] = true;
@@ -3688,7 +3674,7 @@ impl HeapSnapshot {
                     contexts.push(NodeOrdinal(child_ordinal));
                 }
                 queue.push_back(child_ordinal);
-                ei += efc;
+                ei += 1;
             }
         }
 
@@ -3707,8 +3693,7 @@ impl HeapSnapshot {
     }
 
     pub fn node_raw_name(&self, ordinal: NodeOrdinal) -> &str {
-        let ni = ordinal.0 * self.node_field_count;
-        &self.strings[self.nodes[ni + self.node_name_offset] as usize]
+        &self.strings[self.node_name_index(ordinal.0)]
     }
 
     pub fn is_native_context(&self, ordinal: NodeOrdinal) -> bool {
@@ -3742,22 +3727,19 @@ impl HeapSnapshot {
 
     /// Find the target node of a named internal edge from `ordinal`.
     pub fn find_edge_target(&self, ordinal: NodeOrdinal, name: &str) -> Option<NodeOrdinal> {
-        let efc = self.edge_fields_count;
-        let nfc = self.node_field_count;
-        let first = self.first_edge_indexes[ordinal.0] as usize;
-        let last = self.first_edge_indexes[ordinal.0 + 1] as usize;
+        let first = self.first_edge_index(ordinal.0);
+        let last = self.first_edge_index(ordinal.0 + 1);
         let mut ei = first;
         while ei < last {
-            let edge_type = self.edges[ei + self.edge_type_offset];
+            let edge_type = self.edge_type_raw(ei);
             // Only check string-named edges (not element/hidden which use numeric indices)
             if edge_type != self.edge_element_type && edge_type != self.edge_hidden_type {
-                let name_idx = self.edges[ei + self.edge_name_offset] as usize;
+                let name_idx = self.edge_name_or_index(ei) as usize;
                 if self.strings[name_idx] == name {
-                    let child_index = self.edges[ei + self.edge_to_node_offset] as usize;
-                    return Some(NodeOrdinal(child_index / nfc));
+                    return Some(NodeOrdinal(self.edge_to_node_ordinal(ei)));
                 }
             }
-            ei += efc;
+            ei += 1;
         }
         None
     }
@@ -3841,20 +3823,19 @@ impl HeapSnapshot {
     /// Get the variable names stored in a Context node (context-typed edges, excluding "this").
     pub fn context_variable_names(&self, ordinal: NodeOrdinal) -> Vec<String> {
         let mut vars = Vec::new();
-        let efc = self.edge_fields_count;
-        let first = self.first_edge_indexes[ordinal.0] as usize;
-        let last = self.first_edge_indexes[ordinal.0 + 1] as usize;
+        let first = self.first_edge_index(ordinal.0);
+        let last = self.first_edge_index(ordinal.0 + 1);
         let mut ei = first;
         while ei < last {
-            let edge_type = self.edges[ei + self.edge_type_offset];
+            let edge_type = self.edge_type_raw(ei);
             if edge_type == self.edge_context_type {
-                let name_idx = self.edges[ei + self.edge_name_offset] as usize;
+                let name_idx = self.edge_name_or_index(ei) as usize;
                 let name = &self.strings[name_idx];
                 if name != "this" {
                     vars.push(name.clone());
                 }
             }
-            ei += efc;
+            ei += 1;
         }
         vars.sort();
         vars
@@ -3903,9 +3884,7 @@ impl HeapSnapshot {
         if self.node_detachedness_offset == -1 {
             return Detachedness::Unknown;
         }
-        let node_index = ordinal.0 * self.node_field_count;
-        let det_offset = self.node_detachedness_offset as usize;
-        decode_detachedness(self.nodes[node_index + det_offset])
+        decode_detachedness(self.nodes[ordinal.0].detachedness)
     }
 
     /// Returns true when the propagated value still matches the original snapshot value.
@@ -3967,8 +3946,7 @@ impl HeapSnapshot {
     /// For plain Objects, builds a {prop1, prop2, ...} style name from properties.
     /// For everything else, returns the raw name.
     pub fn node_display_name(&self, ordinal: NodeOrdinal) -> String {
-        let ni = ordinal.0 * self.node_field_count;
-        let raw_type = self.nodes[ni + self.node_type_offset];
+        let raw_type = self.node_type_raw(ordinal.0);
 
         if raw_type == self.node_cons_string_type {
             return self.cons_string_name(ordinal);
@@ -4011,72 +3989,66 @@ impl HeapSnapshot {
     /// Returns true if this cons string has been "flattened" by V8, meaning
     /// one of its two parts (`first` or `second`) is the empty string.
     fn is_flat_cons_string(&self, ordinal: NodeOrdinal) -> bool {
-        let ni = ordinal.0 * self.node_field_count;
-        if self.nodes[ni + self.node_type_offset] != self.node_cons_string_type {
+        if self.node_type_raw(ordinal.0) != self.node_cons_string_type {
             return false;
         }
-        let efc = self.edge_fields_count;
-        let begin = self.first_edge_indexes[ordinal.0] as usize;
-        let end = self.first_edge_indexes[ordinal.0 + 1] as usize;
+        let begin = self.first_edge_index(ordinal.0);
+        let end = self.first_edge_index(ordinal.0 + 1);
         let mut ei = begin;
         while ei < end {
-            let edge_type = self.edges[ei + self.edge_type_offset];
+            let edge_type = self.edge_type_raw(ei);
             if edge_type == self.edge_internal_type {
-                let name_idx = self.edges[ei + self.edge_name_offset] as usize;
+                let name_idx = self.edge_name_or_index(ei) as usize;
                 let edge_name = &self.strings[name_idx];
                 if edge_name == "first" || edge_name == "second" {
-                    let child_index = self.edges[ei + self.edge_to_node_offset] as usize;
-                    let child_name_idx = self.nodes[child_index + self.node_name_offset] as usize;
+                    let child_ordinal = self.edge_to_node_ordinal(ei);
+                    let child_name_idx = self.node_name_index(child_ordinal);
                     if self.strings[child_name_idx].is_empty() {
                         return true;
                     }
                 }
             }
-            ei += efc;
+            ei += 1;
         }
         false
     }
 
     fn cons_string_name(&self, ordinal: NodeOrdinal) -> String {
-        let nfc = self.node_field_count;
-        let efc = self.edge_fields_count;
-        let mut stack: Vec<usize> = vec![ordinal.0 * nfc];
+        let mut stack: Vec<usize> = vec![ordinal.0];
         let mut name = String::new();
 
-        while let Some(node_index) = stack.pop() {
+        while let Some(node_ordinal) = stack.pop() {
             if name.len() >= 1024 {
                 break;
             }
-            let node_type = self.nodes[node_index + self.node_type_offset];
+            let node_type = self.node_type_raw(node_ordinal);
             if node_type != self.node_cons_string_type {
-                let name_idx = self.nodes[node_index + self.node_name_offset] as usize;
+                let name_idx = self.node_name_index(node_ordinal);
                 name.push_str(&self.strings[name_idx]);
                 continue;
             }
-            let node_ordinal = node_index / nfc;
-            let begin = self.first_edge_indexes[node_ordinal] as usize;
-            let end = self.first_edge_indexes[node_ordinal + 1] as usize;
-            let mut first_node_index: Option<usize> = None;
-            let mut second_node_index: Option<usize> = None;
+            let begin = self.first_edge_index(node_ordinal);
+            let end = self.first_edge_index(node_ordinal + 1);
+            let mut first_node_ordinal: Option<usize> = None;
+            let mut second_node_ordinal: Option<usize> = None;
             let mut ei = begin;
-            while ei < end && (first_node_index.is_none() || second_node_index.is_none()) {
-                let edge_type = self.edges[ei + self.edge_type_offset];
+            while ei < end && (first_node_ordinal.is_none() || second_node_ordinal.is_none()) {
+                let edge_type = self.edge_type_raw(ei);
                 if edge_type == self.edge_internal_type {
-                    let name_idx = self.edges[ei + self.edge_name_offset] as usize;
+                    let name_idx = self.edge_name_or_index(ei) as usize;
                     let edge_name = &self.strings[name_idx];
                     if edge_name == "first" {
-                        first_node_index = Some(self.edges[ei + self.edge_to_node_offset] as usize);
+                        first_node_ordinal = Some(self.edge_to_node_ordinal(ei));
                     } else if edge_name == "second" {
-                        second_node_index =
-                            Some(self.edges[ei + self.edge_to_node_offset] as usize);
+                        second_node_ordinal = Some(self.edge_to_node_ordinal(ei));
                     }
                 }
-                ei += efc;
+                ei += 1;
             }
-            if let Some(idx) = second_node_index {
+            if let Some(idx) = second_node_ordinal {
                 stack.push(idx);
             }
-            if let Some(idx) = first_node_index {
+            if let Some(idx) = first_node_ordinal {
                 stack.push(idx);
             }
         }
@@ -4084,15 +4056,17 @@ impl HeapSnapshot {
     }
 
     fn plain_object_name(&self, ordinal: NodeOrdinal) -> String {
-        let efc = self.edge_fields_count;
-        let first_edge = self.first_edge_indexes[ordinal.0] as usize;
-        let last_edge = self.first_edge_indexes[ordinal.0 + 1] as usize;
+        let first_edge = self.first_edge_index(ordinal.0);
+        let last_edge = self.first_edge_index(ordinal.0 + 1);
+        if first_edge == last_edge {
+            return "{}".to_string();
+        }
 
         let mut category_name_start = "{".to_string();
         let mut category_name_end = "}".to_string();
         let mut edge_index_from_start = first_edge;
-        let mut edge_index_from_end = if last_edge >= efc {
-            last_edge - efc
+        let mut edge_index_from_end = if last_edge > first_edge {
+            last_edge - 1
         } else {
             first_edge
         };
@@ -4104,30 +4078,30 @@ impl HeapSnapshot {
             } else {
                 edge_index_from_start
             };
-            let edge_type = self.edges[ei + self.edge_type_offset];
+            let edge_type = self.edge_type_raw(ei);
 
             // Skip non-property edges and __proto__
             if edge_type != self.edge_property_type {
                 if next_from_end {
-                    if edge_index_from_end < efc {
+                    if edge_index_from_end == 0 {
                         break;
                     }
-                    edge_index_from_end -= efc;
+                    edge_index_from_end -= 1;
                 } else {
-                    edge_index_from_start += efc;
+                    edge_index_from_start += 1;
                 }
                 continue;
             }
-            let name_idx = self.edges[ei + self.edge_name_offset] as usize;
+            let name_idx = self.edge_name_or_index(ei) as usize;
             let edge_name = &self.strings[name_idx];
             if edge_name == "__proto__" {
                 if next_from_end {
-                    if edge_index_from_end < efc {
+                    if edge_index_from_end == 0 {
                         break;
                     }
-                    edge_index_from_end -= efc;
+                    edge_index_from_end -= 1;
                 } else {
-                    edge_index_from_start += efc;
+                    edge_index_from_start += 1;
                 }
                 continue;
             }
@@ -4145,16 +4119,16 @@ impl HeapSnapshot {
             }
 
             if next_from_end {
-                if edge_index_from_end < efc {
+                if edge_index_from_end == 0 {
                     break;
                 }
-                edge_index_from_end -= efc;
+                edge_index_from_end -= 1;
                 if category_name_end.len() > 1 {
                     category_name_end = format!(", {}", category_name_end);
                 }
                 category_name_end = format!("{}{}", formatted, category_name_end);
             } else {
-                edge_index_from_start += efc;
+                edge_index_from_start += 1;
                 if category_name_start.len() > 1 {
                     category_name_start.push_str(", ");
                 }
@@ -4205,7 +4179,7 @@ impl HeapSnapshot {
     }
 
     pub fn node_edge_count(&self, ordinal: NodeOrdinal) -> u32 {
-        self.nodes[ordinal.0 * self.node_field_count + self.node_edge_count_offset]
+        self.nodes[ordinal.0].edge_count
     }
 
     pub fn is_root(&self, ordinal: NodeOrdinal) -> bool {
@@ -4215,12 +4189,10 @@ impl HeapSnapshot {
     /// Returns true when `ordinal` is directly retained by `(GC roots)`,
     /// i.e. it is a root category such as `(Strong roots)` or `(Handle scope)`.
     pub fn is_root_holder(&self, ordinal: NodeOrdinal) -> bool {
-        let nfc = self.node_field_count;
         let begin = self.first_retainer_index[ordinal.0] as usize;
         let end = self.first_retainer_index[ordinal.0 + 1] as usize;
         for idx in begin..end {
-            let node_index = self.retaining_nodes[idx] as usize;
-            let ret_ordinal = NodeOrdinal(node_index / nfc);
+            let ret_ordinal = NodeOrdinal(self.retaining_nodes[idx] as usize);
             if self.is_root(ret_ordinal) {
                 return true;
             }
@@ -4229,7 +4201,7 @@ impl HeapSnapshot {
     }
 
     pub fn edge_type_name(&self, edge: EdgeId) -> &str {
-        let t = self.edges[edge.0 + self.edge_type_offset] as usize;
+        let t = self.edge_type_raw(edge.0) as usize;
         if t < self.edge_types.len() {
             &self.edge_types[t]
         } else {
@@ -4238,8 +4210,8 @@ impl HeapSnapshot {
     }
 
     pub fn edge_name(&self, edge: EdgeId) -> String {
-        let edge_type = self.edges[edge.0 + self.edge_type_offset];
-        let name_or_index = self.edges[edge.0 + self.edge_name_offset];
+        let edge_type = self.edge_type_raw(edge.0);
+        let name_or_index = self.edge_name_or_index(edge.0);
 
         // Element and hidden edges use numeric index
         if edge_type == self.edge_element_type || edge_type == self.edge_hidden_type {
@@ -4288,19 +4260,16 @@ impl HeapSnapshot {
     }
 
     pub fn is_invisible_edge(&self, edge: EdgeId) -> bool {
-        self.edges[edge.0 + self.edge_type_offset] == self.edge_invisible_type
+        self.edge_type_raw(edge.0) == self.edge_invisible_type
     }
 
     /// Returns a zero-allocation iterator over the outgoing edges of `ordinal`.
-    /// Each item is `(edge_index, child_ordinal)`.
+    /// Each item is `(edge_ordinal, child_ordinal)`.
     pub fn iter_edges(&self, ordinal: NodeOrdinal) -> EdgeIter<'_> {
-        let first = self.first_edge_indexes[ordinal.0] as usize;
-        let last = self.first_edge_indexes[ordinal.0 + 1] as usize;
+        let first = self.first_edge_index(ordinal.0);
+        let last = self.first_edge_index(ordinal.0 + 1);
         EdgeIter {
             edges: &self.edges,
-            edge_fields_count: self.edge_fields_count,
-            edge_to_node_offset: self.edge_to_node_offset,
-            node_field_count: self.node_field_count,
             current: first,
             end: last,
         }
@@ -4313,14 +4282,12 @@ impl HeapSnapshot {
     }
 
     pub fn get_retainers(&self, ordinal: NodeOrdinal) -> Vec<(EdgeId, NodeOrdinal)> {
-        let nfc = self.node_field_count;
         let begin = self.first_retainer_index[ordinal.0] as usize;
         let end = self.first_retainer_index[ordinal.0 + 1] as usize;
         let mut result = Vec::new();
         for idx in begin..end {
             let edge_index = EdgeId(self.retaining_edges[idx] as usize);
-            let node_index = self.retaining_nodes[idx] as usize;
-            let node_ordinal = NodeOrdinal(node_index / nfc);
+            let node_ordinal = NodeOrdinal(self.retaining_nodes[idx] as usize);
             result.push((edge_index, node_ordinal));
         }
         result
@@ -4330,13 +4297,11 @@ impl HeapSnapshot {
     where
         F: FnMut(EdgeId, NodeOrdinal),
     {
-        let nfc = self.node_field_count;
         let begin = self.first_retainer_index[ordinal.0] as usize;
         let end = self.first_retainer_index[ordinal.0 + 1] as usize;
         for idx in begin..end {
             let edge_index = EdgeId(self.retaining_edges[idx] as usize);
-            let node_index = self.retaining_nodes[idx] as usize;
-            let node_ordinal = NodeOrdinal(node_index / nfc);
+            let node_ordinal = NodeOrdinal(self.retaining_nodes[idx] as usize);
             f(edge_index, node_ordinal);
         }
     }
@@ -4347,11 +4312,10 @@ impl HeapSnapshot {
     }
 
     pub fn get_dominated_children(&self, ordinal: NodeOrdinal) -> Vec<NodeOrdinal> {
-        let nfc = self.node_field_count;
         let from = self.first_dominated_node_index[ordinal.0] as usize;
         let to = self.first_dominated_node_index[ordinal.0 + 1] as usize;
         (from..to)
-            .map(|i| NodeOrdinal(self.dominated_nodes[i] as usize / nfc))
+            .map(|i| NodeOrdinal(self.dominated_nodes[i] as usize))
             .collect()
     }
 
@@ -4421,10 +4385,7 @@ impl HeapSnapshot {
         &self,
         skip_edge: impl Fn(EdgeId, usize, usize) -> bool, // (edge_idx, source_ord, target_ord)
     ) -> Bitmap {
-        let nfc = self.node_field_count;
-        let efc = self.edge_fields_count;
-        let eto = self.edge_to_node_offset;
-        let root = self.root_node_index / nfc;
+        let root = self.root_ordinal();
 
         let mut reachable = Bitmap::new(self.node_count);
         reachable.set(root);
@@ -4433,16 +4394,16 @@ impl HeapSnapshot {
         queue.push_back(root);
 
         while let Some(ord) = queue.pop_front() {
-            let first = self.first_edge_indexes[ord] as usize;
-            let last = self.first_edge_indexes[ord + 1] as usize;
+            let first = self.first_edge_index(ord);
+            let last = self.first_edge_index(ord + 1);
             let mut ei = first;
             while ei < last {
-                let child_ord = self.edges[ei + eto] as usize / nfc;
+                let child_ord = self.edge_to_node_ordinal(ei);
                 if !reachable.get(child_ord) && !skip_edge(EdgeId(ei), ord, child_ord) {
                     reachable.set(child_ord);
                     queue.push_back(child_ord);
                 }
-                ei += efc;
+                ei += 1;
             }
         }
 
@@ -4497,10 +4458,9 @@ impl HeapSnapshot {
     }
 
     fn retained_by_console_bitmap(&self) -> &Bitmap {
-        let nfc = self.node_field_count;
         self.retained_by_console_bitmap.get_or_init(|| {
             self.compute_retained_bitmap(|ei, src, _target| {
-                let src_type = self.nodes[src * nfc + self.node_type_offset];
+                let src_type = self.node_type_raw(src);
                 if src_type != self.node_synthetic_type {
                     return false;
                 }
@@ -4516,15 +4476,12 @@ impl HeapSnapshot {
     }
 
     fn retained_by_event_handlers_bitmap(&self) -> &Bitmap {
-        let nfc = self.node_field_count;
-        let nmo = self.node_name_offset;
-
         self.retained_by_event_handlers_bitmap.get_or_init(|| {
             // Step 1: identify event handler nodes via V8EventListener -> callback_object_
             let mut is_handler = Bitmap::new(self.node_count);
 
             for ordinal in 0..self.node_count {
-                let name = &self.strings[self.nodes[ordinal * nfc + nmo] as usize];
+                let name = &self.strings[self.node_name_index(ordinal)];
                 if name != "V8EventListener" {
                     continue;
                 }
@@ -4581,25 +4538,19 @@ impl HeapSnapshot {
 
     /// Build aggregates for objects whose ID falls in (id_from, id_to].
     pub fn aggregates_for_id_range(&self, id_from: u64, id_to: u64) -> AggregateMap {
-        let nfc = self.node_field_count;
-        let ido = self.node_id_offset;
         self.compute_aggregates(|ordinal| {
-            let id = self.nodes[ordinal * nfc + ido] as u64;
+            let id = self.nodes[ordinal].id as u64;
             id > id_from && id <= id_to
         })
     }
 
     fn build_aggregates(&self, filter: impl Fn(usize) -> bool) -> (AggregateMap, Vec<u32>) {
-        let nfc = self.node_field_count;
-        let sso = self.node_self_size_offset;
-
         let mut aggregates: FxHashMap<ClassKey, (u32, AggregateInfo)> = FxHashMap::default();
         let mut ord_to_agg: Vec<u32> = vec![u32::MAX; self.node_count];
         let mut next_first_seen: u32 = 0;
 
         for ordinal in 0..self.node_count {
-            let node_index = ordinal * nfc;
-            let self_size = self.nodes[node_index + sso] as u64;
+            let self_size = self.nodes[ordinal].self_size as u64;
             if self_size == 0 {
                 continue;
             }
@@ -4660,21 +4611,18 @@ impl HeapSnapshot {
     }
 
     fn calculate_classes_retained_size(&self, aggregates: &mut AggregateMap, ord_to_agg: &[u32]) {
-        let nfc = self.node_field_count;
-
-        let mut list: Vec<usize> = vec![self.gc_roots_ordinal * nfc];
+        let mut list: Vec<usize> = vec![self.gc_roots_ordinal];
         let mut sizes: Vec<i64> = vec![-1];
         let mut class_stack: Vec<u32> = Vec::new();
         let mut seen: FxHashSet<u32> = FxHashSet::default();
 
-        while let Some(node_index) = list.pop() {
-            let ordinal = node_index / nfc;
+        while let Some(ordinal) = list.pop() {
             let agg_idx = ord_to_agg[ordinal];
             let is_seen = agg_idx != u32::MAX && seen.contains(&agg_idx);
             let dom_from = self.first_dominated_node_index[ordinal] as usize;
             let dom_to = self.first_dominated_node_index[ordinal + 1] as usize;
 
-            if !is_seen && self.nodes[ordinal * nfc + self.node_self_size_offset] > 0 {
+            if !is_seen && self.nodes[ordinal].self_size > 0 {
                 if agg_idx != u32::MAX {
                     aggregates[agg_idx as usize].max_ret += self.retained_sizes[ordinal];
                 }
@@ -4706,14 +4654,12 @@ impl HeapSnapshot {
     /// name (and, for truncated strings, also by length) and returns entries
     /// with count >= 2, sorted by wasted bytes descending.
     pub fn duplicate_strings(&self) -> DuplicateStringsResult {
-        let nfc = self.node_field_count;
         let mut groups: FxHashMap<String, DuplicateStringInfo> = FxHashMap::default();
         let mut skipped_count: u32 = 0;
         let mut skipped_size: u64 = 0;
 
         for ordinal in 0..self.node_count {
-            let ni = ordinal * nfc;
-            let raw_type = self.nodes[ni + self.node_type_offset];
+            let raw_type = self.node_type_raw(ordinal);
             if raw_type != self.node_string_type && raw_type != self.node_cons_string_type {
                 continue;
             }
@@ -4727,7 +4673,7 @@ impl HeapSnapshot {
                 continue;
             }
 
-            let self_size = self.nodes[ni + self.node_self_size_offset] as u64;
+            let self_size = self.nodes[ordinal].self_size as u64;
             if self_size == 0 {
                 continue;
             }
@@ -4803,12 +4749,10 @@ impl HeapSnapshot {
             return Vec::new();
         }
 
-        let nfc = self.node_field_count;
-        let ido = self.node_id_offset;
         let mut id_to_ord: FxHashMap<u64, NodeOrdinal> = FxHashMap::default();
         id_to_ord.reserve(self.node_count);
         for ordinal in 0..self.node_count {
-            let id = self.nodes[ordinal * nfc + ido] as u64;
+            let id = self.nodes[ordinal].id as u64;
             id_to_ord.insert(id, NodeOrdinal(ordinal));
         }
 
@@ -4860,10 +4804,7 @@ impl HeapSnapshot {
 }
 
 pub struct EdgeIter<'a> {
-    edges: &'a [u32],
-    edge_fields_count: usize,
-    edge_to_node_offset: usize,
-    node_field_count: usize,
+    edges: &'a [EdgeRecord],
     current: usize,
     end: usize,
 }
@@ -4877,9 +4818,8 @@ impl<'a> Iterator for EdgeIter<'a> {
             return None;
         }
         let ei = self.current;
-        let child_index = self.edges[ei + self.edge_to_node_offset] as usize;
-        let child_ordinal = NodeOrdinal(child_index / self.node_field_count);
-        self.current += self.edge_fields_count;
+        let child_ordinal = NodeOrdinal(self.edges[ei].to_node_ordinal as usize);
+        self.current += 1;
         Some((EdgeId(ei), child_ordinal))
     }
 
@@ -4888,7 +4828,7 @@ impl<'a> Iterator for EdgeIter<'a> {
         let remaining = if self.current >= self.end {
             0
         } else {
-            (self.end - self.current) / self.edge_fields_count
+            self.end - self.current
         };
         (remaining, Some(remaining))
     }
