@@ -941,6 +941,7 @@ impl McpServer {
                 RetainerAutoExpandLimits {
                     max_depth,
                     max_nodes,
+                    include_weak: false,
                 },
             );
 

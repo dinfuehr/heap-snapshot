@@ -53,8 +53,17 @@ fn retainers_shows_retainer_chain() {
 #[test]
 fn retainers_weakrefs_full_output() {
     // @7279 is the WeakTarget instance created in snapshot_weakrefs.js.
-    let output = run_retainers("weakrefs.heapsnapshot", "@7279", &[]);
+    // Use --include-weak to match the historical full output.
+    let output = run_retainers("weakrefs.heapsnapshot", "@7279", &["--include-weak"]);
     assert_content!(output, "expected_retainers_weakrefs.txt");
+}
+
+#[test]
+fn retainers_weakrefs_default_output() {
+    // @7279 is the WeakTarget instance created in snapshot_weakrefs.js.
+    // By default, weak references are ignored, resulting in a different plan.
+    let output = run_retainers("weakrefs.heapsnapshot", "@7279", &[]);
+    assert_content!(output, "expected_retainers_weakrefs_default.txt");
 }
 
 #[test]

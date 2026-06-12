@@ -4239,6 +4239,11 @@ impl HeapSnapshot {
         }
     }
 
+    pub fn is_weak_edge(&self, edge: EdgeId) -> bool {
+        let edge_type = self.edges[edge.0 + self.edge_type_offset];
+        edge_type == self.edge_weak_type
+    }
+
     pub fn edge_name(&self, edge: EdgeId) -> String {
         let edge_type = self.edges[edge.0 + self.edge_type_offset];
         let name_or_index = self.edges[edge.0 + self.edge_name_offset];

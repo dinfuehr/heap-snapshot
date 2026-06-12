@@ -714,6 +714,7 @@ fn test_pressing_a_on_selected_of_status_line_shows_all_retainers() {
         RetainerAutoExpandLimits {
             max_depth: 8,
             max_nodes: 64,
+            include_weak: false,
         },
     );
     app.apply_retainers_plan(NodeOrdinal(2), plan, &snap);
@@ -759,6 +760,7 @@ fn test_pressing_v_on_selected_of_status_line_switches_to_pagination() {
         RetainerAutoExpandLimits {
             max_depth: 8,
             max_nodes: 64,
+            include_weak: false,
         },
     );
     app.apply_retainers_plan(NodeOrdinal(2), plan, &snap);
@@ -813,6 +815,7 @@ fn test_pressing_v_on_small_retainer_set_shows_all() {
         RetainerAutoExpandLimits {
             max_depth: 8,
             max_nodes: 64,
+            include_weak: false,
         },
     );
     app.apply_retainers_plan(NodeOrdinal(2), plan, &snap);
@@ -866,6 +869,7 @@ fn test_plan_tree_uses_retainer_path_keys() {
         RetainerAutoExpandLimits {
             max_depth: 8,
             max_nodes: 64,
+            include_weak: false,
         },
     );
     app.apply_retainers_plan(NodeOrdinal(2), plan, &snap);
@@ -2652,6 +2656,7 @@ fn test_plan_stops_at_gc_root_successor() {
         RetainerAutoExpandLimits {
             max_depth: 10,
             max_nodes: 100,
+            include_weak: false,
         },
     );
 
@@ -2703,6 +2708,7 @@ fn test_plan_gc_root_successor_is_leaf_in_tui() {
         RetainerAutoExpandLimits {
             max_depth: 10,
             max_nodes: 100,
+            include_weak: false,
         },
     );
     app.apply_retainers_plan(NodeOrdinal(2), plan, &snap);
@@ -2812,6 +2818,7 @@ fn test_plan_includes_weak_retainer_paths() {
         RetainerAutoExpandLimits {
             max_depth: 10,
             max_nodes: 100,
+            include_weak: true,
         },
     );
     assert!(plan.reached_gc_roots);
@@ -2854,6 +2861,76 @@ fn test_plan_includes_weak_retainer_paths() {
     assert!(
         weak_row.unwrap().render.is_weak,
         "WeakHolder should be marked weak"
+    );
+}
+
+#[test]
+fn test_plan_excludes_weak_retainer_paths_by_default() {
+    let strings = vec![
+        "".to_string(),             // 0
+        "(GC roots)".to_string(),   // 1
+        "StrongHolder".to_string(), // 2
+        "WeakHolder".to_string(),   // 3
+        "Target".to_string(),       // 4
+        "ref".to_string(),          // 5
+        "weak_ref".to_string(),     // 6
+        "gc".to_string(),           // 7
+    ];
+
+    let ni = |ord: usize| (ord * 5) as u32;
+    let nodes = vec![
+        // node 0: synthetic root (2 edges: -> GC roots)
+        9, 0, 1, 0, 1, // node 1: (GC roots) (2 edges: -> StrongHolder, -> WeakHolder)
+        9, 1, 2, 0, 2, // node 2: StrongHolder (1 strong edge -> Target)
+        3, 2, 3, 10, 1, // node 3: WeakHolder (1 weak edge -> Target)
+        3, 3, 4, 10, 1, // node 4: Target (0 edges)
+        3, 4, 5, 100, 0,
+    ];
+
+    let edges = vec![
+        // node 0 edges
+        1,
+        0,
+        ni(1), // e0: root -> (GC roots)
+        // node 1 edges
+        2,
+        7,
+        ni(2), // e1: (GC roots) -> StrongHolder
+        2,
+        7,
+        ni(3), // e2: (GC roots) -> WeakHolder
+        // node 2 edges
+        2,
+        5,
+        ni(4), // e3: StrongHolder -> Target (strong)
+        // node 3 edges
+        6,
+        6,
+        ni(4), // e4: WeakHolder -> Target (weak, type=6)
+    ];
+
+    let snap = build_snapshot(strings, nodes, edges);
+
+    let plan = plan_gc_root_retainer_paths(
+        &snap,
+        NodeOrdinal(4),
+        RetainerAutoExpandLimits {
+            max_depth: 10,
+            max_nodes: 100,
+            include_weak: false,
+        },
+    );
+    assert!(plan.reached_gc_roots);
+
+    // Only StrongHolder should be in the plan tree.
+    let top_retainers: Vec<NodeOrdinal> = plan.tree.iter().map(|e| e.retainer).collect();
+    assert!(
+        top_retainers.contains(&NodeOrdinal(2)),
+        "StrongHolder should be in the plan tree"
+    );
+    assert!(
+        !top_retainers.contains(&NodeOrdinal(3)),
+        "WeakHolder should NOT be in the plan tree (weak path ignored by default)"
     );
 }
 
@@ -2932,6 +3009,7 @@ fn test_apply_plan_shows_all_direct_retainers() {
         RetainerAutoExpandLimits {
             max_depth: 10,
             max_nodes: 100,
+            include_weak: false,
         },
     );
     app.apply_retainers_plan(NodeOrdinal(2), plan, &snap);
@@ -2988,6 +3066,7 @@ fn test_apply_plan_sorts_on_path_retainers_first() {
         RetainerAutoExpandLimits {
             max_depth: 10,
             max_nodes: 100,
+            include_weak: false,
         },
     );
     app.apply_retainers_plan(NodeOrdinal(2), plan, &snap);
@@ -3028,6 +3107,7 @@ fn test_apply_plan_no_selected_status_line() {
         RetainerAutoExpandLimits {
             max_depth: 10,
             max_nodes: 100,
+            include_weak: false,
         },
     );
     app.apply_retainers_plan(NodeOrdinal(2), plan, &snap);
@@ -3065,6 +3145,7 @@ fn test_apply_plan_intermediate_status_line() {
         RetainerAutoExpandLimits {
             max_depth: 8,
             max_nodes: 64,
+            include_weak: false,
         },
     );
     app.apply_retainers_plan(NodeOrdinal(2), plan, &snap);
@@ -3107,6 +3188,7 @@ fn test_apply_plan_intermediate_status_line_with_extra_retainers() {
         RetainerAutoExpandLimits {
             max_depth: 8,
             max_nodes: 64,
+            include_weak: false,
         },
     );
     app.apply_retainers_plan(NodeOrdinal(2), plan, &snap);
@@ -3226,6 +3308,7 @@ fn test_plan_excludes_shared_subgraph_dead_ends() {
         RetainerAutoExpandLimits {
             max_depth: 10,
             max_nodes: 100,
+            include_weak: false,
         },
     );
 
@@ -3283,6 +3366,7 @@ fn test_plan_diamond_gc_root_path_edges_complete() {
         RetainerAutoExpandLimits {
             max_depth: 10,
             max_nodes: 100,
+            include_weak: false,
         },
     );
 
@@ -3319,6 +3403,7 @@ fn test_plan_diamond_both_holders_visible_in_tui() {
         RetainerAutoExpandLimits {
             max_depth: 10,
             max_nodes: 100,
+            include_weak: false,
         },
     );
     app.apply_retainers_plan(NodeOrdinal(6), plan, &snap);
@@ -3377,6 +3462,7 @@ fn test_plan_reached_gc_roots_for_root_holder_start() {
         RetainerAutoExpandLimits {
             max_depth: 10,
             max_nodes: 100,
+            include_weak: false,
         },
     );
 
@@ -3407,6 +3493,7 @@ fn setup_weakrefs_tui() -> (HeapSnapshot, App) {
         RetainerAutoExpandLimits {
             max_depth: 20,
             max_nodes: 2000,
+            include_weak: false,
         },
     );
     app.apply_retainers_plan(ordinal, plan, &snap);
@@ -3892,6 +3979,7 @@ fn test_weakrefs_plan_tree_structure() {
         RetainerAutoExpandLimits {
             max_depth: 20,
             max_nodes: 2000,
+            include_weak: false,
         },
     );
 

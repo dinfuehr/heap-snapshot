@@ -1,0 +1,65 @@
+Retainers for WeakTarget @7279:
+Object                                                                  Distance     Shallow Size      Retained Size
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+▶ 11 in @43 (Stack roots)                                                      1         0 B   0%          28 B   0%
+▼ weakObj in @7643 global [JSGlobalObject]                                     2        24 B   0%         276 B   0%
+  ▶ 214 in @25 (Handle scope)                                                  1         0 B   0%           0 B   0%
+  ▼ global_object in @7293 global [JSGlobalProxy]                              2        16 B   0%          56 B   0%
+    ▶ 21 in @43 (Stack roots)                                                  1         0 B   0%          28 B   0%
+    ▶ 208 in @25 (Handle scope)                                                1         0 B   0%           0 B   0%
+    ▼ global_proxy_object in @7273 system / NativeContext                      2        1 kB   1%         23 kB  19%
+      ▶ 245 in @25 (Handle scope)                                              1         0 B   0%           0 B   0%
+      ▶ 244 in @25 (Handle scope)                                              1         0 B   0%           0 B   0%
+      ▶ 243 in @25 (Handle scope)                                              1         0 B   0%           0 B   0%
+      ▶ 242 in @25 (Handle scope)                                              1         0 B   0%           0 B   0%
+      ▶ 241 in @25 (Handle scope)                                              1         0 B   0%           0 B   0%
+      ▶ 213 in @25 (Handle scope)                                              1         0 B   0%           0 B   0%
+      ▶ 210 in @25 (Handle scope)                                              1         0 B   0%           0 B   0%
+      ▶ 207 in @25 (Handle scope)                                              1         0 B   0%           0 B   0%
+      ▶ 205 in @25 (Handle scope)                                              1         0 B   0%           0 B   0%
+      ▶ 192 in @25 (Handle scope)                                              1         0 B   0%           0 B   0%
+      ▶ 190 in @25 (Handle scope)                                              1         0 B   0%           0 B   0%
+      ▶ 189 in @25 (Handle scope)                                              1         0 B   0%           0 B   0%
+      ▶ 186 in @25 (Handle scope)                                              1         0 B   0%           0 B   0%
+      ▶ 185 in @25 (Handle scope)                                              1         0 B   0%           0 B   0%
+      ▶ 182 in @25 (Handle scope)                                              1         0 B   0%           0 B   0%
+      ▶ 181 in @25 (Handle scope)                                              1         0 B   0%           0 B   0%
+      ▶ 3 in @23 (Global handles)                                              1         0 B   0%           0 B   0%
+      ▶ 2 in @23 (Global handles)                                              1         0 B   0%           0 B   0%
+      ▼ native_context in @7663 system / Map                                   2        40 B   0%          40 B   0%
+        ▶ 230 in @25 (Handle scope)                                            1         0 B   0%           0 B   0%
+        ▼ map in @7291 system / Context / scope @7289                          2        44 B   0%          92 B   0%
+          ▶ 18 in @43 (Stack roots)                                            1         0 B   0%          28 B   0%
+          ▶ 231 in @25 (Handle scope)                                          1         0 B   0%           0 B   0%
+          ▼ [2] in @7645 system / ScriptContextTable                           2        80 B   0%         100 B   0%
+            ▶ 215 in @25 (Handle scope)                                        1         0 B   0%           0 B   0%
+          ▼ context in @7287 <anonymous> [JSFunction]                          2        32 B   0%          32 B   0%
+            ▶ 22 in @43 (Stack roots)                                          1         0 B   0%          28 B   0%
+            ▶ 17 in @43 (Stack roots)                                          1         0 B   0%          28 B   0%
+            ▶ 196 in @25 (Handle scope)                                        1         0 B   0%           0 B   0%
+          ▼ context in @28087 <anonymous> [JSFunction]                         3        28 B   0%          28 B   0%
+            ▼ [3] in @7281 FinalizationRegistry                                2        40 B   0%         104 B   0%
+              ▶ 12 in @43 (Stack roots)                                        1         0 B   0%          28 B   0%
+              ▼ registry in @26667 {strong, weakRef, registry}                 3        24 B   0%         200 B   0%
+                ▼ value in @27997 system / PropertyCell                        3        20 B   0%          20 B   0%
+                  ▼ 129 in @7649 (object properties)                           2        1 kB   1%          3 kB   2%
+                    ▶ 229 in @25 (Handle scope)                                1         0 B   0%           0 B   0%
+                    ▶ 227 in @25 (Handle scope)                                1         0 B   0%           0 B   0%
+                    ▶ 225 in @25 (Handle scope)                                1         0 B   0%           0 B   0%
+                    ▶ 223 in @25 (Handle scope)                                1         0 B   0%           0 B   0%
+                    ▶ 221 in @25 (Handle scope)                                1         0 B   0%           0 B   0%
+                    ▶ 219 in @25 (Handle scope)                                1         0 B   0%           0 B   0%
+                    ▶ 217 in @25 (Handle scope)                                1         0 B   0%           0 B   0%
+      ▼ context in @22505 valueOf [JSFunction]                                 3        28 B   0%          28 B   0%
+        ▼ valueOf in @22027 {constructor, __defineGetter__, __defineS…         3        28 B   0%         296 B   0%
+          ▼ prototype in @22339 Object [JSFunction]                            3        32 B   0%          1 kB   1%
+            ▼ constructor in @22613 system / Map                               4        40 B   0%         108 B   0%
+              ▼ map in @22165 Function [JSFunction]                            3        32 B   0%         160 B   0%
+                ▼ constructor in @7629 system / Map                            2        40 B   0%          96 B   0%
+                  ▶ 195 in @25 (Handle scope)                                  1         0 B   0%           0 B   0%
+▼ 5 in @2325                                                                   2        60 B   0%          60 B   0%
+  ▶ weak_refs_keep_during_job in @49 (Strong root list)                        1         0 B   0%          7 kB   5%
+▶ weakObj in @7291 system / Context / scope @7289                              2        44 B   0%          92 B   0%
+▶ target in @28089 system / WeakCell                                           3        36 B   0%          36 B   0%
+▶ value in @27999 system / PropertyCell                                        3        20 B   0%          20 B   0%
+▶ target in @27939 WeakRef                                                     3        16 B   0%          16 B   0%

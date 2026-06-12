@@ -933,6 +933,7 @@ pub fn run(
                             RetainerAutoExpandLimits {
                                 max_depth: DEFAULT_RETAINER_SEARCH_MAX_DEPTH,
                                 max_nodes: DEFAULT_RETAINER_SEARCH_MAX_NODES,
+                                include_weak: false,
                             },
                         );
                         let _ = result_tx.send(WorkResult::RetainerPlan { request, plan });

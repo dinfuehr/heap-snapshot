@@ -121,6 +121,9 @@ enum Command {
         /// Max nodes visited during auto-expansion search
         #[arg(long = "max-nodes", default_value_t = DEFAULT_RETAINER_SEARCH_MAX_NODES)]
         max_expand_nodes: usize,
+        /// Include weak references when computing retaining paths.
+        #[arg(long)]
+        include_weak: bool,
         /// Expand a node's edges: @id, @id:start, or @id:start:count (can be repeated)
         #[arg(short = 'e', long, value_name = "ID")]
         expand: Vec<String>,
@@ -514,6 +517,7 @@ fn main() {
             max_expand_depth,
             max_expand_nodes,
             expand,
+            include_weak,
         } => {
             let snap = load_snapshot(&snap_args.to_options(), &file);
             let id = parse_object_id(&object_id).unwrap_or_else(|e| {
@@ -530,6 +534,7 @@ fn main() {
                 print::retainers::RetainerAutoExpandLimits {
                     max_depth: max_expand_depth,
                     max_nodes: max_expand_nodes,
+                    include_weak,
                 },
             );
         }

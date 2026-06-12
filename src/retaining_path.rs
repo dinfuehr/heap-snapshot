@@ -10,6 +10,7 @@ pub const DEFAULT_RETAINER_SEARCH_MAX_NODES: usize = 5000;
 pub struct RetainerAutoExpandLimits {
     pub max_depth: usize,
     pub max_nodes: usize,
+    pub include_weak: bool,
 }
 
 /// A single retainer edge on a GC-root path.
@@ -95,6 +96,9 @@ pub fn plan_gc_root_retainer_paths(
         let mut retainers: Vec<(EdgeId, NodeOrdinal)> = Vec::new();
         let mut directly_retained_by_gc_roots = false;
         snap.for_each_retainer(node, |edge_idx, ret_ordinal| {
+            if !limits.include_weak && snap.is_weak_edge(edge_idx) {
+                return;
+            }
             if dfs_stack.contains(&ret_ordinal) {
                 return;
             }

@@ -36,6 +36,7 @@ impl BenchApp {
             RetainerAutoExpandLimits {
                 max_depth: DEFAULT_RETAINER_SEARCH_MAX_DEPTH,
                 max_nodes: DEFAULT_RETAINER_SEARCH_MAX_NODES,
+                include_weak: false,
             },
         );
         if plan.reached_gc_roots {
