@@ -143,7 +143,7 @@ fn make_test_snapshot() -> HeapSnapshot {
         samples: vec![],
     };
 
-    HeapSnapshot::new(raw)
+    HeapSnapshot::from_raw_with_options(raw, Default::default())
 }
 
 fn make_js_global_snapshot() -> HeapSnapshot {
@@ -303,7 +303,7 @@ fn make_js_global_snapshot() -> HeapSnapshot {
         samples: vec![],
     };
 
-    HeapSnapshot::new(raw)
+    HeapSnapshot::from_raw_with_options(raw, Default::default())
 }
 
 #[test]
@@ -678,7 +678,7 @@ fn test_node_display_name_number_types() {
         samples: vec![],
     };
 
-    let snap = HeapSnapshot::new(raw);
+    let snap = HeapSnapshot::from_raw_with_options(raw, Default::default());
     assert_eq!(snap.node_display_name(NodeOrdinal(2)), "smi 42");
     assert_eq!(snap.node_display_name(NodeOrdinal(3)), "double 12.75");
     assert_eq!(snap.node_display_name(NodeOrdinal(6)), "int 2064");
@@ -1266,7 +1266,7 @@ fn build_snapshot(
         trace_tree_func_idxs: vec![],
         samples: vec![],
     };
-    HeapSnapshot::new(raw)
+    HeapSnapshot::from_raw_with_options(raw, Default::default())
 }
 
 fn build_snapshot_with_options(
@@ -1305,7 +1305,7 @@ fn build_snapshot_with_options(
         trace_tree_func_idxs: vec![],
         samples: vec![],
     };
-    HeapSnapshot::new_with_options(raw, options)
+    HeapSnapshot::from_raw_with_options(raw, options)
 }
 
 // ====== Snapshot builders ======
@@ -2664,7 +2664,7 @@ fn make_location_snapshot() -> HeapSnapshot {
         trace_tree_func_idxs: vec![],
         samples: vec![],
     };
-    HeapSnapshot::new(raw)
+    HeapSnapshot::from_raw_with_options(raw, Default::default())
 }
 
 #[test]
@@ -4149,7 +4149,7 @@ fn test_statistics_extra_native_bytes() {
         trace_tree_func_idxs: vec![],
         samples: vec![],
     };
-    let snap = HeapSnapshot::new(raw);
+    let snap = HeapSnapshot::from_raw_with_options(raw, Default::default());
 
     let stats = snap.get_statistics();
     // total = gc_roots retained (100) + extra_native_bytes (500) = 600
@@ -4379,7 +4379,7 @@ fn make_unreachable_snapshot() -> HeapSnapshot {
         samples: vec![],
     };
 
-    HeapSnapshot::new(raw)
+    HeapSnapshot::from_raw_with_options(raw, Default::default())
 }
 
 #[test]
@@ -4552,7 +4552,7 @@ fn make_isolated_unreachable_snapshot() -> HeapSnapshot {
         samples: vec![],
     };
 
-    HeapSnapshot::new(raw)
+    HeapSnapshot::from_raw_with_options(raw, Default::default())
 }
 
 #[test]
@@ -4700,7 +4700,7 @@ fn test_unreachable_weak_and_strong_to_same_target() {
         samples: vec![],
     };
 
-    let snap = HeapSnapshot::new(raw);
+    let snap = HeapSnapshot::from_raw_with_options(raw, Default::default());
 
     // Node 2 is reachable
     assert_eq!(snap.node_distance(NodeOrdinal(2)), Distance(1));
@@ -4856,7 +4856,7 @@ fn test_unreachable_strong_from_unreachable_and_weak_from_reachable() {
         samples: vec![],
     };
 
-    let snap = HeapSnapshot::new(raw);
+    let snap = HeapSnapshot::from_raw_with_options(raw, Default::default());
 
     // Reachable and C are reachable from GC roots
     assert_eq!(snap.node_distance(NodeOrdinal(2)), Distance(1));
@@ -4989,7 +4989,7 @@ fn test_unreachable_weak_only_does_not_propagate() {
         samples: vec![],
     };
 
-    let snap = HeapSnapshot::new(raw);
+    let snap = HeapSnapshot::from_raw_with_options(raw, Default::default());
 
     // A (node 3): reachable retainer via weak edge → U
     assert_eq!(
@@ -5180,7 +5180,7 @@ fn build_test_snapshot(strings: Vec<String>, nodes: Vec<u32>, edges: Vec<u32>) -
         samples: vec![],
     };
 
-    HeapSnapshot::new(raw)
+    HeapSnapshot::from_raw_with_options(raw, Default::default())
 }
 
 fn build_test_snapshot_with_options(
@@ -5256,7 +5256,7 @@ fn build_test_snapshot_with_options(
         samples: vec![],
     };
 
-    HeapSnapshot::new_with_options(raw, options)
+    HeapSnapshot::from_raw_with_options(raw, options)
 }
 
 // node index helper: ordinal * 5 (node_field_count)
@@ -8394,7 +8394,7 @@ fn make_function_snapshot() -> HeapSnapshot {
         samples: vec![],
     };
 
-    HeapSnapshot::new(raw)
+    HeapSnapshot::from_raw_with_options(raw, Default::default())
 }
 
 #[test]
@@ -8637,7 +8637,7 @@ fn make_alloc_tracking_snapshot() -> HeapSnapshot {
         // interval 2: ts=100000, last_id=7 (nodes 3,4 with ids 5,7 fall here)
         samples: vec![50000, 3, 100000, 7],
     };
-    HeapSnapshot::new(raw)
+    HeapSnapshot::from_raw_with_options(raw, Default::default())
 }
 
 #[test]
@@ -8847,7 +8847,7 @@ fn make_detached_dom_snapshot() -> HeapSnapshot {
         trace_tree_func_idxs: vec![],
         samples: vec![],
     };
-    HeapSnapshot::new(raw)
+    HeapSnapshot::from_raw_with_options(raw, Default::default())
 }
 
 #[test]

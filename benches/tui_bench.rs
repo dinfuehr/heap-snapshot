@@ -1,19 +1,13 @@
 use criterion::{Criterion, criterion_group, criterion_main};
-use heap_snapshot::parser;
 use heap_snapshot::snapshot::HeapSnapshot;
 use heap_snapshot::tui::bench::BenchApp;
-use std::fs::File;
 
 fn load_snapshot() -> HeapSnapshot {
-    let file = File::open("tests/data/heap-1.heapsnapshot").unwrap();
-    let raw = parser::parse(file).unwrap();
-    HeapSnapshot::new(raw)
+    HeapSnapshot::load_with_options("tests/data/heap-1.heapsnapshot", Default::default()).unwrap()
 }
 
 fn load_weakrefs_snapshot() -> HeapSnapshot {
-    let file = File::open("tests/data/weakrefs.heapsnapshot").unwrap();
-    let raw = parser::parse(file).unwrap();
-    HeapSnapshot::new(raw)
+    HeapSnapshot::load_with_options("tests/data/weakrefs.heapsnapshot", Default::default()).unwrap()
 }
 
 fn bench_app_new(c: &mut Criterion) {

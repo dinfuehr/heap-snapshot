@@ -1,10 +1,7 @@
-use std::io::Cursor;
-
 use serde::Serialize;
 use wasm_bindgen::prelude::*;
 
 use heap_snapshot::diff;
-use heap_snapshot::parser;
 use heap_snapshot::retaining_path::{
     RetainerAutoExpandLimits, RetainerPathEdge, plan_gc_root_retainer_paths,
 };
@@ -283,15 +280,13 @@ fn to_json<T: Serialize>(val: &T) -> String {
 impl WasmHeapSnapshot {
     #[wasm_bindgen(constructor)]
     pub fn new(data: &[u8]) -> Result<WasmHeapSnapshot, JsError> {
-        let cursor = Cursor::new(data);
-        let raw = parser::parse_from_reader(cursor)
-            .map_err(|e| JsError::new(&format!("Parse error: {e}")))?;
-        let inner = HeapSnapshot::new_with_options(
-            raw,
+        let inner = HeapSnapshot::from_bytes_with_options(
+            data,
             SnapshotOptions {
                 weak_is_reachable: false,
             },
-        );
+        )
+        .map_err(|e| JsError::new(&format!("Parse error: {e}")))?;
         let cached_summary_aggregates = Some(inner.aggregates_with_filter());
         Ok(WasmHeapSnapshot {
             inner,

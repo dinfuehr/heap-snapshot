@@ -172,7 +172,7 @@ mod tests {
             trace_tree_func_idxs: vec![],
             samples: vec![],
         };
-        HeapSnapshot::new(raw)
+        HeapSnapshot::from_raw_with_options(raw, Default::default())
     }
 
     // strings: 0:"", 1:"(GC roots)", 2:"Object", 3:"hello", 4:"Array", 5:"global", 6:"arr", 7:"str"

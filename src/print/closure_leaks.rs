@@ -745,7 +745,7 @@ mod tests {
             trace_tree_func_idxs: vec![],
             samples: vec![],
         };
-        HeapSnapshot::new(raw)
+        HeapSnapshot::from_raw_with_options(raw, Default::default())
     }
 
     fn all_contexts(snap: &HeapSnapshot) -> Vec<NodeOrdinal> {

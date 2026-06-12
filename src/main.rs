@@ -1,8 +1,6 @@
 use clap::{Parser, Subcommand};
-use std::fs::File;
 
 use heap_snapshot::mcp;
-use heap_snapshot::parser;
 use heap_snapshot::print::{self, EdgeWindow, ExpandMap, GroupExpandMap, GroupWindow};
 use heap_snapshot::retaining_path::{
     DEFAULT_RETAINER_SEARCH_MAX_DEPTH, DEFAULT_RETAINER_SEARCH_MAX_NODES,
@@ -405,17 +403,11 @@ fn parse_size_bytes(value: &str) -> Result<u64, String> {
 }
 
 fn load_snapshot(options: &SnapshotOptions, path: &str) -> HeapSnapshot {
-    eprintln!("Reading and parsing {path}...");
-    let file = File::open(path).unwrap_or_else(|e| {
-        eprintln!("Error reading file: {e}");
+    eprintln!("Loading {path}...");
+    HeapSnapshot::load_with_options(path, options.clone()).unwrap_or_else(|e| {
+        eprintln!("Error loading snapshot: {e}");
         std::process::exit(1);
-    });
-    let raw = parser::parse(file).unwrap_or_else(|e| {
-        eprintln!("Error parsing snapshot: {e}");
-        std::process::exit(1);
-    });
-    eprintln!("Initializing snapshot...");
-    HeapSnapshot::new_with_options(raw, options.clone())
+    })
 }
 
 fn main() {

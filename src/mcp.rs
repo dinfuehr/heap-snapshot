@@ -1,5 +1,4 @@
 use rustc_hash::FxHashMap;
-use std::fs::File;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, Ordering};
 use tokio::sync::Mutex;
@@ -12,7 +11,6 @@ use rmcp::{ErrorData as McpError, RoleServer, ServerHandler, tool, tool_handler,
 
 use crate::diff;
 use crate::display::truncate_str;
-use crate::parser;
 use crate::print::closure_leaks;
 use crate::print::diff::{format_signed_count, format_signed_size};
 use crate::print::{format_count, format_size};
@@ -204,20 +202,13 @@ impl McpServer {
         let path = params.path;
 
         let (snapshot, node_count, path) = tokio::task::spawn_blocking(move || {
-            let file = File::open(&path).map_err(|e| {
-                McpError::internal_error(format!("Failed to open {path}: {e}"), None)
-            })?;
-
-            let raw = parser::parse(file).map_err(|e| {
-                McpError::internal_error(format!("Failed to parse {path}: {e}"), None)
-            })?;
-
-            let snapshot = HeapSnapshot::new_with_options(
-                raw,
+            let snapshot = HeapSnapshot::load_with_options(
+                &path,
                 SnapshotOptions {
                     weak_is_reachable: false,
                 },
-            );
+            )
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
 
             let node_count = snapshot.node_count();
             Ok::<_, McpError>((snapshot, node_count, path))

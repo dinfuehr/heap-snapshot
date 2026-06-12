@@ -2,7 +2,6 @@ use super::children::{compute_edges, compute_retainers, shifted_window_start};
 use super::*;
 use crate::types::{Distance, EdgeId, RawHeapSnapshot, SnapshotHeader, SnapshotMeta};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use std::fs::File;
 use std::rc::Rc;
 
 fn standard_snapshot_meta() -> (Vec<String>, Vec<String>, Vec<String>, Vec<String>) {
@@ -75,13 +74,11 @@ fn build_snapshot(strings: Vec<String>, nodes: Vec<u32>, edges: Vec<u32>) -> Hea
         samples: vec![],
     };
 
-    HeapSnapshot::new(raw)
+    HeapSnapshot::from_raw_with_options(raw, Default::default())
 }
 
 fn load_test_snapshot(path: &str) -> HeapSnapshot {
-    let file = File::open(path).unwrap();
-    let raw = crate::parser::parse(file).unwrap();
-    HeapSnapshot::new(raw)
+    HeapSnapshot::load_with_options(path, Default::default()).unwrap()
 }
 
 fn find_row_index_by_ordinal(app: &App, ordinal: NodeOrdinal) -> usize {
