@@ -336,7 +336,7 @@ impl HeapSnapshot {
 
         let node_count = raw_nodes.len() / node_field_count;
         let edge_count = raw_edges.len() / edge_fields_count;
-        let root_node_index = snapshot.root_index.unwrap_or(0);
+        let root_ordinal = snapshot.root_index.unwrap_or(0) / node_field_count;
         let extra_native_bytes = snapshot.extra_native_bytes.unwrap_or(0);
         let nodes = Self::build_node_records(
             &raw_nodes,
@@ -389,8 +389,8 @@ impl HeapSnapshot {
             edge_context_type,
             node_count,
             edge_count,
-            root_node_index,
-            gc_roots_ordinal: root_node_index / node_field_count,
+            root_ordinal,
+            gc_roots_ordinal: INVALID_NODE_ORDINAL,
             node_distances: Vec::new(),
             retained_sizes: Vec::new(),
             dominators_tree: Vec::new(),

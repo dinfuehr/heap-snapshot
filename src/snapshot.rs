@@ -24,6 +24,7 @@ pub const CPPGC_STACK_ROOTS: &str = "C++ native stack roots";
 use crate::types::Distance;
 const BITMASK_FOR_DOM_LINK_STATE: u32 = 0b11;
 const BITMAP_WORD_BITS: usize = u64::BITS as usize;
+const INVALID_NODE_ORDINAL: usize = usize::MAX;
 
 #[derive(Clone, Debug)]
 struct Bitmap {
@@ -308,7 +309,7 @@ pub struct HeapSnapshot {
     // Computed data
     node_count: usize,
     edge_count: usize,
-    root_node_index: usize,
+    root_ordinal: usize,
     gc_roots_ordinal: usize,
     node_distances: Vec<Distance>,
     retained_sizes: Vec<u64>,
@@ -406,7 +407,7 @@ impl HeapSnapshot {
 
     #[inline]
     fn root_ordinal(&self) -> usize {
-        self.root_node_index / self.node_field_count
+        self.root_ordinal
     }
 
     #[inline]
@@ -967,6 +968,7 @@ impl HeapSnapshot {
     /// retained-size computation.
     #[allow(dead_code)]
     pub fn gc_roots_ordinal(&self) -> NodeOrdinal {
+        debug_assert_ne!(self.gc_roots_ordinal, INVALID_NODE_ORDINAL);
         NodeOrdinal(self.gc_roots_ordinal)
     }
 
