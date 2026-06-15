@@ -404,7 +404,7 @@ fn find_context_location(snap: &HeapSnapshot, context_ord: NodeOrdinal) -> Optio
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::{RawHeapSnapshot, SnapshotHeader, SnapshotMeta};
+    use crate::types::{SnapshotHeader, SnapshotMeta};
 
     // JS source used by tests. `outer` creates a context with [a, b].
     // `f` captures `a`, `g` captures `b`.
@@ -701,7 +701,7 @@ mod tests {
             ]);
         }
 
-        let raw = RawHeapSnapshot {
+        parsed_heap_snapshot! {
             snapshot: SnapshotHeader {
                 meta: SnapshotMeta {
                     node_fields: s(&["type", "name", "id", "self_size", "edge_count"]),
@@ -744,8 +744,7 @@ mod tests {
             trace_tree_parents: vec![],
             trace_tree_func_idxs: vec![],
             samples: vec![],
-        };
-        HeapSnapshot::from_raw_with_options(raw, Default::default())
+        }
     }
 
     fn all_contexts(snap: &HeapSnapshot) -> Vec<NodeOrdinal> {

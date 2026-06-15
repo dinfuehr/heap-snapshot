@@ -69,21 +69,30 @@ impl std::fmt::Display for NodeId {
     }
 }
 
-pub struct RawHeapSnapshot {
-    pub snapshot: SnapshotHeader,
-    pub nodes: Vec<u32>,
-    pub edges: Vec<u32>,
-    pub strings: Vec<String>,
-    pub locations: Vec<u32>,
-    /// Flat array of trace function info entries (6 fields each).
-    pub trace_function_infos: Vec<u32>,
-    /// Flattened trace tree: trace_node_id -> parent trace_node_id.
-    pub trace_tree_parents: Vec<u32>,
-    /// Flattened trace tree: trace_node_id -> function_info index.
-    pub trace_tree_func_idxs: Vec<u32>,
-    /// Samples: flat array of [timestamp_us, last_assigned_id] pairs.
-    pub samples: Vec<u32>,
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct NodeRecord {
+    pub(crate) type_id: u32,
+    pub(crate) name: u32,
+    pub(crate) id: u32,
+    pub(crate) self_size: u32,
+    pub(crate) edge_count: u32,
+    pub(crate) detachedness: u32,
+    pub(crate) trace_node_id: u32,
+    pub(crate) first_edge: u32,
 }
+
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct EdgeRecord {
+    pub(crate) type_id: u32,
+    pub(crate) name_or_index: u32,
+    pub(crate) to_node_ordinal: u32,
+    pub(crate) _padding: u32,
+}
+
+const _: () = {
+    assert!(std::mem::size_of::<NodeRecord>().is_power_of_two());
+    assert!(std::mem::size_of::<EdgeRecord>().is_power_of_two());
+};
 
 pub struct SnapshotHeader {
     pub meta: SnapshotMeta,

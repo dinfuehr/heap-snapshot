@@ -11,8 +11,8 @@ use regex::Regex;
 use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::types::{
-    AggregateInfo, AggregateMap, DuplicateStringInfo, DuplicateStringsResult, EdgeId, NodeId,
-    NodeOrdinal, Statistics,
+    AggregateInfo, AggregateMap, DuplicateStringInfo, DuplicateStringsResult, EdgeId, EdgeRecord,
+    NodeId, NodeOrdinal, NodeRecord, SnapshotHeader, Statistics,
 };
 use crate::utils::{utf16_offset_to_byte, utf16_offset_to_line_column};
 
@@ -162,6 +162,169 @@ pub struct SnapshotOptions {
     pub weak_is_reachable: bool,
 }
 
+struct ParsedHeapSnapshot {
+    snapshot: SnapshotHeader,
+    nodes: Vec<NodeRecord>,
+    edges: Vec<EdgeRecord>,
+    strings: Vec<String>,
+    locations: Vec<u32>,
+    trace_function_infos: Vec<u32>,
+    trace_tree_parents: Vec<u32>,
+    trace_tree_func_idxs: Vec<u32>,
+    samples: Vec<u32>,
+}
+
+impl ParsedHeapSnapshot {
+    fn from_raw_parts(
+        snapshot: SnapshotHeader,
+        raw_nodes: Vec<u32>,
+        raw_edges: Vec<u32>,
+        strings: Vec<String>,
+        locations: Vec<u32>,
+        trace_function_infos: Vec<u32>,
+        trace_tree_parents: Vec<u32>,
+        trace_tree_func_idxs: Vec<u32>,
+        samples: Vec<u32>,
+    ) -> Self {
+        let meta = &snapshot.meta;
+
+        let node_type_offset = meta.node_fields.iter().position(|f| f == "type").unwrap();
+        let node_name_offset = meta.node_fields.iter().position(|f| f == "name").unwrap();
+        let node_id_offset = meta.node_fields.iter().position(|f| f == "id").unwrap();
+        let node_self_size_offset = meta
+            .node_fields
+            .iter()
+            .position(|f| f == "self_size")
+            .unwrap();
+        let node_edge_count_offset = meta
+            .node_fields
+            .iter()
+            .position(|f| f == "edge_count")
+            .unwrap();
+        let node_detachedness_offset = meta
+            .node_fields
+            .iter()
+            .position(|f| f == "detachedness")
+            .map(|p| p as i32)
+            .unwrap_or(-1);
+        let node_trace_node_id_offset = meta
+            .node_fields
+            .iter()
+            .position(|f| f == "trace_node_id")
+            .map(|p| p as i32)
+            .unwrap_or(-1);
+        let node_field_count = meta.node_fields.len();
+
+        let edge_fields_count = meta.edge_fields.len();
+        let edge_type_offset = meta.edge_fields.iter().position(|f| f == "type").unwrap();
+        let edge_name_offset = meta
+            .edge_fields
+            .iter()
+            .position(|f| f == "name_or_index")
+            .unwrap();
+        let edge_to_node_offset = meta
+            .edge_fields
+            .iter()
+            .position(|f| f == "to_node")
+            .unwrap();
+
+        let nodes = Self::build_node_records(
+            &raw_nodes,
+            node_field_count,
+            node_type_offset,
+            node_name_offset,
+            node_id_offset,
+            node_self_size_offset,
+            node_edge_count_offset,
+            node_detachedness_offset,
+            node_trace_node_id_offset,
+        );
+        let edges = Self::build_edge_records(
+            &raw_edges,
+            edge_fields_count,
+            edge_type_offset,
+            edge_name_offset,
+            edge_to_node_offset,
+            node_field_count,
+        );
+
+        Self {
+            snapshot,
+            nodes,
+            edges,
+            strings,
+            locations,
+            trace_function_infos,
+            trace_tree_parents,
+            trace_tree_func_idxs,
+            samples,
+        }
+    }
+
+    fn build_node_records(
+        raw_nodes: &[u32],
+        node_field_count: usize,
+        node_type_offset: usize,
+        node_name_offset: usize,
+        node_id_offset: usize,
+        node_self_size_offset: usize,
+        node_edge_count_offset: usize,
+        node_detachedness_offset: i32,
+        node_trace_node_id_offset: i32,
+    ) -> Vec<NodeRecord> {
+        let node_count = raw_nodes.len() / node_field_count;
+        let mut records = Vec::with_capacity(node_count);
+        let mut first_edge = 0u32;
+        for ordinal in 0..node_count {
+            let node_index = ordinal * node_field_count;
+            let edge_count = raw_nodes[node_index + node_edge_count_offset];
+            records.push(NodeRecord {
+                type_id: raw_nodes[node_index + node_type_offset],
+                name: raw_nodes[node_index + node_name_offset],
+                id: raw_nodes[node_index + node_id_offset],
+                self_size: raw_nodes[node_index + node_self_size_offset],
+                edge_count,
+                detachedness: if node_detachedness_offset >= 0 {
+                    raw_nodes[node_index + node_detachedness_offset as usize]
+                } else {
+                    0
+                },
+                trace_node_id: if node_trace_node_id_offset >= 0 {
+                    raw_nodes[node_index + node_trace_node_id_offset as usize]
+                } else {
+                    0
+                },
+                first_edge,
+            });
+            first_edge += edge_count;
+        }
+        records
+    }
+
+    fn build_edge_records(
+        raw_edges: &[u32],
+        edge_fields_count: usize,
+        edge_type_offset: usize,
+        edge_name_offset: usize,
+        edge_to_node_offset: usize,
+        node_field_count: usize,
+    ) -> Vec<EdgeRecord> {
+        let edge_count = raw_edges.len() / edge_fields_count;
+        let mut records = Vec::with_capacity(edge_count);
+        for edge_ordinal in 0..edge_count {
+            let edge_index = edge_ordinal * edge_fields_count;
+            records.push(EdgeRecord {
+                type_id: raw_edges[edge_index + edge_type_offset],
+                name_or_index: raw_edges[edge_index + edge_name_offset],
+                to_node_ordinal: (raw_edges[edge_index + edge_to_node_offset] as usize
+                    / node_field_count) as u32,
+                _padding: 0,
+            });
+        }
+        records
+    }
+}
+
 #[derive(Clone, Copy)]
 pub struct SourceLocation {
     pub script_id: u32,
@@ -304,31 +467,6 @@ pub fn parse_edge_refs(edge_name: &str) -> Vec<ParsedEdgeRef> {
         },
     ]
 }
-
-#[derive(Clone, Copy, Debug)]
-struct NodeRecord {
-    type_id: u32,
-    name: u32,
-    id: u32,
-    self_size: u32,
-    edge_count: u32,
-    detachedness: u32,
-    trace_node_id: u32,
-    first_edge: u32,
-}
-
-#[derive(Clone, Copy, Debug)]
-struct EdgeRecord {
-    type_id: u32,
-    name_or_index: u32,
-    to_node_ordinal: u32,
-    _padding: u32,
-}
-
-const _: () = {
-    assert!(std::mem::size_of::<NodeRecord>().is_power_of_two());
-    assert!(std::mem::size_of::<EdgeRecord>().is_power_of_two());
-};
 
 pub struct HeapSnapshot {
     // Cooked graph data. Node and edge handles are ordinals into these arrays.

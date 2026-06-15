@@ -1,5 +1,5 @@
 use super::*;
-use crate::types::{AggregateInfo, Distance, RawHeapSnapshot, SnapshotHeader, SnapshotMeta};
+use crate::types::{AggregateInfo, Distance, SnapshotHeader, SnapshotMeta};
 
 /// Find an aggregate by name, panicking if not found.
 fn find_first_agg<'a>(aggs: &'a [AggregateInfo], name: &str) -> &'a AggregateInfo {
@@ -115,7 +115,7 @@ fn make_test_snapshot() -> HeapSnapshot {
         3 * nfc as u32, // edge 3: property, "str",    -> node 3 (hello)
     ];
 
-    let raw = RawHeapSnapshot {
+    parsed_heap_snapshot! {
         snapshot: SnapshotHeader {
             meta: SnapshotMeta {
                 node_fields,
@@ -141,9 +141,7 @@ fn make_test_snapshot() -> HeapSnapshot {
         trace_tree_parents: vec![],
         trace_tree_func_idxs: vec![],
         samples: vec![],
-    };
-
-    HeapSnapshot::from_raw_with_options(raw, Default::default())
+    }
 }
 
 fn make_js_global_snapshot() -> HeapSnapshot {
@@ -275,7 +273,7 @@ fn make_js_global_snapshot() -> HeapSnapshot {
         nodes_u32(11),
     ];
 
-    let raw = RawHeapSnapshot {
+    parsed_heap_snapshot! {
         snapshot: SnapshotHeader {
             meta: SnapshotMeta {
                 node_fields,
@@ -301,9 +299,7 @@ fn make_js_global_snapshot() -> HeapSnapshot {
         trace_tree_parents: vec![],
         trace_tree_func_idxs: vec![],
         samples: vec![],
-    };
-
-    HeapSnapshot::from_raw_with_options(raw, Default::default())
+    }
 }
 
 #[test]
@@ -650,7 +646,7 @@ fn test_node_display_name_number_types() {
         11 * nfc as u32, // node 10 -> node 11 (internal "value")
     ];
 
-    let raw = RawHeapSnapshot {
+    let snap = parsed_heap_snapshot! {
         snapshot: SnapshotHeader {
             meta: SnapshotMeta {
                 node_fields,
@@ -677,8 +673,6 @@ fn test_node_display_name_number_types() {
         trace_tree_func_idxs: vec![],
         samples: vec![],
     };
-
-    let snap = HeapSnapshot::from_raw_with_options(raw, Default::default());
     assert_eq!(snap.node_display_name(NodeOrdinal(2)), "smi 42");
     assert_eq!(snap.node_display_name(NodeOrdinal(3)), "double 12.75");
     assert_eq!(snap.node_display_name(NodeOrdinal(6)), "int 2064");
@@ -1239,7 +1233,7 @@ fn build_snapshot(
 ) -> HeapSnapshot {
     let nfc = node_fields.len();
     let efc = 3;
-    let raw = RawHeapSnapshot {
+    parsed_heap_snapshot! {
         snapshot: SnapshotHeader {
             meta: SnapshotMeta {
                 node_fields,
@@ -1265,8 +1259,7 @@ fn build_snapshot(
         trace_tree_parents: vec![],
         trace_tree_func_idxs: vec![],
         samples: vec![],
-    };
-    HeapSnapshot::from_raw_with_options(raw, Default::default())
+    }
 }
 
 fn build_snapshot_with_options(
@@ -1278,7 +1271,8 @@ fn build_snapshot_with_options(
 ) -> HeapSnapshot {
     let nfc = node_fields.len();
     let efc = 3;
-    let raw = RawHeapSnapshot {
+    parsed_heap_snapshot! {
+        options: options,
         snapshot: SnapshotHeader {
             meta: SnapshotMeta {
                 node_fields,
@@ -1304,8 +1298,7 @@ fn build_snapshot_with_options(
         trace_tree_parents: vec![],
         trace_tree_func_idxs: vec![],
         samples: vec![],
-    };
-    HeapSnapshot::from_raw_with_options(raw, options)
+    }
 }
 
 // ====== Snapshot builders ======
@@ -2637,7 +2630,7 @@ fn make_location_snapshot() -> HeapSnapshot {
         3, // node 3
     ];
 
-    let raw = RawHeapSnapshot {
+    parsed_heap_snapshot! {
         snapshot: SnapshotHeader {
             meta: SnapshotMeta {
                 node_fields,
@@ -2658,13 +2651,12 @@ fn make_location_snapshot() -> HeapSnapshot {
         nodes,
         edges,
         strings,
-        locations,
+        locations: locations,
         trace_function_infos: vec![],
         trace_tree_parents: vec![],
         trace_tree_func_idxs: vec![],
         samples: vec![],
-    };
-    HeapSnapshot::from_raw_with_options(raw, Default::default())
+    }
 }
 
 #[test]
@@ -4111,7 +4103,7 @@ fn test_statistics_native_array_buffer_data() {
 #[test]
 fn test_statistics_extra_native_bytes() {
     let nfc = 5;
-    let raw = RawHeapSnapshot {
+    let snap = parsed_heap_snapshot! {
         snapshot: SnapshotHeader {
             meta: SnapshotMeta {
                 node_fields: standard_node_fields(),
@@ -4149,7 +4141,6 @@ fn test_statistics_extra_native_bytes() {
         trace_tree_func_idxs: vec![],
         samples: vec![],
     };
-    let snap = HeapSnapshot::from_raw_with_options(raw, Default::default());
 
     let stats = snap.get_statistics();
     // total = gc_roots retained (100) + extra_native_bytes (500) = 600
@@ -4351,7 +4342,7 @@ fn make_unreachable_snapshot() -> HeapSnapshot {
         n(4), // Unreachable --property "child"--> Child
     ];
 
-    let raw = RawHeapSnapshot {
+    parsed_heap_snapshot! {
         snapshot: SnapshotHeader {
             meta: SnapshotMeta {
                 node_fields,
@@ -4377,9 +4368,7 @@ fn make_unreachable_snapshot() -> HeapSnapshot {
         trace_tree_parents: vec![],
         trace_tree_func_idxs: vec![],
         samples: vec![],
-    };
-
-    HeapSnapshot::from_raw_with_options(raw, Default::default())
+    }
 }
 
 #[test]
@@ -4524,7 +4513,7 @@ fn make_isolated_unreachable_snapshot() -> HeapSnapshot {
         n(4), // B --property "link"--> A
     ];
 
-    let raw = RawHeapSnapshot {
+    parsed_heap_snapshot! {
         snapshot: SnapshotHeader {
             meta: SnapshotMeta {
                 node_fields,
@@ -4550,9 +4539,7 @@ fn make_isolated_unreachable_snapshot() -> HeapSnapshot {
         trace_tree_parents: vec![],
         trace_tree_func_idxs: vec![],
         samples: vec![],
-    };
-
-    HeapSnapshot::from_raw_with_options(raw, Default::default())
+    }
 }
 
 #[test]
@@ -4672,7 +4659,7 @@ fn test_unreachable_weak_and_strong_to_same_target() {
         n(4), // A --property "strong_ref"--> B
     ];
 
-    let raw = RawHeapSnapshot {
+    let snap = parsed_heap_snapshot! {
         snapshot: SnapshotHeader {
             meta: SnapshotMeta {
                 node_fields,
@@ -4699,8 +4686,6 @@ fn test_unreachable_weak_and_strong_to_same_target() {
         trace_tree_func_idxs: vec![],
         samples: vec![],
     };
-
-    let snap = HeapSnapshot::from_raw_with_options(raw, Default::default());
 
     // Node 2 is reachable
     assert_eq!(snap.node_distance(NodeOrdinal(2)), Distance(1));
@@ -4828,7 +4813,7 @@ fn test_unreachable_strong_from_unreachable_and_weak_from_reachable() {
         n(4), // C --weak "weak_ref"--> B
     ];
 
-    let raw = RawHeapSnapshot {
+    let snap = parsed_heap_snapshot! {
         snapshot: SnapshotHeader {
             meta: SnapshotMeta {
                 node_fields,
@@ -4855,8 +4840,6 @@ fn test_unreachable_strong_from_unreachable_and_weak_from_reachable() {
         trace_tree_func_idxs: vec![],
         samples: vec![],
     };
-
-    let snap = HeapSnapshot::from_raw_with_options(raw, Default::default());
 
     // Reachable and C are reachable from GC roots
     assert_eq!(snap.node_distance(NodeOrdinal(2)), Distance(1));
@@ -4961,7 +4944,7 @@ fn test_unreachable_weak_only_does_not_propagate() {
         n(4), // A --weak "weak_ref"--> B
     ];
 
-    let raw = RawHeapSnapshot {
+    let snap = parsed_heap_snapshot! {
         snapshot: SnapshotHeader {
             meta: SnapshotMeta {
                 node_fields,
@@ -4988,8 +4971,6 @@ fn test_unreachable_weak_only_does_not_propagate() {
         trace_tree_func_idxs: vec![],
         samples: vec![],
     };
-
-    let snap = HeapSnapshot::from_raw_with_options(raw, Default::default());
 
     // A (node 3): reachable retainer via weak edge → U
     assert_eq!(
@@ -5152,7 +5133,7 @@ fn build_test_snapshot(strings: Vec<String>, nodes: Vec<u32>, edges: Vec<u32>) -
     .map(|s| s.to_string())
     .collect();
 
-    let raw = RawHeapSnapshot {
+    parsed_heap_snapshot! {
         snapshot: SnapshotHeader {
             meta: SnapshotMeta {
                 node_fields,
@@ -5178,9 +5159,7 @@ fn build_test_snapshot(strings: Vec<String>, nodes: Vec<u32>, edges: Vec<u32>) -
         trace_tree_parents: vec![],
         trace_tree_func_idxs: vec![],
         samples: vec![],
-    };
-
-    HeapSnapshot::from_raw_with_options(raw, Default::default())
+    }
 }
 
 fn build_test_snapshot_with_options(
@@ -5228,7 +5207,8 @@ fn build_test_snapshot_with_options(
     .map(|s| s.to_string())
     .collect();
 
-    let raw = RawHeapSnapshot {
+    parsed_heap_snapshot! {
+        options: options,
         snapshot: SnapshotHeader {
             meta: SnapshotMeta {
                 node_fields,
@@ -5254,9 +5234,7 @@ fn build_test_snapshot_with_options(
         trace_tree_parents: vec![],
         trace_tree_func_idxs: vec![],
         samples: vec![],
-    };
-
-    HeapSnapshot::from_raw_with_options(raw, options)
+    }
 }
 
 // node index helper: ordinal * 5 (node_field_count)
@@ -8366,7 +8344,7 @@ fn make_function_snapshot() -> HeapSnapshot {
         0, // node 7: unnamed SFI at script 7, line 0, col 0
     ];
 
-    let raw = RawHeapSnapshot {
+    parsed_heap_snapshot! {
         snapshot: SnapshotHeader {
             meta: SnapshotMeta {
                 node_fields: standard_node_fields(),
@@ -8387,14 +8365,12 @@ fn make_function_snapshot() -> HeapSnapshot {
         nodes,
         edges,
         strings,
-        locations,
+        locations: locations,
         trace_function_infos: vec![],
         trace_tree_parents: vec![],
         trace_tree_func_idxs: vec![],
         samples: vec![],
-    };
-
-    HeapSnapshot::from_raw_with_options(raw, Default::default())
+    }
 }
 
 #[test]
@@ -8600,7 +8576,7 @@ fn make_alloc_tracking_snapshot() -> HeapSnapshot {
     let trace_tree_parents: Vec<u32> = vec![0, 0, 1, 2, 2]; // [unused, root's parent=0, 1's parent=root, 3's parent=2, 4's parent=2]
     let trace_tree_func_idxs: Vec<u32> = vec![0, 0, 1, 2, 3]; // [unused, root=func0, 2=func1, 3=func2, 4=func3]
 
-    let raw = RawHeapSnapshot {
+    parsed_heap_snapshot! {
         snapshot: SnapshotHeader {
             meta: SnapshotMeta {
                 node_fields,
@@ -8629,15 +8605,14 @@ fn make_alloc_tracking_snapshot() -> HeapSnapshot {
         edges,
         strings,
         locations: vec![],
-        trace_function_infos,
-        trace_tree_parents,
-        trace_tree_func_idxs,
+        trace_function_infos: trace_function_infos,
+        trace_tree_parents: trace_tree_parents,
+        trace_tree_func_idxs: trace_tree_func_idxs,
         // samples: two intervals
         // interval 1: ts=50000, last_id=3  (node 2 with id=3 falls here)
         // interval 2: ts=100000, last_id=7 (nodes 3,4 with ids 5,7 fall here)
         samples: vec![50000, 3, 100000, 7],
-    };
-    HeapSnapshot::from_raw_with_options(raw, Default::default())
+    }
 }
 
 #[test]
@@ -8820,7 +8795,7 @@ fn make_detached_dom_snapshot() -> HeapSnapshot {
         n(4), // DetachedDiv → Leaked
     ];
 
-    let raw = RawHeapSnapshot {
+    parsed_heap_snapshot! {
         snapshot: SnapshotHeader {
             meta: SnapshotMeta {
                 node_fields,
@@ -8846,8 +8821,7 @@ fn make_detached_dom_snapshot() -> HeapSnapshot {
         trace_tree_parents: vec![],
         trace_tree_func_idxs: vec![],
         samples: vec![],
-    };
-    HeapSnapshot::from_raw_with_options(raw, Default::default())
+    }
 }
 
 #[test]

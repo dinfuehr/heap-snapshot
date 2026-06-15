@@ -1,10 +1,111 @@
+#[cfg(test)]
+macro_rules! parsed_heap_snapshot {
+    (
+        options: $options:expr,
+        snapshot: $snapshot:expr,
+        $nodes:ident,
+        $edges:ident,
+        $strings:ident,
+        locations: $locations:expr,
+        trace_function_infos: $trace_function_infos:expr,
+        trace_tree_parents: $trace_tree_parents:expr,
+        trace_tree_func_idxs: $trace_tree_func_idxs:expr,
+        samples: $samples:expr $(,)?
+    ) => {
+        $crate::snapshot::HeapSnapshot::from_raw_parts_with_options_for_test(
+            $snapshot,
+            $nodes,
+            $edges,
+            $strings,
+            $locations,
+            $trace_function_infos,
+            $trace_tree_parents,
+            $trace_tree_func_idxs,
+            $samples,
+            $options,
+        )
+    };
+    (
+        options: $options:expr,
+        snapshot: $snapshot:expr,
+        nodes: $nodes:expr,
+        edges: $edges:expr,
+        strings: $strings:expr,
+        locations: $locations:expr,
+        trace_function_infos: $trace_function_infos:expr,
+        trace_tree_parents: $trace_tree_parents:expr,
+        trace_tree_func_idxs: $trace_tree_func_idxs:expr,
+        samples: $samples:expr $(,)?
+    ) => {
+        $crate::snapshot::HeapSnapshot::from_raw_parts_with_options_for_test(
+            $snapshot,
+            $nodes,
+            $edges,
+            $strings,
+            $locations,
+            $trace_function_infos,
+            $trace_tree_parents,
+            $trace_tree_func_idxs,
+            $samples,
+            $options,
+        )
+    };
+    (
+        snapshot: $snapshot:expr,
+        $nodes:ident,
+        $edges:ident,
+        $strings:ident,
+        locations: $locations:expr,
+        trace_function_infos: $trace_function_infos:expr,
+        trace_tree_parents: $trace_tree_parents:expr,
+        trace_tree_func_idxs: $trace_tree_func_idxs:expr,
+        samples: $samples:expr $(,)?
+    ) => {
+        $crate::snapshot::HeapSnapshot::from_raw_parts_with_options_for_test(
+            $snapshot,
+            $nodes,
+            $edges,
+            $strings,
+            $locations,
+            $trace_function_infos,
+            $trace_tree_parents,
+            $trace_tree_func_idxs,
+            $samples,
+            Default::default(),
+        )
+    };
+    (
+        snapshot: $snapshot:expr,
+        nodes: $nodes:expr,
+        edges: $edges:expr,
+        strings: $strings:expr,
+        locations: $locations:expr,
+        trace_function_infos: $trace_function_infos:expr,
+        trace_tree_parents: $trace_tree_parents:expr,
+        trace_tree_func_idxs: $trace_tree_func_idxs:expr,
+        samples: $samples:expr $(,)?
+    ) => {
+        $crate::snapshot::HeapSnapshot::from_raw_parts_with_options_for_test(
+            $snapshot,
+            $nodes,
+            $edges,
+            $strings,
+            $locations,
+            $trace_function_infos,
+            $trace_tree_parents,
+            $trace_tree_func_idxs,
+            $samples,
+            Default::default(),
+        )
+    };
+}
+
 pub mod diff;
 #[cfg(feature = "cli")]
 pub mod display;
 pub mod function_info;
 #[cfg(feature = "cli")]
 pub mod mcp;
-pub mod parser;
 #[cfg(feature = "cli")]
 pub mod print;
 pub mod retaining_path;

@@ -4,16 +4,21 @@
 
 use std::cmp::Reverse;
 use std::collections::BinaryHeap;
+#[cfg(not(target_arch = "wasm32"))]
 use std::fs::File;
-use std::io::{self, Read};
+use std::io;
+#[cfg(not(target_arch = "wasm32"))]
 use std::path::Path;
 use std::sync::OnceLock;
 
 use rustc_hash::{FxHashMap, FxHashSet};
 
 use super::*;
-use crate::parser;
-use crate::types::{Distance, RawHeapSnapshot, Statistics};
+#[cfg(test)]
+use crate::types::SnapshotHeader;
+use crate::types::{Distance, Statistics};
+
+mod parser;
 
 const MAX_INTERFACE_NAME_LENGTH: usize = 60;
 const MIN_INTERFACE_PROPERTY_COUNT: usize = 1;
@@ -132,73 +137,12 @@ fn empty_statistics() -> Statistics {
 }
 
 impl HeapSnapshot {
-    fn build_node_records(
-        raw_nodes: &[u32],
-        node_field_count: usize,
-        node_type_offset: usize,
-        node_name_offset: usize,
-        node_id_offset: usize,
-        node_self_size_offset: usize,
-        node_edge_count_offset: usize,
-        node_detachedness_offset: i32,
-        node_trace_node_id_offset: i32,
-    ) -> Vec<NodeRecord> {
-        let node_count = raw_nodes.len() / node_field_count;
-        let mut records = Vec::with_capacity(node_count);
-        let mut first_edge = 0u32;
-        for ordinal in 0..node_count {
-            let node_index = ordinal * node_field_count;
-            let edge_count = raw_nodes[node_index + node_edge_count_offset];
-            records.push(NodeRecord {
-                type_id: raw_nodes[node_index + node_type_offset],
-                name: raw_nodes[node_index + node_name_offset],
-                id: raw_nodes[node_index + node_id_offset],
-                self_size: raw_nodes[node_index + node_self_size_offset],
-                edge_count,
-                detachedness: if node_detachedness_offset >= 0 {
-                    raw_nodes[node_index + node_detachedness_offset as usize]
-                } else {
-                    0
-                },
-                trace_node_id: if node_trace_node_id_offset >= 0 {
-                    raw_nodes[node_index + node_trace_node_id_offset as usize]
-                } else {
-                    0
-                },
-                first_edge,
-            });
-            first_edge += edge_count;
-        }
-        records
-    }
-
-    fn build_edge_records(
-        raw_edges: &[u32],
-        edge_fields_count: usize,
-        edge_type_offset: usize,
-        edge_name_offset: usize,
-        edge_to_node_offset: usize,
-        node_field_count: usize,
-    ) -> Vec<EdgeRecord> {
-        let edge_count = raw_edges.len() / edge_fields_count;
-        let mut records = Vec::with_capacity(edge_count);
-        for edge_ordinal in 0..edge_count {
-            let edge_index = edge_ordinal * edge_fields_count;
-            records.push(EdgeRecord {
-                type_id: raw_edges[edge_index + edge_type_offset],
-                name_or_index: raw_edges[edge_index + edge_name_offset],
-                to_node_ordinal: (raw_edges[edge_index + edge_to_node_offset] as usize
-                    / node_field_count) as u32,
-                _padding: 0,
-            });
-        }
-        records
-    }
-
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn load<P: AsRef<Path>>(path: P) -> io::Result<Self> {
         Self::load_with_options(path, SnapshotOptions::default())
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn load_with_options<P: AsRef<Path>>(
         path: P,
         options: SnapshotOptions,
@@ -207,9 +151,10 @@ impl HeapSnapshot {
         let file = File::open(path).map_err(|e| {
             io::Error::new(e.kind(), format!("Failed to open {}: {e}", path.display()))
         })?;
-        Self::from_reader_with_options(file, options).map_err(|e| {
+        let parsed = parser::parse(file).map_err(|e| {
             io::Error::new(e.kind(), format!("Failed to parse {}: {e}", path.display()))
-        })
+        })?;
+        Ok(Self::from_parsed_with_options(parsed, options))
     }
 
     pub fn from_bytes(data: &[u8]) -> io::Result<Self> {
@@ -217,49 +162,24 @@ impl HeapSnapshot {
     }
 
     pub fn from_bytes_with_options(data: &[u8], options: SnapshotOptions) -> io::Result<Self> {
-        Self::from_reader_with_options(io::Cursor::new(data), options)
+        let parsed = parser::parse_from_slice(data)?;
+        Ok(Self::from_parsed_with_options(parsed, options))
     }
 
-    pub fn from_reader<R: Read>(reader: R) -> io::Result<Self> {
-        Self::from_reader_with_options(reader, SnapshotOptions::default())
-    }
-
-    pub fn from_reader_with_options<R: Read>(
-        reader: R,
-        options: SnapshotOptions,
-    ) -> io::Result<Self> {
-        let raw = parser::parse_from_reader(reader)?;
-        Ok(Self::from_raw_with_options(raw, options))
-    }
-
-    pub(crate) fn from_raw_with_options(raw: RawHeapSnapshot, options: SnapshotOptions) -> Self {
-        let RawHeapSnapshot {
+    fn from_parsed_with_options(parsed: ParsedHeapSnapshot, options: SnapshotOptions) -> Self {
+        let ParsedHeapSnapshot {
             snapshot,
-            nodes: raw_nodes,
-            edges: raw_edges,
+            nodes,
+            edges,
             strings,
             locations,
             trace_function_infos,
             trace_tree_parents,
             trace_tree_func_idxs,
             samples,
-        } = raw;
+        } = parsed;
         let meta = snapshot.meta;
 
-        // Node field offsets
-        let node_type_offset = meta.node_fields.iter().position(|f| f == "type").unwrap();
-        let node_name_offset = meta.node_fields.iter().position(|f| f == "name").unwrap();
-        let node_id_offset = meta.node_fields.iter().position(|f| f == "id").unwrap();
-        let node_self_size_offset = meta
-            .node_fields
-            .iter()
-            .position(|f| f == "self_size")
-            .unwrap();
-        let node_edge_count_offset = meta
-            .node_fields
-            .iter()
-            .position(|f| f == "edge_count")
-            .unwrap();
         let node_detachedness_offset = meta
             .node_fields
             .iter()
@@ -294,20 +214,6 @@ impl HeapSnapshot {
         let node_closure_type = find_node_type("closure");
         let node_regexp_type = find_node_type("regexp");
         let node_number_type = find_node_type("number");
-
-        // Edge field offsets
-        let edge_fields_count = meta.edge_fields.len();
-        let edge_type_offset = meta.edge_fields.iter().position(|f| f == "type").unwrap();
-        let edge_name_offset = meta
-            .edge_fields
-            .iter()
-            .position(|f| f == "name_or_index")
-            .unwrap();
-        let edge_to_node_offset = meta
-            .edge_fields
-            .iter()
-            .position(|f| f == "to_node")
-            .unwrap();
 
         // Edge types (add 'invisible' like Chrome DevTools does)
         let mut edge_types = meta.edge_type_enum.clone();
@@ -351,29 +257,10 @@ impl HeapSnapshot {
             location_fields.len()
         };
 
-        let node_count = raw_nodes.len() / node_field_count;
-        let edge_count = raw_edges.len() / edge_fields_count;
+        let node_count = nodes.len();
+        let edge_count = edges.len();
         let root_ordinal = snapshot.root_index.unwrap_or(0) / node_field_count;
         let extra_native_bytes = snapshot.extra_native_bytes.unwrap_or(0);
-        let nodes = Self::build_node_records(
-            &raw_nodes,
-            node_field_count,
-            node_type_offset,
-            node_name_offset,
-            node_id_offset,
-            node_self_size_offset,
-            node_edge_count_offset,
-            node_detachedness_offset,
-            node_trace_node_id_offset,
-        );
-        let edges = Self::build_edge_records(
-            &raw_edges,
-            edge_fields_count,
-            edge_type_offset,
-            edge_name_offset,
-            edge_to_node_offset,
-            node_field_count,
-        );
 
         let mut snap = HeapSnapshot {
             nodes,
@@ -578,6 +465,33 @@ impl HeapSnapshot {
         snap.statistics = snap.calculate_statistics();
 
         snap
+    }
+
+    #[cfg(test)]
+    pub(crate) fn from_raw_parts_with_options_for_test(
+        snapshot: SnapshotHeader,
+        raw_nodes: Vec<u32>,
+        raw_edges: Vec<u32>,
+        strings: Vec<String>,
+        locations: Vec<u32>,
+        trace_function_infos: Vec<u32>,
+        trace_tree_parents: Vec<u32>,
+        trace_tree_func_idxs: Vec<u32>,
+        samples: Vec<u32>,
+        options: SnapshotOptions,
+    ) -> Self {
+        let parsed = ParsedHeapSnapshot::from_raw_parts(
+            snapshot,
+            raw_nodes,
+            raw_edges,
+            strings,
+            locations,
+            trace_function_infos,
+            trace_tree_parents,
+            trace_tree_func_idxs,
+            samples,
+        );
+        Self::from_parsed_with_options(parsed, options)
     }
 
     #[cfg(not(target_arch = "wasm32"))]

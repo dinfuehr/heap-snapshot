@@ -35,6 +35,9 @@ oxc_semantic = "0.123"
 oxc_span = "0.123"
 oxc_syntax = "0.123"
 
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+memmap2 = "0.9"
+
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }
 serde_json = "1"

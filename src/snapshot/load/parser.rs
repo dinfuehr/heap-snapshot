@@ -1,9 +1,12 @@
+use std::io;
+
+#[cfg(not(target_arch = "wasm32"))]
+use memmap2::Mmap;
+#[cfg(not(target_arch = "wasm32"))]
 use std::fs::File;
-use std::io::{self, BufReader, Read};
 
-use crate::types::{RawHeapSnapshot, SnapshotHeader, SnapshotMeta};
-
-const CHUNK_SIZE: usize = 256 * 1024;
+use super::super::ParsedHeapSnapshot;
+use crate::types::{SnapshotHeader, SnapshotMeta};
 
 // --- Mini JSON value type for metadata parsing ---
 
@@ -303,117 +306,69 @@ fn parse_err(msg: &str) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidData, msg)
 }
 
-// --- Stream parser ---
+// --- Slice parser ---
 
-struct StreamParser<R: Read> {
-    reader: BufReader<R>,
-    buf: Vec<u8>,
+struct SliceParser<'a> {
+    data: &'a [u8],
     pos: usize,
 }
 
-impl<R: Read> StreamParser<R> {
-    fn new(reader: R) -> Self {
-        StreamParser {
-            reader: BufReader::with_capacity(CHUNK_SIZE, reader),
-            buf: Vec::with_capacity(CHUNK_SIZE * 2),
-            pos: 0,
-        }
-    }
-
-    fn compact(&mut self) {
-        if self.pos > 0 {
-            self.buf.drain(..self.pos);
-            self.pos = 0;
-        }
-    }
-
-    fn read_more(&mut self) -> io::Result<bool> {
-        self.compact();
-        let old_len = self.buf.len();
-        self.buf.resize(old_len + CHUNK_SIZE, 0);
-        let n = self.reader.read(&mut self.buf[old_len..])?;
-        self.buf.truncate(old_len + n);
-        Ok(n > 0)
-    }
-
-    fn ensure_data(&mut self) -> io::Result<bool> {
-        if self.pos < self.buf.len() {
-            return Ok(true);
-        }
-        self.read_more()
+impl<'a> SliceParser<'a> {
+    fn new(data: &'a [u8]) -> Self {
+        Self { data, pos: 0 }
     }
 
     /// Search forward for a byte sequence.
     fn find_token(&mut self, token: &[u8]) -> io::Result<()> {
-        loop {
-            if self.buf.len() - self.pos >= token.len() {
-                if let Some(offset) = self.buf[self.pos..]
-                    .windows(token.len())
-                    .position(|w| w == token)
-                {
-                    self.pos += offset + token.len();
-                    return Ok(());
-                }
+        while let Some(offset) = self.data[self.pos..].iter().position(|&b| b == token[0]) {
+            let idx = self.pos + offset;
+            if self.data[idx..].starts_with(token) {
+                self.pos = idx + token.len();
+                return Ok(());
             }
-            // Keep overlap bytes for partial matches at boundary
-            let keep = token.len().saturating_sub(1);
-            let new_pos = self.buf.len().saturating_sub(keep);
-            if new_pos > self.pos {
-                self.pos = new_pos;
-            }
-            if !self.read_more()? {
-                return Err(io::Error::new(
-                    io::ErrorKind::UnexpectedEof,
-                    format!(
-                        "token not found: {:?}",
-                        std::str::from_utf8(token).unwrap_or("?")
-                    ),
-                ));
-            }
+            self.pos = idx + 1;
         }
+
+        Err(io::Error::new(
+            io::ErrorKind::UnexpectedEof,
+            format!(
+                "token not found: {:?}",
+                std::str::from_utf8(token).unwrap_or("?")
+            ),
+        ))
     }
 
     /// Search forward for a single byte.
     fn find_byte(&mut self, target: u8) -> io::Result<()> {
-        loop {
-            while self.pos < self.buf.len() {
-                if self.buf[self.pos] == target {
-                    self.pos += 1;
-                    return Ok(());
-                }
-                self.pos += 1;
-            }
-            if !self.read_more()? {
-                return Err(io::Error::new(
-                    io::ErrorKind::UnexpectedEof,
-                    format!("byte '{}' not found", target as char),
-                ));
-            }
+        if let Some(offset) = self.data[self.pos..].iter().position(|&b| b == target) {
+            self.pos += offset + 1;
+            Ok(())
+        } else {
+            Err(io::Error::new(
+                io::ErrorKind::UnexpectedEof,
+                format!("byte '{}' not found", target as char),
+            ))
         }
     }
 
-    fn skip_whitespace(&mut self) -> io::Result<()> {
-        loop {
-            while self.pos < self.buf.len() {
-                match self.buf[self.pos] {
-                    b' ' | b'\t' | b'\n' | b'\r' => self.pos += 1,
-                    _ => return Ok(()),
-                }
-            }
-            if !self.read_more()? {
-                return Ok(());
+    fn skip_whitespace(&mut self) {
+        while self.pos < self.data.len() {
+            match self.data[self.pos] {
+                b' ' | b'\t' | b'\n' | b'\r' => self.pos += 1,
+                _ => return,
             }
         }
     }
 
     /// Extract a balanced JSON object or array as bytes.
-    fn extract_balanced(&mut self) -> io::Result<Vec<u8>> {
-        self.skip_whitespace()?;
-        if !self.ensure_data()? {
+    fn extract_balanced(&mut self) -> io::Result<&'a [u8]> {
+        self.skip_whitespace();
+        if self.pos >= self.data.len() {
             return Err(parse_err("unexpected EOF before balanced object"));
         }
 
-        let opening = self.buf[self.pos];
+        let start = self.pos;
+        let opening = self.data[self.pos];
         if opening != b'{' && opening != b'[' {
             return Err(parse_err(&format!(
                 "expected '{{' or '[', got '{}'",
@@ -421,48 +376,42 @@ impl<R: Read> StreamParser<R> {
             )));
         }
 
-        let mut result = Vec::new();
         let mut balance = 0i32;
         let mut in_string = false;
         let mut escape = false;
 
-        loop {
-            while self.pos < self.buf.len() {
-                let b = self.buf[self.pos];
-                result.push(b);
-                self.pos += 1;
+        while self.pos < self.data.len() {
+            let b = self.data[self.pos];
+            self.pos += 1;
 
-                if escape {
-                    escape = false;
-                    continue;
-                }
-
-                if in_string {
-                    if b == b'\\' {
-                        escape = true;
-                    } else if b == b'"' {
-                        in_string = false;
-                    }
-                    continue;
-                }
-
-                match b {
-                    b'"' => in_string = true,
-                    b'{' | b'[' => balance += 1,
-                    b'}' | b']' => {
-                        balance -= 1;
-                        if balance == 0 {
-                            return Ok(result);
-                        }
-                    }
-                    _ => {}
-                }
+            if escape {
+                escape = false;
+                continue;
             }
 
-            if !self.read_more()? {
-                return Err(parse_err("unexpected EOF in balanced object"));
+            if in_string {
+                if b == b'\\' {
+                    escape = true;
+                } else if b == b'"' {
+                    in_string = false;
+                }
+                continue;
+            }
+
+            match b {
+                b'"' => in_string = true,
+                b'{' | b'[' => balance += 1,
+                b'}' | b']' => {
+                    balance -= 1;
+                    if balance == 0 {
+                        return Ok(&self.data[start..self.pos]);
+                    }
+                }
+                _ => {}
             }
         }
+
+        Err(parse_err("unexpected EOF in balanced object"))
     }
 
     /// Parse an array of unsigned integers. Searches forward for '[' first.
@@ -474,53 +423,32 @@ impl<R: Read> StreamParser<R> {
             Vec::new()
         };
 
-        'outer: loop {
-            // Ensure we have data
-            if self.pos >= self.buf.len() {
-                if !self.read_more()? {
-                    return Err(parse_err("unexpected EOF in uint array"));
-                }
-            }
-
-            // Skip non-digit bytes (whitespace, commas)
-            while self.pos < self.buf.len() {
-                let b = self.buf[self.pos];
+        loop {
+            while self.pos < self.data.len() {
+                let b = self.data[self.pos];
                 if b.is_ascii_digit() {
                     break;
                 }
+                self.pos += 1;
                 if b == b']' {
-                    self.pos += 1;
-                    break 'outer;
+                    return Ok(result);
                 }
+            }
+            if self.pos >= self.data.len() {
+                return Err(parse_err("unexpected EOF in uint array"));
+            }
+
+            let mut num: u32 = 0;
+            while self.pos < self.data.len() {
+                let b = self.data[self.pos];
+                if !b.is_ascii_digit() {
+                    break;
+                }
+                num = num * 10 + (b - b'0') as u32;
                 self.pos += 1;
             }
-
-            if self.pos >= self.buf.len() {
-                continue;
-            }
-
-            // Parse integer
-            let mut num: u32 = 0;
-            loop {
-                while self.pos < self.buf.len() {
-                    let b = self.buf[self.pos];
-                    if b.is_ascii_digit() {
-                        num = num * 10 + (b - b'0') as u32;
-                        self.pos += 1;
-                    } else {
-                        result.push(num);
-                        continue 'outer;
-                    }
-                }
-                // Buffer exhausted mid-number, read more
-                if !self.read_more()? {
-                    result.push(num);
-                    break 'outer;
-                }
-            }
+            result.push(num);
         }
-
-        Ok(result)
     }
 
     /// Parse a JSON string array. Searches forward for '[' first.
@@ -529,12 +457,12 @@ impl<R: Read> StreamParser<R> {
         let mut result = Vec::new();
 
         loop {
-            self.skip_whitespace()?;
-            if !self.ensure_data()? {
+            self.skip_whitespace();
+            if self.pos >= self.data.len() {
                 return Err(parse_err("unexpected EOF in string array"));
             }
 
-            match self.buf[self.pos] {
+            match self.data[self.pos] {
                 b']' => {
                     self.pos += 1;
                     return Ok(result);
@@ -557,10 +485,10 @@ impl<R: Read> StreamParser<R> {
 
     /// Parse a single JSON string. Expects current position at opening '"'.
     fn parse_json_string(&mut self) -> io::Result<String> {
-        if !self.ensure_data()? {
+        if self.pos >= self.data.len() {
             return Err(parse_err("unexpected EOF"));
         }
-        if self.buf[self.pos] != b'"' {
+        if self.data[self.pos] != b'"' {
             return Err(parse_err("expected '\"'"));
         }
         self.pos += 1;
@@ -568,24 +496,20 @@ impl<R: Read> StreamParser<R> {
         let mut bytes = Vec::new();
 
         loop {
-            if self.pos >= self.buf.len() {
-                if !self.read_more()? {
-                    return Err(parse_err("unterminated string"));
-                }
+            if self.pos >= self.data.len() {
+                return Err(parse_err("unterminated string"));
             }
 
-            let b = self.buf[self.pos];
+            let b = self.data[self.pos];
             self.pos += 1;
 
             match b {
                 b'"' => return String::from_utf8(bytes).map_err(|e| parse_err(&e.to_string())),
                 b'\\' => {
-                    if self.pos >= self.buf.len() {
-                        if !self.read_more()? {
-                            return Err(parse_err("unterminated escape in string"));
-                        }
+                    if self.pos >= self.data.len() {
+                        return Err(parse_err("unterminated escape in string"));
                     }
-                    let esc = self.buf[self.pos];
+                    let esc = self.data[self.pos];
                     self.pos += 1;
                     match esc {
                         b'"' => bytes.push(b'"'),
@@ -597,7 +521,7 @@ impl<R: Read> StreamParser<R> {
                         b'b' => bytes.push(0x08),
                         b'f' => bytes.push(0x0C),
                         b'u' => {
-                            let ch = self.parse_stream_unicode_escape()?;
+                            let ch = self.parse_unicode_escape()?;
                             let mut buf = [0u8; 4];
                             let s = ch.encode_utf8(&mut buf);
                             bytes.extend_from_slice(s.as_bytes());
@@ -613,43 +537,39 @@ impl<R: Read> StreamParser<R> {
         }
     }
 
-    fn read_stream_byte(&mut self) -> io::Result<u8> {
-        if self.pos >= self.buf.len() {
-            if !self.read_more()? {
-                return Err(parse_err("unexpected EOF"));
-            }
+    fn read_byte(&mut self) -> io::Result<u8> {
+        if self.pos >= self.data.len() {
+            return Err(parse_err("unexpected EOF"));
         }
-        let b = self.buf[self.pos];
+        let b = self.data[self.pos];
         self.pos += 1;
         Ok(b)
     }
 
-    fn parse_stream_unicode_escape(&mut self) -> io::Result<char> {
+    fn parse_unicode_escape(&mut self) -> io::Result<char> {
         let mut hex = [0u8; 4];
         for h in &mut hex {
-            *h = self.read_stream_byte()?;
+            *h = self.read_byte()?;
         }
         let hex_str = std::str::from_utf8(&hex).map_err(|e| parse_err(&e.to_string()))?;
         let code = u16::from_str_radix(hex_str, 16).map_err(|e| parse_err(&e.to_string()))?;
 
         if (0xD800..=0xDBFF).contains(&code) {
-            // High surrogate — expect \uXXXX low surrogate
-            if self.pos < self.buf.len() || self.ensure_data().unwrap_or(false) {
-                if self.buf[self.pos] == b'\\' {
-                    self.pos += 1;
-                    let next = self.read_stream_byte()?;
-                    if next == b'u' {
-                        let mut hex2 = [0u8; 4];
-                        for h in &mut hex2 {
-                            *h = self.read_stream_byte()?;
-                        }
-                        let hex2_str =
-                            std::str::from_utf8(&hex2).map_err(|e| parse_err(&e.to_string()))?;
-                        let code2 = u16::from_str_radix(hex2_str, 16)
-                            .map_err(|e| parse_err(&e.to_string()))?;
-                        let cp = 0x10000 + ((code as u32 - 0xD800) << 10) + (code2 as u32 - 0xDC00);
-                        return Ok(char::from_u32(cp).unwrap_or('\u{FFFD}'));
+            // High surrogate - expect \uXXXX low surrogate.
+            if self.pos < self.data.len() && self.data[self.pos] == b'\\' {
+                self.pos += 1;
+                let next = self.read_byte()?;
+                if next == b'u' {
+                    let mut hex2 = [0u8; 4];
+                    for h in &mut hex2 {
+                        *h = self.read_byte()?;
                     }
+                    let hex2_str =
+                        std::str::from_utf8(&hex2).map_err(|e| parse_err(&e.to_string()))?;
+                    let code2 =
+                        u16::from_str_radix(hex2_str, 16).map_err(|e| parse_err(&e.to_string()))?;
+                    let cp = 0x10000 + ((code as u32 - 0xD800) << 10) + (code2 as u32 - 0xDC00);
+                    return Ok(char::from_u32(cp).unwrap_or('\u{FFFD}'));
                 }
             }
             Ok('\u{FFFD}')
@@ -805,18 +725,21 @@ fn flatten_trace_tree(raw: &[u8]) -> io::Result<(Vec<u32>, Vec<u32>)> {
 
 // --- Main entry point ---
 
-pub fn parse(file: File) -> io::Result<RawHeapSnapshot> {
-    parse_from_reader(file)
+#[cfg(not(target_arch = "wasm32"))]
+pub(super) fn parse(file: File) -> io::Result<ParsedHeapSnapshot> {
+    // The parser only borrows this slice while producing owned records and strings.
+    let data = unsafe { Mmap::map(&file)? };
+    parse_from_slice(&data)
 }
 
-pub fn parse_from_reader<R: Read>(reader: R) -> io::Result<RawHeapSnapshot> {
-    let mut p = StreamParser::new(reader);
+pub(super) fn parse_from_slice(data: &[u8]) -> io::Result<ParsedHeapSnapshot> {
+    let mut p = SliceParser::new(data);
 
     // 1. Parse snapshot metadata
     p.find_token(b"\"snapshot\"")?;
     p.find_byte(b':')?;
     let meta_bytes = p.extract_balanced()?;
-    let header = parse_snapshot_header(&meta_bytes)?;
+    let header = parse_snapshot_header(meta_bytes)?;
 
     // 2. Parse nodes
     let node_capacity = header.node_count * header.meta.node_fields.len();
@@ -866,8 +789,8 @@ pub fn parse_from_reader<R: Read>(reader: R) -> io::Result<RawHeapSnapshot> {
     p.find_token(b"\"strings\"")?;
     let strings = p.parse_string_array()?;
 
-    Ok(RawHeapSnapshot {
-        snapshot: header,
+    Ok(ParsedHeapSnapshot::from_raw_parts(
+        header,
         nodes,
         edges,
         strings,
@@ -876,5 +799,5 @@ pub fn parse_from_reader<R: Read>(reader: R) -> io::Result<RawHeapSnapshot> {
         trace_tree_parents,
         trace_tree_func_idxs,
         samples,
-    })
+    ))
 }

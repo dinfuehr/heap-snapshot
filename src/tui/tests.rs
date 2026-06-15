@@ -1,6 +1,6 @@
 use super::children::{compute_edges, compute_retainers, shifted_window_start};
 use super::*;
-use crate::types::{Distance, EdgeId, RawHeapSnapshot, SnapshotHeader, SnapshotMeta};
+use crate::types::{Distance, EdgeId, SnapshotHeader, SnapshotMeta};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use std::rc::Rc;
 
@@ -46,7 +46,7 @@ fn build_snapshot(strings: Vec<String>, nodes: Vec<u32>, edges: Vec<u32>) -> Hea
     let (node_fields, node_type_enum, edge_fields, edge_type_enum) = standard_snapshot_meta();
     let nfc = node_fields.len();
     let efc = edge_fields.len();
-    let raw = RawHeapSnapshot {
+    parsed_heap_snapshot! {
         snapshot: SnapshotHeader {
             meta: SnapshotMeta {
                 node_fields,
@@ -72,9 +72,7 @@ fn build_snapshot(strings: Vec<String>, nodes: Vec<u32>, edges: Vec<u32>) -> Hea
         trace_tree_parents: vec![],
         trace_tree_func_idxs: vec![],
         samples: vec![],
-    };
-
-    HeapSnapshot::from_raw_with_options(raw, Default::default())
+    }
 }
 
 fn load_test_snapshot(path: &str) -> HeapSnapshot {

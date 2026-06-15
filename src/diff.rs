@@ -102,7 +102,7 @@ pub fn compute_diff(snap1: &HeapSnapshot, snap2: &HeapSnapshot) -> Vec<ClassDiff
 mod tests {
     use super::*;
     use crate::snapshot::HeapSnapshot;
-    use crate::types::{RawHeapSnapshot, SnapshotHeader, SnapshotMeta};
+    use crate::types::{SnapshotHeader, SnapshotMeta};
 
     fn make_meta() -> (Vec<String>, Vec<String>, Vec<String>, Vec<String>) {
         let node_fields: Vec<String> = ["type", "name", "id", "self_size", "edge_count"]
@@ -145,7 +145,7 @@ mod tests {
         let (node_fields, node_type_enum, edge_fields, edge_type_enum) = make_meta();
         let nfc = node_fields.len();
         let efc = edge_fields.len();
-        let raw = RawHeapSnapshot {
+        parsed_heap_snapshot! {
             snapshot: SnapshotHeader {
                 meta: SnapshotMeta {
                     node_fields,
@@ -171,8 +171,7 @@ mod tests {
             trace_tree_parents: vec![],
             trace_tree_func_idxs: vec![],
             samples: vec![],
-        };
-        HeapSnapshot::from_raw_with_options(raw, Default::default())
+        }
     }
 
     // strings: 0:"", 1:"(GC roots)", 2:"Object", 3:"hello", 4:"Array", 5:"global", 6:"arr", 7:"str"
