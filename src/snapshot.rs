@@ -2097,6 +2097,10 @@ impl HeapSnapshot {
         self.edge_type_raw(edge.0) == self.edge_invisible_type
     }
 
+    pub fn is_weak_edge(&self, edge: EdgeId) -> bool {
+        self.edge_type_raw(edge.0) == self.edge_weak_type
+    }
+
     /// Returns a zero-allocation iterator over the outgoing edges of `ordinal`.
     /// Each item is `(edge_ordinal, child_ordinal)`.
     pub fn iter_edges(&self, ordinal: NodeOrdinal) -> EdgeIter<'_> {

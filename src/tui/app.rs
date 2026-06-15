@@ -1055,8 +1055,7 @@ impl App {
                 let mut total = 0usize;
                 snap.for_each_retainer(ord, |edge_idx, _ret_ord| {
                     if let Some(pe) = path_edges {
-                        let is_weak = snap.edge_type_name(edge_idx) == "weak";
-                        if !is_weak && !pe.contains(&edge_idx) {
+                        if !pe.contains(&edge_idx) {
                             return;
                         }
                     }

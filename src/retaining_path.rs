@@ -95,6 +95,9 @@ pub fn plan_gc_root_retainer_paths(
         let mut retainers: Vec<(EdgeId, NodeOrdinal)> = Vec::new();
         let mut directly_retained_by_gc_roots = false;
         snap.for_each_retainer(node, |edge_idx, ret_ordinal| {
+            if snap.is_weak_edge(edge_idx) {
+                return;
+            }
             if dfs_stack.contains(&ret_ordinal) {
                 return;
             }

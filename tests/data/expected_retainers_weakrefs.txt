@@ -50,18 +50,13 @@ Object                                                                  Distance
                     ▶ 221 in @25 (Handle scope)                                1         0 B   0%           0 B   0%
                     ▶ 219 in @25 (Handle scope)                                1         0 B   0%           0 B   0%
                     ▶ 217 in @25 (Handle scope)                                1         0 B   0%           0 B   0%
-          ▼ previous in @28009 system / Context / scope @27885                 5        16 B   0%          16 B   0%
-            ▼ context in @27961 WeakTarget [JSFunction]                        4        32 B   0%         168 B   0%
-              ▼ constructor in @22709 system / Map                             4        40 B   0%         112 B   0%
-                ▼ 3 in @22703 system / WeakArrayList                           5        28 B   0%          28 B   0%
-                  ▼ [1] in @22565 system / PrototypeInfo                       4        40 B   0%          68 B   0%
-                    ▼ prototype_info in @22341 system / Map                    3        40 B   0%         272 B   0%
-                      ▼ map in @22027 {constructor, __defineGetter__,…         3        28 B   0%         296 B   0%
-                        ▼ prototype in @22339 Object [JSFunction]              3        32 B   0%          1 kB   1%
-                          ▼ constructor in @22613 system / Map                 4        40 B   0%         108 B   0%
-                            ▼ map in @22165 Function [JSFunction]              3        32 B   0%         160 B   0%
-                              ▼ constructor in @7629 system / Map              2        40 B   0%          96 B   0%
-                                ▶ 195 in @25 (Handle scope)                    1         0 B   0%           0 B   0%
+      ▼ context in @22505 valueOf [JSFunction]                                 3        28 B   0%          28 B   0%
+        ▼ valueOf in @22027 {constructor, __defineGetter__, __defineS…         3        28 B   0%         296 B   0%
+          ▼ prototype in @22339 Object [JSFunction]                            3        32 B   0%          1 kB   1%
+            ▼ constructor in @22613 system / Map                               4        40 B   0%         108 B   0%
+              ▼ map in @22165 Function [JSFunction]                            3        32 B   0%         160 B   0%
+                ▼ constructor in @7629 system / Map                            2        40 B   0%          96 B   0%
+                  ▶ 195 in @25 (Handle scope)                                  1         0 B   0%           0 B   0%
 ▼ 5 in @2325                                                                   2        60 B   0%          60 B   0%
   ▶ weak_refs_keep_during_job in @49 (Strong root list)                        1         0 B   0%          7 kB   5%
 ▶ weakObj in @7291 system / Context / scope @7289                              2        44 B   0%          92 B   0%
