@@ -697,6 +697,7 @@ dependencies = [
  "criterion",
  "crossterm",
  "dirs",
+ "memchr",
  "memmap2",
  "oxc_allocator",
  "oxc_ast",

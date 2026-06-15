@@ -174,6 +174,7 @@ struct ParsedHeapSnapshot {
     samples: Vec<u32>,
 }
 
+#[cfg(test)]
 impl ParsedHeapSnapshot {
     fn from_raw_parts(
         snapshot: SnapshotHeader,

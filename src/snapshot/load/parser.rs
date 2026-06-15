@@ -5,8 +5,10 @@ use memmap2::Mmap;
 #[cfg(not(target_arch = "wasm32"))]
 use std::fs::File;
 
+use memchr::{memchr, memchr2};
+
 use super::super::ParsedHeapSnapshot;
-use crate::types::{SnapshotHeader, SnapshotMeta};
+use crate::types::{EdgeRecord, NodeRecord, SnapshotHeader, SnapshotMeta};
 
 // --- Mini JSON value type for metadata parsing ---
 
@@ -320,7 +322,7 @@ impl<'a> SliceParser<'a> {
 
     /// Search forward for a byte sequence.
     fn find_token(&mut self, token: &[u8]) -> io::Result<()> {
-        while let Some(offset) = self.data[self.pos..].iter().position(|&b| b == token[0]) {
+        while let Some(offset) = memchr(token[0], &self.data[self.pos..]) {
             let idx = self.pos + offset;
             if self.data[idx..].starts_with(token) {
                 self.pos = idx + token.len();
@@ -340,7 +342,7 @@ impl<'a> SliceParser<'a> {
 
     /// Search forward for a single byte.
     fn find_byte(&mut self, target: u8) -> io::Result<()> {
-        if let Some(offset) = self.data[self.pos..].iter().position(|&b| b == target) {
+        if let Some(offset) = memchr(target, &self.data[self.pos..]) {
             self.pos += offset + 1;
             Ok(())
         } else {
@@ -355,7 +357,7 @@ impl<'a> SliceParser<'a> {
         while self.pos < self.data.len() {
             match self.data[self.pos] {
                 b' ' | b'\t' | b'\n' | b'\r' => self.pos += 1,
-                _ => return,
+                _ => break,
             }
         }
     }
@@ -451,6 +453,11 @@ impl<'a> SliceParser<'a> {
         }
     }
 
+    fn uint_array_tail(&mut self) -> io::Result<&'a [u8]> {
+        self.find_byte(b'[')?;
+        Ok(&self.data[self.pos..])
+    }
+
     /// Parse a JSON string array. Searches forward for '[' first.
     fn parse_string_array(&mut self) -> io::Result<Vec<String>> {
         self.find_byte(b'[')?;
@@ -492,52 +499,62 @@ impl<'a> SliceParser<'a> {
             return Err(parse_err("expected '\"'"));
         }
         self.pos += 1;
+        let start = self.pos;
 
-        let mut bytes = Vec::new();
+        let Some(offset) = memchr2(b'"', b'\\', &self.data[self.pos..]) else {
+            return Err(parse_err("unterminated string"));
+        };
+        let idx = self.pos + offset;
+        if self.data[idx] == b'"' {
+            self.pos = idx + 1;
+            return String::from_utf8(self.data[start..idx].to_vec())
+                .map_err(|e| parse_err(&e.to_string()));
+        }
+
+        let mut bytes = Vec::with_capacity(32);
+        bytes.extend_from_slice(&self.data[start..idx]);
+        self.pos = idx + 1;
 
         loop {
             if self.pos >= self.data.len() {
-                return Err(parse_err("unterminated string"));
+                return Err(parse_err("unterminated escape in string"));
+            }
+            let esc = self.read_slice_byte()?;
+            match esc {
+                b'"' => bytes.push(b'"'),
+                b'\\' => bytes.push(b'\\'),
+                b'/' => bytes.push(b'/'),
+                b'n' => bytes.push(b'\n'),
+                b'r' => bytes.push(b'\r'),
+                b't' => bytes.push(b'\t'),
+                b'b' => bytes.push(0x08),
+                b'f' => bytes.push(0x0C),
+                b'u' => {
+                    let ch = self.parse_slice_unicode_escape()?;
+                    let mut buf = [0u8; 4];
+                    let s = ch.encode_utf8(&mut buf);
+                    bytes.extend_from_slice(s.as_bytes());
+                }
+                _ => {
+                    bytes.push(b'\\');
+                    bytes.push(esc);
+                }
             }
 
-            let b = self.data[self.pos];
-            self.pos += 1;
-
-            match b {
-                b'"' => return String::from_utf8(bytes).map_err(|e| parse_err(&e.to_string())),
-                b'\\' => {
-                    if self.pos >= self.data.len() {
-                        return Err(parse_err("unterminated escape in string"));
-                    }
-                    let esc = self.data[self.pos];
-                    self.pos += 1;
-                    match esc {
-                        b'"' => bytes.push(b'"'),
-                        b'\\' => bytes.push(b'\\'),
-                        b'/' => bytes.push(b'/'),
-                        b'n' => bytes.push(b'\n'),
-                        b'r' => bytes.push(b'\r'),
-                        b't' => bytes.push(b'\t'),
-                        b'b' => bytes.push(0x08),
-                        b'f' => bytes.push(0x0C),
-                        b'u' => {
-                            let ch = self.parse_unicode_escape()?;
-                            let mut buf = [0u8; 4];
-                            let s = ch.encode_utf8(&mut buf);
-                            bytes.extend_from_slice(s.as_bytes());
-                        }
-                        _ => {
-                            bytes.push(b'\\');
-                            bytes.push(esc);
-                        }
-                    }
-                }
-                _ => bytes.push(b),
+            let segment_start = self.pos;
+            let Some(offset) = memchr2(b'"', b'\\', &self.data[self.pos..]) else {
+                return Err(parse_err("unterminated string"));
+            };
+            let idx = self.pos + offset;
+            bytes.extend_from_slice(&self.data[segment_start..idx]);
+            self.pos = idx + 1;
+            if self.data[idx] == b'"' {
+                return String::from_utf8(bytes).map_err(|e| parse_err(&e.to_string()));
             }
         }
     }
 
-    fn read_byte(&mut self) -> io::Result<u8> {
+    fn read_slice_byte(&mut self) -> io::Result<u8> {
         if self.pos >= self.data.len() {
             return Err(parse_err("unexpected EOF"));
         }
@@ -546,37 +563,285 @@ impl<'a> SliceParser<'a> {
         Ok(b)
     }
 
-    fn parse_unicode_escape(&mut self) -> io::Result<char> {
-        let mut hex = [0u8; 4];
-        for h in &mut hex {
-            *h = self.read_byte()?;
+    fn parse_slice_unicode_escape(&mut self) -> io::Result<char> {
+        if self.pos + 4 > self.data.len() {
+            return Err(parse_err("unterminated unicode escape"));
         }
-        let hex_str = std::str::from_utf8(&hex).map_err(|e| parse_err(&e.to_string()))?;
+        let hex = &self.data[self.pos..self.pos + 4];
+        self.pos += 4;
+        let hex_str = std::str::from_utf8(hex).map_err(|e| parse_err(&e.to_string()))?;
         let code = u16::from_str_radix(hex_str, 16).map_err(|e| parse_err(&e.to_string()))?;
 
         if (0xD800..=0xDBFF).contains(&code) {
-            // High surrogate - expect \uXXXX low surrogate.
-            if self.pos < self.data.len() && self.data[self.pos] == b'\\' {
-                self.pos += 1;
-                let next = self.read_byte()?;
-                if next == b'u' {
-                    let mut hex2 = [0u8; 4];
-                    for h in &mut hex2 {
-                        *h = self.read_byte()?;
-                    }
-                    let hex2_str =
-                        std::str::from_utf8(&hex2).map_err(|e| parse_err(&e.to_string()))?;
-                    let code2 =
-                        u16::from_str_radix(hex2_str, 16).map_err(|e| parse_err(&e.to_string()))?;
-                    let cp = 0x10000 + ((code as u32 - 0xD800) << 10) + (code2 as u32 - 0xDC00);
-                    return Ok(char::from_u32(cp).unwrap_or('\u{FFFD}'));
-                }
+            if self.pos + 6 <= self.data.len()
+                && self.data[self.pos] == b'\\'
+                && self.data[self.pos + 1] == b'u'
+            {
+                self.pos += 2;
+                let hex2 = &self.data[self.pos..self.pos + 4];
+                self.pos += 4;
+                let hex2_str = std::str::from_utf8(hex2).map_err(|e| parse_err(&e.to_string()))?;
+                let code2 =
+                    u16::from_str_radix(hex2_str, 16).map_err(|e| parse_err(&e.to_string()))?;
+                let cp = 0x10000 + ((code as u32 - 0xD800) << 10) + (code2 as u32 - 0xDC00);
+                return Ok(char::from_u32(cp).unwrap_or('\u{FFFD}'));
             }
             Ok('\u{FFFD}')
         } else {
             Ok(char::from_u32(code as u32).unwrap_or('\u{FFFD}'))
         }
     }
+}
+
+#[inline(always)]
+fn read_next_uint(data: &[u8], pos: &mut usize) -> Option<u32> {
+    while *pos < data.len() && !data[*pos].is_ascii_digit() {
+        *pos += 1;
+    }
+    if *pos >= data.len() {
+        return None;
+    }
+
+    let mut num = 0u32;
+    while *pos < data.len() {
+        let b = data[*pos];
+        if !b.is_ascii_digit() {
+            break;
+        }
+        num = num * 10 + (b - b'0') as u32;
+        *pos += 1;
+    }
+    Some(num)
+}
+
+#[inline(always)]
+fn read_required_uint(data: &[u8], pos: &mut usize, context: &str) -> io::Result<u32> {
+    read_next_uint(data, pos).ok_or_else(|| parse_err(context))
+}
+
+#[allow(clippy::too_many_arguments)]
+fn parse_node_records_slice(
+    data: &[u8],
+    node_count: usize,
+    node_field_count: usize,
+    node_type_offset: usize,
+    node_name_offset: usize,
+    node_id_offset: usize,
+    node_self_size_offset: usize,
+    node_edge_count_offset: usize,
+    node_detachedness_offset: Option<usize>,
+    node_trace_node_id_offset: Option<usize>,
+) -> io::Result<Vec<NodeRecord>> {
+    if node_field_count == 6
+        && node_type_offset == 0
+        && node_name_offset == 1
+        && node_id_offset == 2
+        && node_self_size_offset == 3
+        && node_edge_count_offset == 4
+        && node_detachedness_offset == Some(5)
+        && node_trace_node_id_offset.is_none()
+    {
+        return parse_node_records_6(data, node_count);
+    }
+
+    let mut records = Vec::with_capacity(node_count);
+    // NodeRecord is Copy and contains only integer fields. Every slot is
+    // written before the vector is returned.
+    unsafe {
+        records.set_len(node_count);
+    }
+
+    let mut pos = 0usize;
+    let mut first_edge = 0u32;
+    for record in &mut records {
+        let mut type_id = 0u32;
+        let mut name = 0u32;
+        let mut id = 0u32;
+        let mut self_size = 0u32;
+        let mut edge_count = 0u32;
+        let mut detachedness = 0u32;
+        let mut trace_node_id = 0u32;
+
+        for field in 0..node_field_count {
+            let value = read_required_uint(data, &mut pos, "unexpected EOF in node array")?;
+            if field == node_type_offset {
+                type_id = value;
+            } else if field == node_name_offset {
+                name = value;
+            } else if field == node_id_offset {
+                id = value;
+            } else if field == node_self_size_offset {
+                self_size = value;
+            } else if field == node_edge_count_offset {
+                edge_count = value;
+            } else if Some(field) == node_detachedness_offset {
+                detachedness = value;
+            } else if Some(field) == node_trace_node_id_offset {
+                trace_node_id = value;
+            }
+        }
+
+        *record = NodeRecord {
+            type_id,
+            name,
+            id,
+            self_size,
+            edge_count,
+            detachedness,
+            trace_node_id,
+            first_edge,
+        };
+        first_edge = first_edge
+            .checked_add(edge_count)
+            .ok_or_else(|| parse_err("node edge count overflow"))?;
+    }
+
+    Ok(records)
+}
+
+fn parse_node_records_6(data: &[u8], node_count: usize) -> io::Result<Vec<NodeRecord>> {
+    let mut records = Vec::with_capacity(node_count);
+    // NodeRecord is Copy and contains only integer fields. Every slot is
+    // written before the vector is returned.
+    unsafe {
+        records.set_len(node_count);
+    }
+
+    let mut pos = 0usize;
+    let mut first_edge = 0u32;
+    for record in &mut records {
+        let type_id = read_required_uint(data, &mut pos, "unexpected EOF in node array")?;
+        let name = read_required_uint(data, &mut pos, "unexpected EOF in node array")?;
+        let id = read_required_uint(data, &mut pos, "unexpected EOF in node array")?;
+        let self_size = read_required_uint(data, &mut pos, "unexpected EOF in node array")?;
+        let edge_count = read_required_uint(data, &mut pos, "unexpected EOF in node array")?;
+        let detachedness = read_required_uint(data, &mut pos, "unexpected EOF in node array")?;
+
+        *record = NodeRecord {
+            type_id,
+            name,
+            id,
+            self_size,
+            edge_count,
+            detachedness,
+            trace_node_id: 0,
+            first_edge,
+        };
+        first_edge = first_edge
+            .checked_add(edge_count)
+            .ok_or_else(|| parse_err("node edge count overflow"))?;
+    }
+
+    Ok(records)
+}
+
+fn parse_edge_records_slice(
+    data: &[u8],
+    edge_count: usize,
+    edge_field_count: usize,
+    edge_type_offset: usize,
+    edge_name_offset: usize,
+    edge_to_node_offset: usize,
+    node_field_count: usize,
+) -> io::Result<Vec<EdgeRecord>> {
+    if edge_field_count == 3
+        && edge_type_offset == 0
+        && edge_name_offset == 1
+        && edge_to_node_offset == 2
+    {
+        if node_field_count == 6 {
+            return parse_edge_records_3_node6(data, edge_count);
+        }
+        return parse_edge_records_3(data, edge_count, node_field_count);
+    }
+
+    let mut records = Vec::with_capacity(edge_count);
+    // EdgeRecord is Copy and contains only integer fields. Every slot is
+    // written before the vector is returned.
+    unsafe {
+        records.set_len(edge_count);
+    }
+
+    let mut pos = 0usize;
+    for record in &mut records {
+        let mut type_id = 0u32;
+        let mut name_or_index = 0u32;
+        let mut to_node = 0u32;
+
+        for field in 0..edge_field_count {
+            let value = read_required_uint(data, &mut pos, "unexpected EOF in edge array")?;
+            if field == edge_type_offset {
+                type_id = value;
+            } else if field == edge_name_offset {
+                name_or_index = value;
+            } else if field == edge_to_node_offset {
+                to_node = value;
+            }
+        }
+
+        *record = EdgeRecord {
+            type_id,
+            name_or_index,
+            to_node_ordinal: (to_node as usize / node_field_count) as u32,
+            _padding: 0,
+        };
+    }
+
+    Ok(records)
+}
+
+fn parse_edge_records_3(
+    data: &[u8],
+    edge_count: usize,
+    node_field_count: usize,
+) -> io::Result<Vec<EdgeRecord>> {
+    let mut records = Vec::with_capacity(edge_count);
+    // EdgeRecord is Copy and contains only integer fields. Every slot is
+    // written before the vector is returned.
+    unsafe {
+        records.set_len(edge_count);
+    }
+
+    let mut pos = 0usize;
+    for record in &mut records {
+        let type_id = read_required_uint(data, &mut pos, "unexpected EOF in edge array")?;
+        let name_or_index = read_required_uint(data, &mut pos, "unexpected EOF in edge array")?;
+        let to_node = read_required_uint(data, &mut pos, "unexpected EOF in edge array")?;
+
+        *record = EdgeRecord {
+            type_id,
+            name_or_index,
+            to_node_ordinal: (to_node as usize / node_field_count) as u32,
+            _padding: 0,
+        };
+    }
+
+    Ok(records)
+}
+
+fn parse_edge_records_3_node6(data: &[u8], edge_count: usize) -> io::Result<Vec<EdgeRecord>> {
+    let mut records = Vec::with_capacity(edge_count);
+    // EdgeRecord is Copy and contains only integer fields. Every slot is
+    // written before the vector is returned.
+    unsafe {
+        records.set_len(edge_count);
+    }
+
+    let mut pos = 0usize;
+    for record in &mut records {
+        let type_id = read_required_uint(data, &mut pos, "unexpected EOF in edge array")?;
+        let name_or_index = read_required_uint(data, &mut pos, "unexpected EOF in edge array")?;
+        let to_node = read_required_uint(data, &mut pos, "unexpected EOF in edge array")?;
+
+        *record = EdgeRecord {
+            type_id,
+            name_or_index,
+            to_node_ordinal: to_node / 6,
+            _padding: 0,
+        };
+    }
+
+    Ok(records)
 }
 
 // --- Header parsing ---
@@ -735,62 +1000,75 @@ pub(super) fn parse(file: File) -> io::Result<ParsedHeapSnapshot> {
 pub(super) fn parse_from_slice(data: &[u8]) -> io::Result<ParsedHeapSnapshot> {
     let mut p = SliceParser::new(data);
 
-    // 1. Parse snapshot metadata
     p.find_token(b"\"snapshot\"")?;
     p.find_byte(b':')?;
     let meta_bytes = p.extract_balanced()?;
     let header = parse_snapshot_header(meta_bytes)?;
 
-    // 2. Parse nodes
-    let node_capacity = header.node_count * header.meta.node_fields.len();
-    p.find_token(b"\"nodes\"")?;
-    let nodes = p.parse_uint_array(node_capacity)?;
+    let node_field_count = header.meta.node_fields.len();
+    let node_type_offset = header
+        .meta
+        .node_fields
+        .iter()
+        .position(|f| f == "type")
+        .unwrap();
+    let node_name_offset = header
+        .meta
+        .node_fields
+        .iter()
+        .position(|f| f == "name")
+        .unwrap();
+    let node_id_offset = header
+        .meta
+        .node_fields
+        .iter()
+        .position(|f| f == "id")
+        .unwrap();
+    let node_self_size_offset = header
+        .meta
+        .node_fields
+        .iter()
+        .position(|f| f == "self_size")
+        .unwrap();
+    let node_edge_count_offset = header
+        .meta
+        .node_fields
+        .iter()
+        .position(|f| f == "edge_count")
+        .unwrap();
+    let node_detachedness_offset = header
+        .meta
+        .node_fields
+        .iter()
+        .position(|f| f == "detachedness");
+    let node_trace_node_id_offset = header
+        .meta
+        .node_fields
+        .iter()
+        .position(|f| f == "trace_node_id");
 
-    // 3. Parse edges
-    let edge_capacity = header.edge_count * header.meta.edge_fields.len();
-    p.find_token(b"\"edges\"")?;
-    let edges = p.parse_uint_array(edge_capacity)?;
+    let edge_field_count = header.meta.edge_fields.len();
+    let edge_type_offset = header
+        .meta
+        .edge_fields
+        .iter()
+        .position(|f| f == "type")
+        .unwrap();
+    let edge_name_offset = header
+        .meta
+        .edge_fields
+        .iter()
+        .position(|f| f == "name_or_index")
+        .unwrap();
+    let edge_to_node_offset = header
+        .meta
+        .edge_fields
+        .iter()
+        .position(|f| f == "to_node")
+        .unwrap();
 
-    // 4. Parse trace data (optional, appears between edges and locations)
-    let (trace_function_infos, trace_tree_parents, trace_tree_func_idxs) =
-        if header.trace_function_count > 0 {
-            let tfi_fields = header.meta.trace_function_info_fields.len().max(6);
-            let tfi_capacity = header.trace_function_count * tfi_fields;
-            p.find_token(b"\"trace_function_infos\"")?;
-            let tfi = p.parse_uint_array(tfi_capacity)?;
-
-            p.find_token(b"\"trace_tree\"")?;
-            p.find_byte(b':')?;
-            let tree_bytes = p.extract_balanced()?;
-            let (parents, func_idxs) = flatten_trace_tree(&tree_bytes)?;
-
-            (tfi, parents, func_idxs)
-        } else {
-            (Vec::new(), Vec::new(), Vec::new())
-        };
-
-    // 4b. Parse samples (optional, appears after trace_tree)
-    let samples = if !header.meta.sample_fields.is_empty() && header.trace_function_count > 0 {
-        p.find_token(b"\"samples\"")?;
-        p.parse_uint_array(0)?
-    } else {
-        Vec::new()
-    };
-
-    // 5. Parse locations (optional)
-    let locations = if !header.meta.location_fields.is_empty() {
-        p.find_token(b"\"locations\"")?;
-        p.parse_uint_array(0)?
-    } else {
-        Vec::new()
-    };
-
-    // 6. Parse strings (always last)
-    p.find_token(b"\"strings\"")?;
-    let strings = p.parse_string_array()?;
-
-    Ok(ParsedHeapSnapshot::from_raw_parts(
-        header,
+    #[cfg(not(target_arch = "wasm32"))]
+    let (
         nodes,
         edges,
         strings,
@@ -799,5 +1077,184 @@ pub(super) fn parse_from_slice(data: &[u8]) -> io::Result<ParsedHeapSnapshot> {
         trace_tree_parents,
         trace_tree_func_idxs,
         samples,
-    ))
+    ) = std::thread::scope(|scope| -> io::Result<_> {
+        p.find_token(b"\"nodes\"")?;
+        let node_data = p.uint_array_tail()?;
+        let nodes_worker = scope.spawn(|| {
+            parse_node_records_slice(
+                node_data,
+                header.node_count,
+                node_field_count,
+                node_type_offset,
+                node_name_offset,
+                node_id_offset,
+                node_self_size_offset,
+                node_edge_count_offset,
+                node_detachedness_offset,
+                node_trace_node_id_offset,
+            )
+        });
+
+        p.find_token(b"\"edges\"")?;
+        let edge_data = p.uint_array_tail()?;
+        let edges_worker = scope.spawn(|| {
+            parse_edge_records_slice(
+                edge_data,
+                header.edge_count,
+                edge_field_count,
+                edge_type_offset,
+                edge_name_offset,
+                edge_to_node_offset,
+                node_field_count,
+            )
+        });
+
+        let (trace_function_infos, trace_tree_parents, trace_tree_func_idxs) =
+            if header.trace_function_count > 0 {
+                let tfi_fields = header.meta.trace_function_info_fields.len().max(6);
+                let tfi_capacity = header.trace_function_count * tfi_fields;
+                p.find_token(b"\"trace_function_infos\"")?;
+                let tfi = p.parse_uint_array(tfi_capacity)?;
+
+                p.find_token(b"\"trace_tree\"")?;
+                p.find_byte(b':')?;
+                let tree_bytes = p.extract_balanced()?;
+                let (parents, func_idxs) = flatten_trace_tree(tree_bytes)?;
+
+                (tfi, parents, func_idxs)
+            } else {
+                (Vec::new(), Vec::new(), Vec::new())
+            };
+
+        let samples = if !header.meta.sample_fields.is_empty() && header.trace_function_count > 0 {
+            p.find_token(b"\"samples\"")?;
+            p.parse_uint_array(0)?
+        } else {
+            Vec::new()
+        };
+
+        let locations = if !header.meta.location_fields.is_empty() {
+            p.find_token(b"\"locations\"")?;
+            p.parse_uint_array(0)?
+        } else {
+            Vec::new()
+        };
+
+        p.find_token(b"\"strings\"")?;
+        let strings = p.parse_string_array()?;
+
+        let nodes = nodes_worker
+            .join()
+            .map_err(|_| parse_err("nodes parser thread panicked"))??;
+        let edges = edges_worker
+            .join()
+            .map_err(|_| parse_err("edges parser thread panicked"))??;
+
+        Ok((
+            nodes,
+            edges,
+            strings,
+            locations,
+            trace_function_infos,
+            trace_tree_parents,
+            trace_tree_func_idxs,
+            samples,
+        ))
+    })?;
+
+    #[cfg(target_arch = "wasm32")]
+    let (
+        nodes,
+        edges,
+        strings,
+        locations,
+        trace_function_infos,
+        trace_tree_parents,
+        trace_tree_func_idxs,
+        samples,
+    ) = {
+        p.find_token(b"\"nodes\"")?;
+        let node_data = p.uint_array_tail()?;
+        let nodes = parse_node_records_slice(
+            node_data,
+            header.node_count,
+            node_field_count,
+            node_type_offset,
+            node_name_offset,
+            node_id_offset,
+            node_self_size_offset,
+            node_edge_count_offset,
+            node_detachedness_offset,
+            node_trace_node_id_offset,
+        )?;
+
+        p.find_token(b"\"edges\"")?;
+        let edge_data = p.uint_array_tail()?;
+        let edges = parse_edge_records_slice(
+            edge_data,
+            header.edge_count,
+            edge_field_count,
+            edge_type_offset,
+            edge_name_offset,
+            edge_to_node_offset,
+            node_field_count,
+        )?;
+
+        let (trace_function_infos, trace_tree_parents, trace_tree_func_idxs) =
+            if header.trace_function_count > 0 {
+                let tfi_fields = header.meta.trace_function_info_fields.len().max(6);
+                let tfi_capacity = header.trace_function_count * tfi_fields;
+                p.find_token(b"\"trace_function_infos\"")?;
+                let tfi = p.parse_uint_array(tfi_capacity)?;
+
+                p.find_token(b"\"trace_tree\"")?;
+                p.find_byte(b':')?;
+                let tree_bytes = p.extract_balanced()?;
+                let (parents, func_idxs) = flatten_trace_tree(tree_bytes)?;
+
+                (tfi, parents, func_idxs)
+            } else {
+                (Vec::new(), Vec::new(), Vec::new())
+            };
+
+        let samples = if !header.meta.sample_fields.is_empty() && header.trace_function_count > 0 {
+            p.find_token(b"\"samples\"")?;
+            p.parse_uint_array(0)?
+        } else {
+            Vec::new()
+        };
+
+        let locations = if !header.meta.location_fields.is_empty() {
+            p.find_token(b"\"locations\"")?;
+            p.parse_uint_array(0)?
+        } else {
+            Vec::new()
+        };
+
+        p.find_token(b"\"strings\"")?;
+        let strings = p.parse_string_array()?;
+
+        (
+            nodes,
+            edges,
+            strings,
+            locations,
+            trace_function_infos,
+            trace_tree_parents,
+            trace_tree_func_idxs,
+            samples,
+        )
+    };
+
+    Ok(ParsedHeapSnapshot {
+        snapshot: header,
+        nodes,
+        edges,
+        strings,
+        locations,
+        trace_function_infos,
+        trace_tree_parents,
+        trace_tree_func_idxs,
+        samples,
+    })
 }
