@@ -59,6 +59,68 @@ struct ContextCoverageReachability {
     context_covered: Vec<ContextCovered>,
 }
 
+struct DominatorData {
+    // Total bytes retained by each node, indexed by node ordinal.
+    retained_sizes: Vec<u64>,
+    // Immediate dominator for each node, indexed by node ordinal.
+    immediate_dominators: Vec<u32>,
+    // Flat adjacency list of dominated children. Children for node `n` live in
+    // `dominated_nodes[first_dominated_node_index[n]..first_dominated_node_index[n + 1]]`.
+    dominated_nodes: Vec<u32>,
+    // Prefix offsets into `dominated_nodes`; length is node_count + 1.
+    first_dominated_node_index: Vec<u32>,
+}
+
+impl DominatorData {
+    fn empty() -> Self {
+        Self {
+            retained_sizes: Vec::new(),
+            immediate_dominators: Vec::new(),
+            dominated_nodes: Vec::new(),
+            first_dominated_node_index: Vec::new(),
+        }
+    }
+}
+
+struct NativeContextAttributionData {
+    // Best-effort owner bucket for each node: a specific NativeContext, shared
+    // by multiple contexts, or unattributed.
+    node_native_context_buckets: Vec<NativeContextBucket>,
+    // Sum of node self sizes for each NativeContext bucket.
+    native_context_sizes: Vec<u64>,
+    // Sum of node self sizes in the shared NativeContext bucket.
+    shared_attributable_size: u64,
+    // Sum of node self sizes that could not be attributed to a NativeContext.
+    unattributed_size: u64,
+}
+
+impl NativeContextAttributionData {
+    fn empty() -> Self {
+        Self {
+            node_native_context_buckets: Vec::new(),
+            native_context_sizes: Vec::new(),
+            shared_attributable_size: 0,
+            unattributed_size: 0,
+        }
+    }
+}
+
+struct ContextCoverageData {
+    // Aggregate result of the "block ordinary Context objects" coverage pass.
+    context_coverage: ContextCoverage,
+    // Per-node coverage classification used by summary filters.
+    context_covered: Vec<ContextCovered>,
+}
+
+impl ContextCoverageData {
+    fn empty() -> Self {
+        Self {
+            context_coverage: ContextCoverage::default(),
+            context_covered: Vec::new(),
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ContextCovered {
     Covered,
@@ -312,18 +374,12 @@ pub struct HeapSnapshot {
     root_ordinal: usize,
     gc_roots_ordinal: usize,
     node_distances: Vec<Distance>,
-    retained_sizes: Vec<u64>,
-    dominators_tree: Vec<u32>,
-    dominated_nodes: Vec<u32>,
-    first_dominated_node_index: Vec<u32>,
+    dominator_data: DominatorData,
 
     // Retainers
     retaining_nodes: Vec<u32>,
     retaining_edges: Vec<u32>,
     first_retainer_index: Vec<u32>,
-
-    // Flags (for page-owned nodes tracking)
-    flags: Vec<u8>,
 
     // Root classification for each node ordinal.
     root_kinds: Vec<RootKind>,
@@ -333,8 +389,8 @@ pub struct HeapSnapshot {
     // Class index per node
     class_indices: Vec<u32>,
 
-    // Detachedness per node. Populated by propagate_detachedness; all Unknown
-    // when the snapshot does not carry a detachedness field.
+    // Detachedness per node. All Unknown when the snapshot does not carry a
+    // detachedness field.
     detachedness: Vec<Detachedness>,
 
     // Location map: node ordinal -> SourceLocation
@@ -351,12 +407,9 @@ pub struct HeapSnapshot {
     // attributable size metadata.
     native_contexts: Vec<NativeContextData>,
     // Best-effort native context owner for each node.
-    node_native_context_buckets: Vec<NativeContextBucket>,
-    shared_attributable_size: u64,
-    unattributed_size: u64,
-    // Precomputed context coverage pass for each node.
-    context_coverage: ContextCoverage,
-    context_covered: Vec<ContextCovered>,
+    native_context_attribution: NativeContextAttributionData,
+    // Ordinary Context reachability coverage used by summary filters and stats.
+    context_coverage: ContextCoverageData,
     // Edge names common to all NativeContext global_objects
     native_context_global_fields: FxHashSet<String>,
     // Precomputed "Vars" string per NativeContext (joined unique global + script context vars)
@@ -403,6 +456,13 @@ impl HeapSnapshot {
         } else {
             self.nodes[ordinal].first_edge as usize
         }
+    }
+
+    #[inline]
+    fn node_edge_range(&self, ordinal: usize) -> (usize, usize) {
+        let node = &self.nodes[ordinal];
+        let first = node.first_edge as usize;
+        (first, first + node.edge_count as usize)
     }
 
     #[inline]
@@ -853,6 +913,22 @@ impl HeapSnapshot {
         }
     }
 
+    fn dominator_data(&self) -> &DominatorData {
+        &self.dominator_data
+    }
+
+    fn detachedness(&self) -> &[Detachedness] {
+        &self.detachedness
+    }
+
+    fn native_context_attribution_data(&self) -> &NativeContextAttributionData {
+        &self.native_context_attribution
+    }
+
+    fn context_coverage_data(&self) -> &ContextCoverageData {
+        &self.context_coverage
+    }
+
     // Public API
 
     pub fn native_contexts(&self) -> &[NativeContextData] {
@@ -860,27 +936,27 @@ impl HeapSnapshot {
     }
 
     pub fn native_context_by_id(&self, id: NativeContextId) -> &NativeContextData {
-        &self.native_contexts[id.0 as usize]
+        &self.native_contexts()[id.0 as usize]
     }
 
     pub fn native_context_id(&self, ordinal: NodeOrdinal) -> Option<NativeContextId> {
-        self.native_contexts
+        self.native_contexts()
             .iter()
             .position(|ctx| ctx.ordinal == ordinal)
             .map(|idx| NativeContextId(idx as u32))
     }
 
     pub fn native_context_data(&self, ordinal: NodeOrdinal) -> Option<&NativeContextData> {
-        self.native_contexts
+        self.native_contexts()
             .iter()
             .find(|ctx| ctx.ordinal == ordinal)
     }
 
     pub fn native_context_attributable_sizes(&self) -> NativeContextAttributableSizes {
         NativeContextAttributableSizes {
-            native_contexts: self.native_contexts.clone(),
-            shared: self.shared_attributable_size,
-            unattributed: self.unattributed_size,
+            native_contexts: self.native_contexts().to_vec(),
+            shared: self.shared_attributable_size(),
+            unattributed: self.unattributed_size(),
         }
     }
 
@@ -890,11 +966,12 @@ impl HeapSnapshot {
     }
 
     pub fn shared_attributable_size(&self) -> u64 {
-        self.shared_attributable_size
+        self.native_context_attribution_data()
+            .shared_attributable_size
     }
 
     pub fn unattributed_size(&self) -> u64 {
-        self.unattributed_size
+        self.native_context_attribution_data().unattributed_size
     }
 
     /// Returns sorted edge names of this NativeContext's global_object that are
@@ -1389,7 +1466,7 @@ impl HeapSnapshot {
     }
 
     pub fn node_retained_size(&self, ordinal: NodeOrdinal) -> u64 {
-        self.retained_sizes[ordinal.0]
+        self.dominator_data().retained_sizes[ordinal.0]
     }
 
     pub fn reachable_size(&self, roots: &[NodeOrdinal]) -> ReachableInfo {
@@ -1562,7 +1639,8 @@ impl HeapSnapshot {
     }
 
     pub fn node_native_context_bucket(&self, ordinal: NodeOrdinal) -> NativeContextBucket {
-        self.node_native_context_buckets[ordinal.0]
+        self.native_context_attribution_data()
+            .node_native_context_buckets[ordinal.0]
     }
 
     /// Returns true if this node is an ordinary `system / Context` object.
@@ -1631,7 +1709,7 @@ impl HeapSnapshot {
     }
 
     pub fn node_detachedness(&self, ordinal: NodeOrdinal) -> Detachedness {
-        self.detachedness[ordinal.0]
+        self.detachedness()[ordinal.0]
     }
 
     /// Returns the raw detachedness value encoded in the heap snapshot.
@@ -2064,14 +2142,15 @@ impl HeapSnapshot {
 
     /// Returns the immediate dominator of `ordinal` in the dominator tree.
     pub fn dominator_of(&self, ordinal: NodeOrdinal) -> NodeOrdinal {
-        NodeOrdinal(self.dominators_tree[ordinal.0] as usize)
+        NodeOrdinal(self.dominator_data().immediate_dominators[ordinal.0] as usize)
     }
 
     pub fn get_dominated_children(&self, ordinal: NodeOrdinal) -> Vec<NodeOrdinal> {
-        let from = self.first_dominated_node_index[ordinal.0] as usize;
-        let to = self.first_dominated_node_index[ordinal.0 + 1] as usize;
+        let dominator_data = self.dominator_data();
+        let from = dominator_data.first_dominated_node_index[ordinal.0] as usize;
+        let to = dominator_data.first_dominated_node_index[ordinal.0 + 1] as usize;
         (from..to)
-            .map(|i| NodeOrdinal(self.dominated_nodes[i] as usize))
+            .map(|i| NodeOrdinal(dominator_data.dominated_nodes[i] as usize))
             .collect()
     }
 
@@ -2082,7 +2161,7 @@ impl HeapSnapshot {
     fn compute_aggregates(&self, filter: impl Fn(usize) -> bool) -> AggregateMap {
         let (mut aggregates, ord_to_agg) = self.build_aggregates(filter);
         self.calculate_classes_retained_size(&mut aggregates, &ord_to_agg);
-        let rs = &self.retained_sizes;
+        let rs = &self.dominator_data().retained_sizes;
         for agg in aggregates.iter_mut() {
             agg.node_ordinals
                 .sort_by(|a, b| rs[b.0].partial_cmp(&rs[a.0]).unwrap());
@@ -2107,31 +2186,36 @@ impl HeapSnapshot {
     }
 
     pub fn aggregates_for_context_covered_objects(&self) -> AggregateMap {
-        self.compute_aggregates(|ordinal| self.context_covered[ordinal] == ContextCovered::Covered)
+        let context_covered = &self.context_coverage_data().context_covered;
+        self.compute_aggregates(|ordinal| context_covered[ordinal] == ContextCovered::Covered)
     }
 
     pub fn aggregates_for_non_context_covered_objects(&self) -> AggregateMap {
-        self.compute_aggregates(|ordinal| {
-            self.context_covered[ordinal] == ContextCovered::NonCovered
-        })
+        let context_covered = &self.context_coverage_data().context_covered;
+        self.compute_aggregates(|ordinal| context_covered[ordinal] == ContextCovered::NonCovered)
     }
 
     pub fn aggregates_for_native_context(&self, context_id: NativeContextId) -> AggregateMap {
+        let buckets = &self
+            .native_context_attribution_data()
+            .node_native_context_buckets;
         self.compute_aggregates(|ordinal| {
-            self.node_native_context_buckets[ordinal] == NativeContextBucket::Context(context_id)
+            buckets[ordinal] == NativeContextBucket::Context(context_id)
         })
     }
 
     pub fn aggregates_for_shared_context(&self) -> AggregateMap {
-        self.compute_aggregates(|ordinal| {
-            self.node_native_context_buckets[ordinal] == NativeContextBucket::Shared
-        })
+        let buckets = &self
+            .native_context_attribution_data()
+            .node_native_context_buckets;
+        self.compute_aggregates(|ordinal| buckets[ordinal] == NativeContextBucket::Shared)
     }
 
     pub fn aggregates_for_unattributed_context(&self) -> AggregateMap {
-        self.compute_aggregates(|ordinal| {
-            self.node_native_context_buckets[ordinal] == NativeContextBucket::Unattributed
-        })
+        let buckets = &self
+            .native_context_attribution_data()
+            .node_native_context_buckets;
+        self.compute_aggregates(|ordinal| buckets[ordinal] == NativeContextBucket::Unattributed)
     }
 
     /// BFS from the root, skipping edges where `skip_edge` returns true.
@@ -2200,7 +2284,7 @@ impl HeapSnapshot {
         }
         Some(self.retained_by_detached_dom_bitmap.get_or_init(|| {
             self.compute_retained_bitmap(|_ei, _src, target| {
-                self.detachedness[target] == Detachedness::Detached
+                self.detachedness()[target] == Detachedness::Detached
             })
         }))
     }
@@ -2367,6 +2451,7 @@ impl HeapSnapshot {
     }
 
     fn calculate_classes_retained_size(&self, aggregates: &mut AggregateMap, ord_to_agg: &[u32]) {
+        let dominator_data = self.dominator_data();
         let mut list: Vec<usize> = vec![self.gc_roots_ordinal];
         let mut sizes: Vec<i64> = vec![-1];
         let mut class_stack: Vec<u32> = Vec::new();
@@ -2375,12 +2460,12 @@ impl HeapSnapshot {
         while let Some(ordinal) = list.pop() {
             let agg_idx = ord_to_agg[ordinal];
             let is_seen = agg_idx != u32::MAX && seen.contains(&agg_idx);
-            let dom_from = self.first_dominated_node_index[ordinal] as usize;
-            let dom_to = self.first_dominated_node_index[ordinal + 1] as usize;
+            let dom_from = dominator_data.first_dominated_node_index[ordinal] as usize;
+            let dom_to = dominator_data.first_dominated_node_index[ordinal + 1] as usize;
 
             if !is_seen && self.nodes[ordinal].self_size > 0 {
                 if agg_idx != u32::MAX {
-                    aggregates[agg_idx as usize].max_ret += self.retained_sizes[ordinal];
+                    aggregates[agg_idx as usize].max_ret += dominator_data.retained_sizes[ordinal];
                 }
                 if dom_from != dom_to {
                     if agg_idx != u32::MAX {
@@ -2392,7 +2477,7 @@ impl HeapSnapshot {
             }
 
             for i in dom_from..dom_to {
-                list.push(self.dominated_nodes[i] as usize);
+                list.push(dominator_data.dominated_nodes[i] as usize);
             }
 
             let l = list.len() as i64;

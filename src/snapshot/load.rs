@@ -3,7 +3,7 @@
 // found in the LICENSE file.
 
 use std::cmp::Reverse;
-use std::collections::{BinaryHeap, VecDeque};
+use std::collections::BinaryHeap;
 use std::fs::File;
 use std::io::{self, Read};
 use std::path::Path;
@@ -21,22 +21,27 @@ const NO_EDGE_TARGET: u32 = u32::MAX;
 const NO_NATIVE_CONTEXT_ID: u32 = u32::MAX;
 const UNRESOLVED_NATIVE_CONTEXT_ID: u32 = u32::MAX - 1;
 const IN_PROGRESS_NATIVE_CONTEXT_ID: u32 = u32::MAX - 2;
+const SHARED_NATIVE_CONTEXT_ID: u32 = u32::MAX - 3;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum ReachClass {
-    None,
-    One(NativeContextId),
-    Many,
-}
-
+// Temporary load-time cache of selected named edge targets, indexed by
+// source node ordinal. Each slot is either a target node ordinal or
+// `NO_EDGE_TARGET`. This lets init passes use direct array lookups instead
+// of repeatedly scanning a node's edges for common names.
 #[derive(Clone, Debug)]
 struct InitEdgeTargets {
+    // NativeContext -> JSGlobalObject.
     global_object: Vec<u32>,
+    // NativeContext -> JSGlobalProxy.
     global_proxy_object: Vec<u32>,
+    // Object/function -> Context.
     context: Vec<u32>,
+    // Object/map -> NativeContext.
     native_context: Vec<u32>,
+    // Object -> Map.
     map: Vec<u32>,
+    // Context -> previous outer Context.
     previous: Vec<u32>,
+    // NativeContext -> ScriptContextTable.
     script_context_table: Vec<u32>,
 }
 
@@ -51,30 +56,13 @@ struct NativeJsMetadata {
 }
 
 struct RetainerIndex {
+    // Source node ordinal for each incoming edge entry.
     retaining_nodes: Vec<u32>,
+    // Edge index for each incoming edge entry, parallel to `retaining_nodes`.
     retaining_edges: Vec<u32>,
+    // Prefix offsets into the retainer arrays; incoming retainers for node `n`
+    // live in `first_retainer_index[n]..first_retainer_index[n + 1]`.
     first_retainer_index: Vec<u32>,
-}
-
-struct DominatorData {
-    retained_sizes: Vec<u64>,
-    dominators_tree: Vec<u32>,
-    dominated_nodes: Vec<u32>,
-    first_dominated_node_index: Vec<u32>,
-}
-
-struct DetachednessData {
-    detachedness: Vec<Detachedness>,
-    flags: Vec<u8>,
-}
-
-struct ContextAttributionData {
-    node_native_context_buckets: Vec<NativeContextBucket>,
-    native_context_sizes: Vec<u64>,
-    shared_attributable_size: u64,
-    unattributed_size: u64,
-    context_coverage: ContextCoverage,
-    context_covered: Vec<ContextCovered>,
 }
 
 struct NameData {
@@ -87,8 +75,9 @@ struct InitPhaseData {
     retainer_index: RetainerIndex,
     dominator_data: DominatorData,
     distances: Vec<Distance>,
-    detachedness_data: DetachednessData,
-    context_attribution: ContextAttributionData,
+    detachedness: Vec<Detachedness>,
+    native_context_attribution: NativeContextAttributionData,
+    context_coverage: ContextCoverageData,
     names: NameData,
 }
 
@@ -111,7 +100,35 @@ fn edge_target_ordinal(raw: u32) -> Option<NodeOrdinal> {
 }
 
 fn native_context_id_from_raw(raw: u32) -> Option<NativeContextId> {
-    (raw < IN_PROGRESS_NATIVE_CONTEXT_ID).then_some(NativeContextId(raw))
+    (raw < SHARED_NATIVE_CONTEXT_ID).then_some(NativeContextId(raw))
+}
+
+fn maybe_weak_map_ephemeron_edge_name(name: &str) -> bool {
+    let bytes = name.as_bytes();
+    let mut idx = 0;
+    while idx < bytes.len() && bytes[idx].is_ascii_digit() {
+        idx += 1;
+    }
+    idx > 0 && name[idx..].starts_with(" / part of key (")
+}
+
+fn empty_statistics() -> Statistics {
+    Statistics {
+        total: 0,
+        native_total: 0,
+        typed_arrays: 0,
+        v8heap_total: 0,
+        code: 0,
+        js_arrays: 0,
+        strings: 0,
+        system: 0,
+        extra_native_bytes: 0,
+        unreachable_count: 0,
+        unreachable_size: 0,
+        context_count: 0,
+        context_covered_size: 0,
+        reachable_without_contexts_size: 0,
+    }
 }
 
 impl HeapSnapshot {
@@ -392,25 +409,18 @@ impl HeapSnapshot {
             root_ordinal,
             gc_roots_ordinal: INVALID_NODE_ORDINAL,
             node_distances: Vec::new(),
-            retained_sizes: Vec::new(),
-            dominators_tree: Vec::new(),
-            dominated_nodes: Vec::new(),
-            first_dominated_node_index: Vec::new(),
+            dominator_data: DominatorData::empty(),
             retaining_nodes: Vec::new(),
             retaining_edges: Vec::new(),
             first_retainer_index: Vec::new(),
-            flags: Vec::new(),
             root_kinds: vec![RootKind::NonRoot; node_count],
             system_roots: Vec::new(),
             user_roots: Vec::new(),
             class_indices: vec![0u32; node_count],
             detachedness: Vec::new(),
             native_contexts: Vec::new(),
-            node_native_context_buckets: vec![NativeContextBucket::Unattributed; node_count],
-            shared_attributable_size: 0,
-            unattributed_size: 0,
-            context_coverage: ContextCoverage::default(),
-            context_covered: Vec::new(),
+            native_context_attribution: NativeContextAttributionData::empty(),
+            context_coverage: ContextCoverageData::empty(),
             native_context_global_fields: FxHashSet::default(),
             native_context_vars: FxHashMap::default(),
             js_global_objects: Vec::new(),
@@ -434,22 +444,7 @@ impl HeapSnapshot {
             retained_by_detached_dom_bitmap: OnceLock::new(),
             retained_by_console_bitmap: OnceLock::new(),
             retained_by_event_handlers_bitmap: OnceLock::new(),
-            statistics: Statistics {
-                total: 0,
-                native_total: 0,
-                typed_arrays: 0,
-                v8heap_total: 0,
-                code: 0,
-                js_arrays: 0,
-                strings: 0,
-                system: 0,
-                extra_native_bytes: 0,
-                unreachable_count: 0,
-                unreachable_size: 0,
-                context_count: 0,
-                context_covered_size: 0,
-                reachable_without_contexts_size: 0,
-            },
+            statistics: empty_statistics(),
         };
 
         let init_edge_targets = snap.build_init_edge_targets();
@@ -505,7 +500,6 @@ impl HeapSnapshot {
                 ei += 1;
             }
         }
-
         // NOTE: DevTools calls calculateEffectiveSizes here, which
         // transfers shallow sizes from hidden/array/ExternalStringData nodes
         // to their unique non-synthetic owner.  This makes summary view sizes
@@ -527,26 +521,20 @@ impl HeapSnapshot {
         snap.retaining_edges = init_data.retainer_index.retaining_edges;
         snap.first_retainer_index = init_data.retainer_index.first_retainer_index;
 
-        snap.retained_sizes = init_data.dominator_data.retained_sizes;
-        snap.dominators_tree = init_data.dominator_data.dominators_tree;
-        snap.dominated_nodes = init_data.dominator_data.dominated_nodes;
-        snap.first_dominated_node_index = init_data.dominator_data.first_dominated_node_index;
+        snap.dominator_data = init_data.dominator_data;
         snap.node_distances = init_data.distances;
-        snap.detachedness = init_data.detachedness_data.detachedness;
-        snap.flags = init_data.detachedness_data.flags;
-        snap.node_native_context_buckets =
-            init_data.context_attribution.node_native_context_buckets;
-        for (ctx, size) in snap
-            .native_contexts
-            .iter_mut()
-            .zip(init_data.context_attribution.native_context_sizes)
-        {
+        snap.detachedness = init_data.detachedness;
+        for (ctx, size) in snap.native_contexts.iter_mut().zip(
+            init_data
+                .native_context_attribution
+                .native_context_sizes
+                .iter()
+                .copied(),
+        ) {
             ctx.size = size;
         }
-        snap.shared_attributable_size = init_data.context_attribution.shared_attributable_size;
-        snap.unattributed_size = init_data.context_attribution.unattributed_size;
-        snap.context_coverage = init_data.context_attribution.context_coverage;
-        snap.context_covered = init_data.context_attribution.context_covered;
+        snap.native_context_attribution = init_data.native_context_attribution;
+        snap.context_coverage = init_data.context_coverage;
         snap.class_indices = init_data.names.class_indices;
         snap.strings.extend(init_data.names.appended_strings);
 
@@ -587,8 +575,7 @@ impl HeapSnapshot {
             snap.build_timeline(&samples, &meta);
         }
 
-        // Calculate statistics
-        snap.calculate_statistics();
+        snap.statistics = snap.calculate_statistics();
 
         snap
     }
@@ -596,10 +583,21 @@ impl HeapSnapshot {
     #[cfg(not(target_arch = "wasm32"))]
     fn compute_init_phase_data(&self, edge_targets: &InitEdgeTargets) -> InitPhaseData {
         std::thread::scope(|scope| {
-            let native_metadata = scope.spawn(|| self.compute_native_js_metadata(edge_targets));
+            let native_context_attribution_worker = scope.spawn(|| {
+                let native_metadata = self.compute_native_js_metadata(edge_targets);
+                let native_context_attribution = self.compute_native_context_attribution_data(
+                    edge_targets,
+                    &native_metadata.native_contexts,
+                );
+                (native_metadata, native_context_attribution)
+            });
             let names = scope.spawn(|| self.compute_name_data());
-            let detachedness = scope.spawn(|| self.compute_detachedness_and_flags());
-            let distances = scope.spawn(|| self.calculate_distances_output());
+            let detachedness = scope.spawn(|| self.compute_detachedness());
+            let context_coverage_worker = scope.spawn(|| {
+                let distances = self.calculate_distances_output();
+                let context_coverage = self.compute_context_coverage_data(&distances);
+                (distances, context_coverage)
+            });
             let retainers = scope.spawn(|| self.build_retainers_output());
             let essential_edges = scope.spawn(|| self.init_essential_edges());
 
@@ -611,10 +609,9 @@ impl HeapSnapshot {
                 (retainer_index, dominator_data)
             });
 
-            let native_metadata = native_metadata.join().unwrap();
-            let distances = distances.join().unwrap();
-            let context_attribution =
-                self.compute_context_attribution_data(edge_targets, &native_metadata, &distances);
+            let (native_metadata, native_context_attribution) =
+                native_context_attribution_worker.join().unwrap();
+            let (distances, context_coverage) = context_coverage_worker.join().unwrap();
             let (retainer_index, dominator_data) = dominator_data.join().unwrap();
 
             InitPhaseData {
@@ -622,8 +619,9 @@ impl HeapSnapshot {
                 retainer_index,
                 dominator_data,
                 distances,
-                detachedness_data: detachedness.join().unwrap(),
-                context_attribution,
+                detachedness: detachedness.join().unwrap(),
+                native_context_attribution,
+                context_coverage,
                 names: names.join().unwrap(),
             }
         })
@@ -633,21 +631,25 @@ impl HeapSnapshot {
     fn compute_init_phase_data(&self, edge_targets: &InitEdgeTargets) -> InitPhaseData {
         let native_metadata = self.compute_native_js_metadata(edge_targets);
         let names = self.compute_name_data();
-        let detachedness_data = self.compute_detachedness_and_flags();
+        let detachedness = self.compute_detachedness();
         let distances = self.calculate_distances_output();
         let retainer_index = self.build_retainers_output();
         let essential_edges = self.init_essential_edges();
         let dominator_data = self.calculate_dominator_data(&essential_edges, &retainer_index);
-        let context_attribution =
-            self.compute_context_attribution_data(edge_targets, &native_metadata, &distances);
+        let native_context_attribution = self.compute_native_context_attribution_data(
+            edge_targets,
+            &native_metadata.native_contexts,
+        );
+        let context_coverage = self.compute_context_coverage_data(&distances);
 
         InitPhaseData {
             native_metadata,
             retainer_index,
             dominator_data,
             distances,
-            detachedness_data,
-            context_attribution,
+            detachedness,
+            native_context_attribution,
+            context_coverage,
             names,
         }
     }
@@ -729,29 +731,32 @@ impl HeapSnapshot {
         }
     }
 
-    fn compute_context_attribution_data(
+    fn compute_native_context_attribution_data(
         &self,
         edge_targets: &InitEdgeTargets,
-        native_metadata: &NativeJsMetadata,
-        node_distances: &[Distance],
-    ) -> ContextAttributionData {
-        let node_native_context_buckets = self.compute_node_native_context_buckets_output(
-            edge_targets,
-            &native_metadata.native_contexts,
-        );
-        let (context_coverage, context_covered) =
-            self.compute_context_coverage_output(node_distances);
+        native_contexts: &[NativeContextData],
+    ) -> NativeContextAttributionData {
+        let node_native_context_buckets =
+            self.compute_node_native_context_buckets_output(edge_targets, native_contexts);
         let (native_context_sizes, shared_attributable_size, unattributed_size) = self
             .compute_native_context_attributable_sizes_output(
-                native_metadata.native_contexts.len(),
+                native_contexts.len(),
                 &node_native_context_buckets,
             );
 
-        ContextAttributionData {
+        NativeContextAttributionData {
             node_native_context_buckets,
             native_context_sizes,
             shared_attributable_size,
             unattributed_size,
+        }
+    }
+
+    fn compute_context_coverage_data(&self, node_distances: &[Distance]) -> ContextCoverageData {
+        let (context_coverage, context_covered) =
+            self.compute_context_coverage_output(node_distances);
+
+        ContextCoverageData {
             context_coverage,
             context_covered,
         }
@@ -770,25 +775,29 @@ impl HeapSnapshot {
         let context_owners = self.build_context_owner_map(&context_index_by_ordinal, edge_targets);
         let fixed_owner = self.compute_fixed_native_context_owners(&context_owners, edge_targets);
 
-        let mut reach_owner = vec![ReachClass::None; self.node_count];
-        let mut queue = VecDeque::new();
+        let mut reach_owner = vec![NO_NATIVE_CONTEXT_ID; self.node_count];
+        let mut queue = Vec::with_capacity(self.node_count);
         for (ordinal, owner) in fixed_owner.iter().enumerate() {
-            if owner.is_some() {
-                queue.push_back(ordinal);
+            if native_context_id_from_raw(*owner).is_some() {
+                queue.push(ordinal);
             }
         }
 
-        while let Some(ordinal) = queue.pop_front() {
-            let current = match fixed_owner[ordinal] {
-                Some(ctx_idx) => ReachClass::One(ctx_idx),
-                None => reach_owner[ordinal],
+        let mut queue_index = 0;
+        while queue_index < queue.len() {
+            let ordinal = queue[queue_index];
+            queue_index += 1;
+
+            let current = if native_context_id_from_raw(fixed_owner[ordinal]).is_some() {
+                fixed_owner[ordinal]
+            } else {
+                reach_owner[ordinal]
             };
-            if current == ReachClass::None {
+            if current == NO_NATIVE_CONTEXT_ID {
                 continue;
             }
 
-            let first_edge = self.first_edge_index(ordinal);
-            let last_edge = self.first_edge_index(ordinal + 1);
+            let (first_edge, last_edge) = self.node_edge_range(ordinal);
             let mut ei = first_edge;
             while ei < last_edge {
                 let edge_type = self.edge_type_raw(ei);
@@ -797,14 +806,16 @@ impl HeapSnapshot {
                     continue;
                 }
                 let child_ordinal = self.edge_to_node_ordinal(ei);
-                if child_ordinal == ordinal || fixed_owner[child_ordinal].is_some() {
+                if child_ordinal == ordinal
+                    || native_context_id_from_raw(fixed_owner[child_ordinal]).is_some()
+                {
                     ei += 1;
                     continue;
                 }
-                let merged = Self::merge_reach_class(reach_owner[child_ordinal], current);
+                let merged = Self::merge_native_context_owner(reach_owner[child_ordinal], current);
                 if merged != reach_owner[child_ordinal] {
                     reach_owner[child_ordinal] = merged;
-                    queue.push_back(child_ordinal);
+                    queue.push(child_ordinal);
                 }
                 ei += 1;
             }
@@ -813,13 +824,15 @@ impl HeapSnapshot {
         let mut node_native_context_buckets =
             vec![NativeContextBucket::Unattributed; self.node_count];
         for ordinal in 0..self.node_count {
-            node_native_context_buckets[ordinal] = match fixed_owner[ordinal] {
-                Some(id) => NativeContextBucket::Context(id),
-                None => match reach_owner[ordinal] {
-                    ReachClass::One(id) => NativeContextBucket::Context(id),
-                    ReachClass::Many => NativeContextBucket::Shared,
-                    ReachClass::None => NativeContextBucket::Unattributed,
-                },
+            let owner = if native_context_id_from_raw(fixed_owner[ordinal]).is_some() {
+                fixed_owner[ordinal]
+            } else {
+                reach_owner[ordinal]
+            };
+            node_native_context_buckets[ordinal] = match owner {
+                SHARED_NATIVE_CONTEXT_ID => NativeContextBucket::Shared,
+                NO_NATIVE_CONTEXT_ID => NativeContextBucket::Unattributed,
+                id => NativeContextBucket::Context(NativeContextId(id)),
             };
         }
         node_native_context_buckets
@@ -918,7 +931,7 @@ impl HeapSnapshot {
         &self,
         context_owners: &[u32],
         edge_targets: &InitEdgeTargets,
-    ) -> Vec<Option<NativeContextId>> {
+    ) -> Vec<u32> {
         (0..self.node_count)
             .map(|ordinal| {
                 self.infer_direct_native_context_from_targets(ordinal, context_owners, edge_targets)
@@ -931,9 +944,9 @@ impl HeapSnapshot {
         ordinal: usize,
         context_owners: &[u32],
         edge_targets: &InitEdgeTargets,
-    ) -> Option<NativeContextId> {
+    ) -> u32 {
         if let Some(id) = native_context_id_from_raw(context_owners[ordinal]) {
-            return Some(id);
+            return id.0;
         }
 
         for target in [
@@ -942,15 +955,22 @@ impl HeapSnapshot {
         ] {
             if let Some(target_ordinal) = edge_target_ordinal(target) {
                 if let Some(id) = native_context_id_from_raw(context_owners[target_ordinal.0]) {
-                    return Some(id);
+                    return id.0;
                 }
             }
         }
 
-        let map_ordinal = edge_target_ordinal(edge_targets.map[ordinal])?;
-        let native_context_ordinal =
-            edge_target_ordinal(edge_targets.native_context[map_ordinal.0])?;
+        let Some(map_ordinal) = edge_target_ordinal(edge_targets.map[ordinal]) else {
+            return NO_NATIVE_CONTEXT_ID;
+        };
+        let Some(native_context_ordinal) =
+            edge_target_ordinal(edge_targets.native_context[map_ordinal.0])
+        else {
+            return NO_NATIVE_CONTEXT_ID;
+        };
         native_context_id_from_raw(context_owners[native_context_ordinal.0])
+            .map(|id| id.0)
+            .unwrap_or(NO_NATIVE_CONTEXT_ID)
     }
 
     fn find_js_globals_output(&self) -> (Vec<usize>, Vec<usize>) {
@@ -958,6 +978,9 @@ impl HeapSnapshot {
         let mut js_global_proxies = Vec::new();
         for ordinal in 0..self.node_count {
             let name = self.node_raw_name(NodeOrdinal(ordinal));
+            if !name.contains("[JSGlobal") {
+                continue;
+            }
             if Self::has_global_tag(name, "[JSGlobalObject]") {
                 js_global_objects.push(ordinal);
             } else if Self::has_global_tag(name, "[JSGlobalProxy]") {
@@ -1110,8 +1133,7 @@ impl HeapSnapshot {
     fn build_init_edge_targets(&self) -> InitEdgeTargets {
         let mut targets = InitEdgeTargets::new(self.node_count);
         for ordinal in 0..self.node_count {
-            let first = self.first_edge_index(ordinal);
-            let last = self.first_edge_index(ordinal + 1);
+            let (first, last) = self.node_edge_range(ordinal);
             let mut ei = first;
             while ei < last {
                 let edge_type = self.edge_type_raw(ei);
@@ -1164,28 +1186,24 @@ impl HeapSnapshot {
             first_retainer_index[edge.to_node_ordinal as usize] += 1;
         }
 
-        let mut retaining_nodes = vec![0u32; edge_count];
         let mut first_unused = 0u32;
         for i in 0..self.node_count {
             let count = first_retainer_index[i];
             first_retainer_index[i] = first_unused;
-            if count > 0 {
-                retaining_nodes[first_unused as usize] = count;
-            }
             first_unused += count;
         }
-        first_retainer_index[self.node_count] = retaining_nodes.len() as u32;
+        first_retainer_index[self.node_count] = edge_count as u32;
 
+        let mut next_retainer_index = first_retainer_index.clone();
+        let mut retaining_nodes = vec![0u32; edge_count];
         let mut retaining_edges = vec![0u32; edge_count];
         for src_ordinal in 0..self.node_count {
-            let first_edge = self.first_edge_index(src_ordinal);
-            let next_first = self.first_edge_index(src_ordinal + 1);
+            let (first_edge, next_first) = self.node_edge_range(src_ordinal);
             let mut edge_index = first_edge;
             while edge_index < next_first {
                 let to_ordinal = self.edge_to_node_ordinal(edge_index);
-                let first_slot = first_retainer_index[to_ordinal] as usize;
-                retaining_nodes[first_slot] -= 1;
-                let slot = first_slot + retaining_nodes[first_slot] as usize;
+                next_retainer_index[to_ordinal + 1] -= 1;
+                let slot = next_retainer_index[to_ordinal + 1] as usize;
                 retaining_nodes[slot] = src_ordinal as u32;
                 retaining_edges[slot] = edge_index as u32;
                 edge_index += 1;
@@ -1199,16 +1217,7 @@ impl HeapSnapshot {
         }
     }
 
-    fn compute_detachedness_and_flags(&self) -> DetachednessData {
-        let detachedness = self.compute_detachedness();
-        let flags = self.compute_flags(&detachedness);
-        DetachednessData {
-            detachedness,
-            flags,
-        }
-    }
-
-    fn compute_detachedness(&self) -> Vec<Detachedness> {
+    pub(super) fn compute_detachedness(&self) -> Vec<Detachedness> {
         let mut detachedness = vec![Detachedness::Unknown; self.node_count];
         if self.node_detachedness_offset == -1 {
             return detachedness;
@@ -1240,8 +1249,7 @@ impl HeapSnapshot {
         }
 
         while let Some(ordinal) = attached.pop() {
-            let first_edge = self.first_edge_index(ordinal.0);
-            let last_edge = self.first_edge_index(ordinal.0 + 1);
+            let (first_edge, last_edge) = self.node_edge_range(ordinal.0);
             let mut edge_index = first_edge;
             while edge_index < last_edge {
                 let edge_type = self.edge_type_raw(edge_index);
@@ -1266,8 +1274,7 @@ impl HeapSnapshot {
         }
 
         while let Some(ordinal) = detached.pop() {
-            let first_edge = self.first_edge_index(ordinal.0);
-            let last_edge = self.first_edge_index(ordinal.0 + 1);
+            let (first_edge, last_edge) = self.node_edge_range(ordinal.0);
             let mut edge_index = first_edge;
             while edge_index < last_edge {
                 let edge_type = self.edge_type_raw(edge_index);
@@ -1314,20 +1321,23 @@ impl HeapSnapshot {
     ) -> Vec<bool> {
         let mut pending_ephemerons = FxHashSet::default();
         let mut reachable = vec![false; self.node_count];
-        let mut queue = VecDeque::new();
+        let mut queue = Vec::with_capacity(self.node_count);
         for root in &self.system_roots {
             assert!(!reachable[root.0], "duplicate system root: {root:?}");
             reachable[root.0] = true;
-            queue.push_back(root.0);
+            queue.push(root.0);
         }
 
-        while let Some(ordinal) = queue.pop_front() {
+        let mut queue_index = 0;
+        while queue_index < queue.len() {
+            let ordinal = queue[queue_index];
+            queue_index += 1;
+
             if stop_at_detached && detachedness[ordinal] == Detachedness::Detached {
                 continue;
             }
 
-            let first_edge = self.first_edge_index(ordinal);
-            let last_edge = self.first_edge_index(ordinal + 1);
+            let (first_edge, last_edge) = self.node_edge_range(ordinal);
             let mut ei = first_edge;
             while ei < last_edge {
                 let edge_type = self.edge_type_raw(ei);
@@ -1348,33 +1358,12 @@ impl HeapSnapshot {
                 }
 
                 reachable[child_ordinal] = true;
-                queue.push_back(child_ordinal);
+                queue.push(child_ordinal);
                 ei += 1;
             }
         }
 
         reachable
-    }
-
-    fn compute_flags(&self, detachedness: &[Detachedness]) -> Vec<u8> {
-        let mut flags = vec![0u8; self.node_count];
-        self.mark_detached_dom_tree_nodes_output(&mut flags, detachedness);
-        flags
-    }
-
-    fn mark_detached_dom_tree_nodes_output(&self, flags: &mut [u8], detachedness: &[Detachedness]) {
-        if self.node_detachedness_offset == -1 {
-            return;
-        }
-        let flag: u8 = 2;
-        for ordinal in 0..self.node_count {
-            if self.node_type_raw(ordinal) != self.node_native_type {
-                continue;
-            }
-            if detachedness[ordinal] == Detachedness::Detached {
-                flags[ordinal] |= flag;
-            }
-        }
     }
 
     fn calculate_dominator_data(
@@ -1391,65 +1380,79 @@ impl HeapSnapshot {
         let mut vertex = vec![0u32; array_len];
         let mut label = vec![0u32; array_len];
         let mut semi = vec![0u32; array_len];
-        let mut bucket: Vec<Vec<u32>> = vec![Vec::new(); array_len];
+        let mut bucket_head = vec![0u32; array_len];
+        let mut bucket_next = vec![0u32; array_len];
         let mut n: u32 = 0;
 
-        let mut next_edge_index = vec![0u32; array_len];
         {
+            #[derive(Clone, Copy)]
+            struct DfsFrame {
+                node: u32,
+                next_edge: u32,
+                edge_end: u32,
+            }
+
             let do_dfs = |root: u32,
                           semi: &mut Vec<u32>,
                           n: &mut u32,
                           vertex: &mut Vec<u32>,
                           label: &mut Vec<u32>,
                           parent: &mut Vec<u32>,
-                          next_edge_index: &mut Vec<u32>,
+                          dfs_stack: &mut Vec<DfsFrame>,
                           nodes: &[NodeRecord],
                           essential_edges: &Bitmap,
                           edges: &[EdgeRecord]| {
                 let root_ord = root - 1;
-                next_edge_index[root_ord as usize] = nodes[root_ord as usize].first_edge;
-                let mut v = root;
-                loop {
+                dfs_stack.clear();
+                dfs_stack.push(DfsFrame {
+                    node: root,
+                    next_edge: nodes[root_ord as usize].first_edge,
+                    edge_end: nodes[root_ord as usize].first_edge
+                        + nodes[root_ord as usize].edge_count,
+                });
+
+                while !dfs_stack.is_empty() {
+                    let frame_idx = dfs_stack.len() - 1;
+                    let v = dfs_stack[frame_idx].node;
                     if semi[v as usize] == 0 {
                         *n += 1;
                         semi[v as usize] = *n;
                         vertex[*n as usize] = v;
                         label[v as usize] = v;
                     }
-                    let mut v_next = parent[v as usize];
-                    let v_ord = (v - 1) as usize;
-                    let edge_end = nodes[v_ord].first_edge + nodes[v_ord].edge_count;
-                    while next_edge_index[v_ord] < edge_end {
-                        let edge_ordinal = next_edge_index[v_ord] as usize;
+
+                    let mut child = 0u32;
+                    while dfs_stack[frame_idx].next_edge < dfs_stack[frame_idx].edge_end {
+                        let edge_ordinal = dfs_stack[frame_idx].next_edge as usize;
+                        dfs_stack[frame_idx].next_edge += 1;
                         if !essential_edges.get(edge_ordinal) {
-                            next_edge_index[v_ord] += 1;
                             continue;
                         }
                         let w_ord = edges[edge_ordinal].to_node_ordinal;
                         let w = w_ord + 1;
                         if semi[w as usize] == 0 {
                             parent[w as usize] = v;
-                            next_edge_index[w_ord as usize] = nodes[w_ord as usize].first_edge;
-                            next_edge_index[v_ord] += 1;
-                            v_next = w;
+                            child = w;
                             break;
                         }
-                        next_edge_index[v_ord] += 1;
                     }
-                    if v_next == 0 && v == root {
-                        break;
-                    }
-                    if v_next == parent[v as usize] && v == root {
-                        break;
-                    }
-                    v = v_next;
-                    if v == 0 {
-                        break;
+
+                    if child == 0 {
+                        dfs_stack.pop();
+                    } else {
+                        let child_ord = child - 1;
+                        dfs_stack.push(DfsFrame {
+                            node: child,
+                            next_edge: nodes[child_ord as usize].first_edge,
+                            edge_end: nodes[child_ord as usize].first_edge
+                                + nodes[child_ord as usize].edge_count,
+                        });
                     }
                 }
             };
 
             let r = (root_ordinal + 1) as u32;
+            let mut dfs_stack = Vec::with_capacity(node_count);
             do_dfs(
                 r,
                 &mut semi,
@@ -1457,7 +1460,7 @@ impl HeapSnapshot {
                 &mut vertex,
                 &mut label,
                 &mut parent,
-                &mut next_edge_index,
+                &mut dfs_stack,
                 &self.nodes,
                 essential_edges,
                 &self.edges,
@@ -1480,7 +1483,7 @@ impl HeapSnapshot {
                                 &mut vertex,
                                 &mut label,
                                 &mut parent,
-                                &mut next_edge_index,
+                                &mut dfs_stack,
                                 &self.nodes,
                                 essential_edges,
                                 &self.edges,
@@ -1569,18 +1572,23 @@ impl HeapSnapshot {
             }
 
             let bkt_idx = vertex[semi[w as usize] as usize] as usize;
-            bucket[bkt_idx].push(w);
+            bucket_next[w as usize] = bucket_head[bkt_idx];
+            bucket_head[bkt_idx] = w;
             ancestor[w as usize] = parent[w as usize];
 
             let pw = parent[w as usize] as usize;
-            let bkt: Vec<u32> = std::mem::take(&mut bucket[pw]);
-            for &v in &bkt {
+            let mut v = bucket_head[pw];
+            bucket_head[pw] = 0;
+            while v != 0 {
+                let next = bucket_next[v as usize];
+                bucket_next[v as usize] = 0;
                 let u = evaluate(v, &mut ancestor, &mut label, &semi, &mut compression_stack);
                 dom[v as usize] = if semi[u as usize] < semi[v as usize] {
                     u
                 } else {
                     parent[w as usize]
                 };
+                v = next;
             }
         }
 
@@ -1593,25 +1601,25 @@ impl HeapSnapshot {
             }
         }
 
-        let mut dominators_tree = vec![0u32; node_count];
+        let mut immediate_dominators = vec![0u32; node_count];
         let mut retained_sizes = vec![0u64; node_count];
         for ord in 0..node_count {
-            dominators_tree[ord] = dom[ord + 1] - 1;
+            immediate_dominators[ord] = dom[ord + 1] - 1;
             retained_sizes[ord] = self.nodes[ord].self_size as u64;
         }
 
         for i in (2..=n).rev() {
             let ord = (vertex[i as usize] - 1) as usize;
-            let dom_ord = dominators_tree[ord] as usize;
+            let dom_ord = immediate_dominators[ord] as usize;
             retained_sizes[dom_ord] += retained_sizes[ord];
         }
 
         let (dominated_nodes, first_dominated_node_index) =
-            self.build_dominated_nodes_output(&dominators_tree);
+            self.build_dominated_nodes_output(&immediate_dominators);
 
         DominatorData {
             retained_sizes,
-            dominators_tree,
+            immediate_dominators,
             dominated_nodes,
             first_dominated_node_index,
         }
@@ -1634,7 +1642,7 @@ impl HeapSnapshot {
         true
     }
 
-    fn build_dominated_nodes_output(&self, dominators_tree: &[u32]) -> (Vec<u32>, Vec<u32>) {
+    fn build_dominated_nodes_output(&self, immediate_dominators: &[u32]) -> (Vec<u32>, Vec<u32>) {
         let node_count = self.node_count;
         let root_ordinal = self.gc_roots_ordinal;
 
@@ -1643,7 +1651,7 @@ impl HeapSnapshot {
             if ordinal == root_ordinal {
                 continue;
             }
-            let dom = dominators_tree[ordinal] as usize;
+            let dom = immediate_dominators[ordinal] as usize;
             index_array[dom] += 1;
         }
 
@@ -1665,7 +1673,7 @@ impl HeapSnapshot {
             if ordinal == root_ordinal {
                 continue;
             }
-            let dom = dominators_tree[ordinal] as usize;
+            let dom = immediate_dominators[ordinal] as usize;
             let dom_ref_idx = index_array[dom] as usize;
             dominated_nodes[dom_ref_idx] -= 1;
             let slot = dom_ref_idx + dominated_nodes[dom_ref_idx] as usize;
@@ -1697,8 +1705,7 @@ impl HeapSnapshot {
 
         node_distances[root_ordinal] = Distance(0);
         visit_len = 0;
-        let first = self.first_edge_index(root_ordinal);
-        let last = self.first_edge_index(root_ordinal + 1);
+        let (first, last) = self.node_edge_range(root_ordinal);
         let mut ei = first;
         while ei < last {
             let child_ordinal = self.edge_to_node_ordinal(ei);
@@ -1734,8 +1741,7 @@ impl HeapSnapshot {
             let node_ordinal = nodes_to_visit[index] as usize;
             index += 1;
             let distance = Distance(node_distances[node_ordinal].0 + 1);
-            let first_edge = self.first_edge_index(node_ordinal);
-            let last_edge = self.first_edge_index(node_ordinal + 1);
+            let (first_edge, last_edge) = self.node_edge_range(node_ordinal);
             let mut ei = first_edge;
             while ei < last_edge {
                 let edge_type = self.edge_type_raw(ei);
@@ -1876,8 +1882,7 @@ impl HeapSnapshot {
 
             let mut interface_name = "{".to_string();
             let mut properties: Vec<String> = Vec::new();
-            let first_edge = self.first_edge_index(ordinal);
-            let last_edge = self.first_edge_index(ordinal + 1);
+            let (first_edge, last_edge) = self.node_edge_range(ordinal);
             let mut ei = first_edge;
             while ei < last_edge {
                 let et = self.edge_type_raw(ei);
@@ -1988,8 +1993,7 @@ impl HeapSnapshot {
             }
 
             let mut properties: Vec<String> = Vec::new();
-            let first_edge = self.first_edge_index(ordinal);
-            let last_edge = self.first_edge_index(ordinal + 1);
+            let (first_edge, last_edge) = self.node_edge_range(ordinal);
             let mut ei = first_edge;
             while ei < last_edge {
                 let et = self.edge_type_raw(ei);
@@ -2117,13 +2121,15 @@ impl HeapSnapshot {
         }
     }
 
-    fn merge_reach_class(current: ReachClass, incoming: ReachClass) -> ReachClass {
-        match (current, incoming) {
-            (ReachClass::Many, _) | (_, ReachClass::Many) => ReachClass::Many,
-            (ReachClass::None, other) => other,
-            (other, ReachClass::None) => other,
-            (ReachClass::One(a), ReachClass::One(b)) if a == b => ReachClass::One(a),
-            (ReachClass::One(_), ReachClass::One(_)) => ReachClass::Many,
+    fn merge_native_context_owner(current: u32, incoming: u32) -> u32 {
+        if current == SHARED_NATIVE_CONTEXT_ID || incoming == SHARED_NATIVE_CONTEXT_ID {
+            SHARED_NATIVE_CONTEXT_ID
+        } else if current == NO_NATIVE_CONTEXT_ID {
+            incoming
+        } else if incoming == NO_NATIVE_CONTEXT_ID || current == incoming {
+            current
+        } else {
+            SHARED_NATIVE_CONTEXT_ID
         }
     }
 
@@ -2149,12 +2155,11 @@ impl HeapSnapshot {
         common.unwrap_or_default()
     }
 
-    fn init_essential_edges(&self) -> Bitmap {
+    pub(super) fn init_essential_edges(&self) -> Bitmap {
         let mut essential = Bitmap::new(self.edge_count);
 
         for ordinal in 0..self.node_count {
-            let first_edge = self.first_edge_index(ordinal);
-            let last_edge = self.first_edge_index(ordinal + 1);
+            let (first_edge, last_edge) = self.node_edge_range(ordinal);
             let mut ei = first_edge;
             while ei < last_edge {
                 if self.is_essential_edge(ordinal, ei) {
@@ -2178,7 +2183,9 @@ impl HeapSnapshot {
         if edge_type == self.edge_internal_type {
             let edge_name_index = self.edge_name_or_index(edge_ordinal) as usize;
             let edge_name = &self.strings[edge_name_index];
-            if let Some(caps) = weak_map_ephemeron_edge_regex().captures(edge_name) {
+            if maybe_weak_map_ephemeron_edge_name(edge_name)
+                && let Some(caps) = weak_map_ephemeron_edge_regex().captures(edge_name)
+            {
                 if let Some(table_id_str) = caps.get(2) {
                     let node_id = self.nodes[source_ordinal].id;
                     if let Ok(table_id) = table_id_str.as_str().parse::<u32>() {
@@ -2344,8 +2351,7 @@ impl HeapSnapshot {
                 continue;
             }
             let distance = Distance(dist + 1);
-            let first_edge = self.first_edge_index(ordinal);
-            let last_edge = self.first_edge_index(ordinal + 1);
+            let (first_edge, last_edge) = self.node_edge_range(ordinal);
             let mut ei = first_edge;
             while ei < last_edge {
                 let edge_type = self.edge_type_raw(ei);
@@ -2394,7 +2400,9 @@ impl HeapSnapshot {
             let edge_name_index = edge_name_or_index as usize;
             if edge_name_index < self.strings.len() {
                 let edge_name = &self.strings[edge_name_index];
-                if let Some(caps) = weak_map_ephemeron_edge_regex().captures(edge_name) {
+                if maybe_weak_map_ephemeron_edge_name(edge_name)
+                    && let Some(caps) = weak_map_ephemeron_edge_regex().captures(edge_name)
+                {
                     if let Some(dup) = caps.get(1) {
                         let dup_part = dup.as_str().to_string();
                         if !pending_ephemerons.remove(&dup_part) {
@@ -2456,7 +2464,7 @@ impl HeapSnapshot {
         name.to_string()
     }
 
-    fn calculate_statistics(&mut self) {
+    pub(super) fn calculate_statistics(&self) -> Statistics {
         let mut size_native = self.extra_native_bytes;
         let mut size_typed_arrays = 0u64;
         let mut size_code = 0u64;
@@ -2465,7 +2473,7 @@ impl HeapSnapshot {
         let mut size_system = 0u64;
         let mut unreachable_count = 0u32;
         let mut unreachable_size = 0u64;
-        let context_coverage = self.context_coverage;
+        let context_coverage = self.context_coverage_data().context_coverage;
 
         for ordinal in 0..self.node_count {
             let node_size = self.nodes[ordinal].self_size as u64;
@@ -2502,9 +2510,10 @@ impl HeapSnapshot {
             }
         }
 
-        let total = self.retained_sizes[self.gc_roots_ordinal] + self.extra_native_bytes;
+        let total =
+            self.dominator_data().retained_sizes[self.gc_roots_ordinal] + self.extra_native_bytes;
 
-        self.statistics = Statistics {
+        Statistics {
             total,
             native_total: size_native,
             typed_arrays: size_typed_arrays,
@@ -2519,23 +2528,26 @@ impl HeapSnapshot {
             context_count: context_coverage.context_count,
             context_covered_size: context_coverage.context_covered_size,
             reachable_without_contexts_size: context_coverage.reachable_without_contexts_size,
-        };
+        }
     }
 
     fn reachable_without_blocked_contexts(&self, blocked_contexts: &[bool]) -> Vec<bool> {
         let mut pending_ephemerons = FxHashSet::default();
-        let mut queue = VecDeque::new();
+        let mut queue = Vec::with_capacity(self.node_count);
         let mut visited = vec![false; self.node_count];
         for root in &self.system_roots {
             if !visited[root.0] {
                 visited[root.0] = true;
-                queue.push_back(root.0);
+                queue.push(root.0);
             }
         }
 
-        while let Some(ordinal) = queue.pop_front() {
-            let first_edge = self.first_edge_index(ordinal);
-            let last_edge = self.first_edge_index(ordinal + 1);
+        let mut queue_index = 0;
+        while queue_index < queue.len() {
+            let ordinal = queue[queue_index];
+            queue_index += 1;
+
+            let (first_edge, last_edge) = self.node_edge_range(ordinal);
             let mut ei = first_edge;
             while ei < last_edge {
                 let edge_type = self.edge_type_raw(ei);
@@ -2556,7 +2568,7 @@ impl HeapSnapshot {
                 }
 
                 visited[child_ordinal] = true;
-                queue.push_back(child_ordinal);
+                queue.push(child_ordinal);
                 ei += 1;
             }
         }
