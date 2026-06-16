@@ -515,11 +515,10 @@ impl HeapSnapshot {
             let retainers = scope.spawn(|| self.build_retainers_output());
             let essential_edges = scope.spawn(|| self.init_essential_edges());
 
-            let retainer_index = retainers.join().unwrap();
             let essential_edges = essential_edges.join().unwrap();
             let dominator_data = scope.spawn(move || {
-                let dominator_data =
-                    self.calculate_dominator_data(&essential_edges, &retainer_index);
+                let (retainer_index, dominator_data) =
+                    self.calculate_dominator_data(&essential_edges, || retainers.join().unwrap());
                 (retainer_index, dominator_data)
             });
 
@@ -549,7 +548,8 @@ impl HeapSnapshot {
         let distances = self.calculate_distances_output();
         let retainer_index = self.build_retainers_output();
         let essential_edges = self.init_essential_edges();
-        let dominator_data = self.calculate_dominator_data(&essential_edges, &retainer_index);
+        let (retainer_index, dominator_data) =
+            self.calculate_dominator_data(&essential_edges, || retainer_index);
         let native_context_attribution = self.compute_native_context_attribution_data(
             edge_targets,
             &native_metadata.native_contexts,
@@ -1280,11 +1280,14 @@ impl HeapSnapshot {
         reachable
     }
 
-    fn calculate_dominator_data(
+    fn calculate_dominator_data<F>(
         &self,
         essential_edges: &Bitmap,
-        retainer_index: &RetainerIndex,
-    ) -> DominatorData {
+        get_retainer_index: F,
+    ) -> (RetainerIndex, DominatorData)
+    where
+        F: FnOnce() -> RetainerIndex,
+    {
         let node_count = self.node_count;
         let root_ordinal = self.gc_roots_ordinal;
 
@@ -1298,7 +1301,7 @@ impl HeapSnapshot {
         let mut bucket_next = vec![0u32; array_len];
         let mut n: u32 = 0;
 
-        {
+        let retainer_index = {
             #[derive(Clone, Copy)]
             struct DfsFrame {
                 node: u32,
@@ -1380,6 +1383,8 @@ impl HeapSnapshot {
                 &self.edges,
             );
 
+            let retainer_index = get_retainer_index();
+
             if (n as usize) < node_count {
                 for v in 1..=node_count as u32 {
                     if semi[v as usize] == 0 {
@@ -1387,7 +1392,7 @@ impl HeapSnapshot {
                         if self.has_only_weak_retainers_with_index(
                             NodeOrdinal(v_ord),
                             essential_edges,
-                            retainer_index,
+                            &retainer_index,
                         ) {
                             parent[v as usize] = r;
                             do_dfs(
@@ -1418,7 +1423,9 @@ impl HeapSnapshot {
                     }
                 }
             }
-        }
+
+            retainer_index
+        };
 
         let mut compression_stack = vec![0u32; array_len];
 
@@ -1531,12 +1538,15 @@ impl HeapSnapshot {
         let (dominated_nodes, first_dominated_node_index) =
             self.build_dominated_nodes_output(&immediate_dominators);
 
-        DominatorData {
-            retained_sizes,
-            immediate_dominators,
-            dominated_nodes,
-            first_dominated_node_index,
-        }
+        (
+            retainer_index,
+            DominatorData {
+                retained_sizes,
+                immediate_dominators,
+                dominated_nodes,
+                first_dominated_node_index,
+            },
+        )
     }
 
     fn has_only_weak_retainers_with_index(
