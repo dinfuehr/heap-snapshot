@@ -30,8 +30,8 @@ struct JsStatistics {
     unreachable_size: u64,
     unreachable_count: u32,
     context_count: u32,
-    context_covered_size: u64,
-    reachable_without_contexts_size: u64,
+    retained_by_context_size: u64,
+    not_retained_by_context_size: u64,
     context_sizes: Vec<JsContextSize>,
     shared_size: u64,
     unattributed_size: u64,
@@ -324,8 +324,8 @@ impl WasmHeapSnapshot {
             unreachable_size: stats.unreachable_size,
             unreachable_count: stats.unreachable_count,
             context_count: stats.context_count,
-            context_covered_size: stats.context_covered_size,
-            reachable_without_contexts_size: stats.reachable_without_contexts_size,
+            retained_by_context_size: stats.retained_by_context_size,
+            not_retained_by_context_size: stats.not_retained_by_context_size,
             context_sizes,
             shared_size: snap.shared_attributable_size(),
             unattributed_size: snap.unattributed_size(),
@@ -338,8 +338,8 @@ impl WasmHeapSnapshot {
     /// 0 = all objects, 1 = all unreachable, 2 = unreachable roots only,
     /// 3 = retained by detached DOM, 4 = retained by console,
     /// 5 = retained by event handlers, 6 = attached, 7 = detached,
-    /// 8 = duplicate strings, 9 = context-covered objects,
-    /// 10 = non-context-covered objects.
+    /// 8 = duplicate strings, 9 = retained by context,
+    /// 10 = not retained by context.
     pub fn get_summary_with_filter(&mut self, mode: u32) -> String {
         self.cached_summary_aggregates = Some(match mode {
             1 => self.inner.unreachable_aggregates(),
@@ -350,8 +350,8 @@ impl WasmHeapSnapshot {
             6 => self.inner.aggregates_attached(),
             7 => self.inner.aggregates_detached(),
             8 => self.inner.aggregates_for_duplicate_strings(),
-            9 => self.inner.aggregates_for_context_covered_objects(),
-            10 => self.inner.aggregates_for_non_context_covered_objects(),
+            9 => self.inner.aggregates_for_retained_by_context_objects(),
+            10 => self.inner.aggregates_for_not_retained_by_context_objects(),
             _ => self.inner.aggregates_with_filter(),
         });
         self.format_summary()

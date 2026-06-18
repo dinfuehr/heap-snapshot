@@ -82,7 +82,7 @@ struct InitPhaseData {
     distances: Vec<Distance>,
     detachedness: Vec<Detachedness>,
     native_context_attribution: NativeContextAttributionData,
-    context_coverage: ContextCoverageData,
+    retained_by_context: RetainedByContextData,
     names: NameData,
 }
 
@@ -131,8 +131,8 @@ fn empty_statistics() -> Statistics {
         unreachable_count: 0,
         unreachable_size: 0,
         context_count: 0,
-        context_covered_size: 0,
-        reachable_without_contexts_size: 0,
+        retained_by_context_size: 0,
+        not_retained_by_context_size: 0,
     }
 }
 
@@ -307,7 +307,7 @@ impl HeapSnapshot {
             detachedness: Vec::new(),
             native_contexts: Vec::new(),
             native_context_attribution: NativeContextAttributionData::empty(),
-            context_coverage: ContextCoverageData::empty(),
+            retained_by_context: RetainedByContextData::empty(),
             native_context_global_fields: FxHashSet::default(),
             native_context_vars: FxHashMap::default(),
             js_global_objects: Vec::new(),
@@ -421,7 +421,7 @@ impl HeapSnapshot {
             ctx.size = size;
         }
         snap.native_context_attribution = init_data.native_context_attribution;
-        snap.context_coverage = init_data.context_coverage;
+        snap.retained_by_context = init_data.retained_by_context;
         snap.class_indices = init_data.names.class_indices;
         snap.strings.extend(init_data.names.appended_strings);
 
@@ -507,10 +507,10 @@ impl HeapSnapshot {
             });
             let names = scope.spawn(|| self.compute_name_data());
             let detachedness = scope.spawn(|| self.compute_detachedness());
-            let context_coverage_worker = scope.spawn(|| {
+            let retained_by_context_worker = scope.spawn(|| {
                 let distances = self.calculate_distances_output();
-                let context_coverage = self.compute_context_coverage_data(&distances);
-                (distances, context_coverage)
+                let retained_by_context = self.compute_retained_by_context_data(&distances);
+                (distances, retained_by_context)
             });
             let retainers = scope.spawn(|| self.build_retainers_output());
             let essential_edges = scope.spawn(|| self.init_essential_edges());
@@ -524,7 +524,7 @@ impl HeapSnapshot {
 
             let (native_metadata, native_context_attribution) =
                 native_context_attribution_worker.join().unwrap();
-            let (distances, context_coverage) = context_coverage_worker.join().unwrap();
+            let (distances, retained_by_context) = retained_by_context_worker.join().unwrap();
             let (retainer_index, dominator_data) = dominator_data.join().unwrap();
 
             InitPhaseData {
@@ -534,7 +534,7 @@ impl HeapSnapshot {
                 distances,
                 detachedness: detachedness.join().unwrap(),
                 native_context_attribution,
-                context_coverage,
+                retained_by_context,
                 names: names.join().unwrap(),
             }
         })
@@ -554,7 +554,7 @@ impl HeapSnapshot {
             edge_targets,
             &native_metadata.native_contexts,
         );
-        let context_coverage = self.compute_context_coverage_data(&distances);
+        let retained_by_context = self.compute_retained_by_context_data(&distances);
 
         InitPhaseData {
             native_metadata,
@@ -563,7 +563,7 @@ impl HeapSnapshot {
             distances,
             detachedness,
             native_context_attribution,
-            context_coverage,
+            retained_by_context,
             names,
         }
     }
@@ -666,13 +666,16 @@ impl HeapSnapshot {
         }
     }
 
-    fn compute_context_coverage_data(&self, node_distances: &[Distance]) -> ContextCoverageData {
-        let (context_coverage, context_covered) =
-            self.compute_context_coverage_output(node_distances);
+    fn compute_retained_by_context_data(
+        &self,
+        node_distances: &[Distance],
+    ) -> RetainedByContextData {
+        let (retained_by_context, context_retention) =
+            self.compute_retained_by_context_output(node_distances);
 
-        ContextCoverageData {
-            context_coverage,
-            context_covered,
+        RetainedByContextData {
+            retained_by_context,
+            context_retention,
         }
     }
 
@@ -1982,42 +1985,43 @@ impl HeapSnapshot {
         }
     }
 
-    fn compute_context_coverage_output(
+    fn compute_retained_by_context_output(
         &self,
         node_distances: &[Distance],
-    ) -> (ContextCoverage, Vec<ContextCovered>) {
-        let reachability = self.compute_context_coverage_reachability_for_distances(node_distances);
+    ) -> (RetainedByContext, Vec<ContextRetention>) {
+        let reachability =
+            self.compute_retained_by_context_reachability_for_distances(node_distances);
 
-        let mut context_covered_size = 0u64;
-        let mut reachable_without_contexts_size = 0u64;
+        let mut retained_by_context_size = 0u64;
+        let mut not_retained_by_context_size = 0u64;
 
         for ordinal in 0..self.node_count {
             let size = self.nodes[ordinal].self_size as u64;
-            match reachability.context_covered[ordinal] {
-                ContextCovered::Covered => {
-                    context_covered_size += size;
+            match reachability.context_retention[ordinal] {
+                ContextRetention::Retained => {
+                    retained_by_context_size += size;
                 }
-                ContextCovered::NonCovered => {
-                    reachable_without_contexts_size += size;
+                ContextRetention::NotRetained => {
+                    not_retained_by_context_size += size;
                 }
-                ContextCovered::Unreachable => {}
+                ContextRetention::Unreachable => {}
             }
         }
 
         (
-            ContextCoverage {
+            RetainedByContext {
                 context_count: reachability.context_count,
-                context_covered_size,
-                reachable_without_contexts_size,
+                retained_by_context_size,
+                not_retained_by_context_size,
             },
-            reachability.context_covered,
+            reachability.context_retention,
         )
     }
 
-    fn compute_context_coverage_reachability_for_distances(
+    fn compute_retained_by_context_reachability_for_distances(
         &self,
         node_distances: &[Distance],
-    ) -> ContextCoverageReachability {
+    ) -> RetainedByContextReachability {
         let mut blocked_contexts = vec![false; self.node_count];
         let mut context_count = 0u32;
         for ordinal in 0..self.node_count {
@@ -2028,20 +2032,20 @@ impl HeapSnapshot {
         }
 
         let reachable_without_contexts = self.reachable_without_blocked_contexts(&blocked_contexts);
-        let mut context_covered = vec![ContextCovered::Unreachable; self.node_count];
+        let mut context_retention = vec![ContextRetention::Unreachable; self.node_count];
         for ordinal in 0..self.node_count {
-            context_covered[ordinal] = if node_distances[ordinal].is_unreachable() {
-                ContextCovered::Unreachable
+            context_retention[ordinal] = if node_distances[ordinal].is_unreachable() {
+                ContextRetention::Unreachable
             } else if reachable_without_contexts[ordinal] {
-                ContextCovered::NonCovered
+                ContextRetention::NotRetained
             } else {
-                ContextCovered::Covered
+                ContextRetention::Retained
             };
         }
 
-        ContextCoverageReachability {
+        RetainedByContextReachability {
             context_count,
-            context_covered,
+            context_retention,
         }
     }
 
@@ -2397,7 +2401,7 @@ impl HeapSnapshot {
         let mut size_system = 0u64;
         let mut unreachable_count = 0u32;
         let mut unreachable_size = 0u64;
-        let context_coverage = self.context_coverage_data().context_coverage;
+        let retained_by_context = self.retained_by_context_data().retained_by_context;
 
         for ordinal in 0..self.node_count {
             let node_size = self.nodes[ordinal].self_size as u64;
@@ -2449,9 +2453,9 @@ impl HeapSnapshot {
             extra_native_bytes: self.extra_native_bytes,
             unreachable_count,
             unreachable_size,
-            context_count: context_coverage.context_count,
-            context_covered_size: context_coverage.context_covered_size,
-            reachable_without_contexts_size: context_coverage.reachable_without_contexts_size,
+            context_count: retained_by_context.context_count,
+            retained_by_context_size: retained_by_context.retained_by_context_size,
+            not_retained_by_context_size: retained_by_context.not_retained_by_context_size,
         }
     }
 

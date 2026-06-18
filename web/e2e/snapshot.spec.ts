@@ -80,7 +80,7 @@ test.describe('Heap Snapshot Viewer', () => {
     // Default should be "All objects"
     await expect(select).toHaveValue('0');
     await expect(
-      select.locator('optgroup[label="Context coverage"]'),
+      select.locator('optgroup[label="Retained by context"]'),
     ).toHaveCount(1);
 
     // Switch to "Unreachable (all)"
@@ -143,9 +143,11 @@ test.describe('Heap Snapshot Viewer', () => {
     await expect(
       page.getByRole('cell', { name: 'Unreachable', exact: true }),
     ).toBeVisible();
-    await expect(page.getByText('Context Coverage')).toBeVisible();
     await expect(
-      page.getByRole('cell', { name: 'Kept Alive by Contexts', exact: true }),
+      page.getByRole('heading', { name: 'Retained by Context' }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole('cell', { name: 'Retained by Contexts', exact: true }),
     ).toBeVisible();
   });
 

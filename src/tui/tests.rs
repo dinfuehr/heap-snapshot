@@ -1315,7 +1315,7 @@ fn make_summary_filter_snapshot() -> HeapSnapshot {
     build_snapshot(strings, nodes, edges)
 }
 
-fn make_context_coverage_filter_snapshot() -> HeapSnapshot {
+fn make_retained_by_context_filter_snapshot() -> HeapSnapshot {
     let strings: Vec<String> = [
         "",
         "(GC roots)",
@@ -1411,13 +1411,13 @@ fn test_summary_filter_by_group_name_shows_all_members() {
 }
 
 #[test]
-fn test_summary_context_coverage_filters() {
-    let snap = make_context_coverage_filter_snapshot();
+fn test_summary_retained_by_context_filters() {
+    let snap = make_retained_by_context_filter_snapshot();
     let (work_tx, _work_rx) = mpsc::channel();
     let (_result_tx, result_rx) = mpsc::channel();
     let mut app = App::new(&snap, Vec::new(), work_tx, result_rx);
 
-    app.set_summary_filter(SummaryFilterMode::ContextCovered, &snap);
+    app.set_summary_filter(SummaryFilterMode::RetainedByContext, &snap);
     app.rebuild_rows(&snap);
     let context_groups: Vec<&str> = app
         .cached_rows
@@ -1452,7 +1452,7 @@ fn test_summary_context_coverage_filters() {
         "native context should be hidden: {context_groups:?}"
     );
 
-    app.set_summary_filter(SummaryFilterMode::NonContextCovered, &snap);
+    app.set_summary_filter(SummaryFilterMode::NotRetainedByContext, &snap);
     app.rebuild_rows(&snap);
     let non_context_groups: Vec<&str> = app
         .cached_rows
@@ -1490,7 +1490,7 @@ fn test_summary_context_coverage_filters() {
         !non_context_groups
             .iter()
             .any(|label| label.contains("ContextOwned")),
-        "context-covered object should be hidden: {non_context_groups:?}"
+        "retained-by-context object should be hidden: {non_context_groups:?}"
     );
 }
 
@@ -5152,8 +5152,8 @@ fn test_filter_overlay_contains_static_modes() {
     assert!(labels.contains(&"All objects"));
     assert!(labels.contains(&"Attached"));
     assert!(labels.contains(&"Detached"));
-    assert!(labels.contains(&"Context-covered objects"));
-    assert!(labels.contains(&"Non-context-covered objects"));
+    assert!(labels.contains(&"Retained by context objects"));
+    assert!(labels.contains(&"Not retained by context objects"));
     assert!(labels.contains(&"Unreachable (all)"));
     assert!(labels.contains(&"Unreachable (roots only)"));
     assert!(labels.contains(&"Retained by detached DOM"));
@@ -5161,13 +5161,13 @@ fn test_filter_overlay_contains_static_modes() {
     assert!(labels.contains(&"Retained by event handlers"));
     assert!(labels.contains(&"Duplicate strings"));
 
-    let has_context_coverage_header = app
+    let has_retained_by_context_header = app
         .filter_overlay_items
         .iter()
-        .any(|item| matches!(item, FilterOverlayItem::Header(s) if s == "Context coverage"));
+        .any(|item| matches!(item, FilterOverlayItem::Header(s) if s == "Retained by context"));
     assert!(
-        has_context_coverage_header,
-        "should have a 'Context coverage' header"
+        has_retained_by_context_header,
+        "should have a 'Retained by context' header"
     );
 }
 

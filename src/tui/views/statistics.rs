@@ -136,37 +136,38 @@ impl App {
                 )),
             ]));
 
-            let coverage_total = stats.context_covered_size + stats.reachable_without_contexts_size;
+            let coverage_total =
+                stats.retained_by_context_size + stats.not_retained_by_context_size;
             let kept_pct = format!(
                 "{:>6}",
-                format_percent(stats.context_covered_size, coverage_total)
+                format_percent(stats.retained_by_context_size, coverage_total)
             );
             lines.push(Line::from(vec![
                 Span::styled("  ", Style::default()),
                 Span::styled(
-                    format!("{:<28}", "Kept Alive by Contexts"),
+                    format!("{:<28}", "Retained by Contexts"),
                     Style::default().fg(Color::Green).bold(),
                 ),
                 Span::raw(format!(
                     "{:>12}  {}",
-                    format_size(stats.context_covered_size),
+                    format_size(stats.retained_by_context_size),
                     kept_pct
                 )),
             ]));
 
             let without_pct = format!(
                 "{:>6}",
-                format_percent(stats.reachable_without_contexts_size, coverage_total)
+                format_percent(stats.not_retained_by_context_size, coverage_total)
             );
             lines.push(Line::from(vec![
                 Span::styled("  ", Style::default()),
                 Span::styled(
-                    format!("{:<28}", "Non-context-covered"),
+                    format!("{:<28}", "Not Retained by Contexts"),
                     Style::default().fg(Color::DarkGray).bold(),
                 ),
                 Span::raw(format!(
                     "{:>12}  {}",
-                    format_size(stats.reachable_without_contexts_size),
+                    format_size(stats.not_retained_by_context_size),
                     without_pct
                 )),
             ]));

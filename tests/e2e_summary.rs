@@ -107,10 +107,10 @@ Statistics (total 125 kB):
     Extra Native: 0 B
   Unreachable:    0 B (0 objects)
 
-Context Coverage:
+Retained by Context:
   Context Objects                         2
-  Kept Alive by Contexts               2 kB    1.8%
-  Non-context-covered                123 kB   98.2%
+  Retained by Contexts                 2 kB    1.8%
+  Not Retained by Contexts           123 kB   98.2%
 
 Native Context Attribution:
   [utility] #0 @7271                       118 kB
@@ -167,17 +167,20 @@ fn summary_filter_event_handlers() {
 }
 
 #[test]
-fn summary_filter_context_covered() {
-    let output = run_summary("heap-1.heapsnapshot", &["--filter", "context-covered"]);
+fn summary_filter_retained_by_context() {
+    let output = run_summary("heap-1.heapsnapshot", &["--filter", "retained-by-context"]);
     assert!(
         output.contains("system / Context"),
-        "expected context-covered objects in filtered summary, got: {output}"
+        "expected retained-by-context objects in filtered summary, got: {output}"
     );
 }
 
 #[test]
-fn summary_filter_non_context_covered() {
-    let output = run_summary("heap-1.heapsnapshot", &["--filter", "non-context-covered"]);
+fn summary_filter_not_retained_by_context() {
+    let output = run_summary(
+        "heap-1.heapsnapshot",
+        &["--filter", "not-retained-by-context"],
+    );
     assert!(
         output.contains("system / NativeContext"),
         "expected NativeContext objects in filtered summary, got: {output}"

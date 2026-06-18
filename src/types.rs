@@ -128,10 +128,10 @@ pub struct Statistics {
     pub unreachable_size: u64,
     /// Number of ordinary `system / Context` objects. NativeContexts are excluded.
     pub context_count: u32,
-    /// Bytes that stop being reachable when ordinary Context objects are blocked.
-    pub context_covered_size: u64,
-    /// Bytes still reachable when ordinary Context objects are blocked.
-    pub reachable_without_contexts_size: u64,
+    /// Bytes that are retained by ordinary Context objects.
+    pub retained_by_context_size: u64,
+    /// Bytes that are not retained by ordinary Context objects.
+    pub not_retained_by_context_size: u64,
 }
 
 pub struct DuplicateStringsResult {

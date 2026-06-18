@@ -12,8 +12,8 @@ pub enum SummaryFilter {
     All,
     Attached,
     Detached,
-    ContextCovered,
-    NonContextCovered,
+    RetainedByContext,
+    NotRetainedByContext,
     Unreachable,
     UnreachableRoots,
     RetainedByDetachedDom,
@@ -169,8 +169,10 @@ pub fn print_summary(
         SummaryFilter::All => snap.aggregates_with_filter(),
         SummaryFilter::Attached => snap.aggregates_attached(),
         SummaryFilter::Detached => snap.aggregates_detached(),
-        SummaryFilter::ContextCovered => snap.aggregates_for_context_covered_objects(),
-        SummaryFilter::NonContextCovered => snap.aggregates_for_non_context_covered_objects(),
+        SummaryFilter::RetainedByContext => snap.aggregates_for_retained_by_context_objects(),
+        SummaryFilter::NotRetainedByContext => {
+            snap.aggregates_for_not_retained_by_context_objects()
+        }
         SummaryFilter::Unreachable => snap.unreachable_aggregates(),
         SummaryFilter::UnreachableRoots => snap.unreachable_root_aggregates(),
         SummaryFilter::RetainedByDetachedDom => snap.retained_by_detached_dom(),

@@ -47,8 +47,8 @@ const SUMMARY_FILTER_MODE = {
   attached: '6',
   detached: '7',
   duplicateStrings: '8',
-  contextCovered: '9',
-  nonContextCovered: '10',
+  retainedByContext: '9',
+  notRetainedByContext: '10',
 } as const;
 
 interface FocusTarget {
@@ -649,12 +649,12 @@ export function SummaryView(props: {
           <option value={SUMMARY_FILTER_MODE.all}>All objects</option>
           <option value={SUMMARY_FILTER_MODE.attached}>Attached</option>
           <option value={SUMMARY_FILTER_MODE.detached}>Detached</option>
-          <optgroup label="Context coverage">
-            <option value={SUMMARY_FILTER_MODE.contextCovered}>
-              Context-covered objects
+          <optgroup label="Retained by context">
+            <option value={SUMMARY_FILTER_MODE.retainedByContext}>
+              Retained by context
             </option>
-            <option value={SUMMARY_FILTER_MODE.nonContextCovered}>
-              Non-context-covered objects
+            <option value={SUMMARY_FILTER_MODE.notRetainedByContext}>
+              Not retained by context
             </option>
           </optgroup>
           <option value={SUMMARY_FILTER_MODE.unreachable}>

@@ -181,7 +181,7 @@ export function StatisticsView(props: { call: SnapshotCall }): JSX.Element {
               </div>
             ))}
           </div>
-          <ContextCoverage stats={stats()!} />
+          <RetainedByContext stats={stats()!} />
           <ContextAttribution stats={stats()!} />
         </>
       )}
@@ -189,10 +189,10 @@ export function StatisticsView(props: { call: SnapshotCall }): JSX.Element {
   );
 }
 
-function ContextCoverage(props: { stats: Statistics }): JSX.Element {
+function RetainedByContext(props: { stats: Statistics }): JSX.Element {
   const coverageTotal =
-    props.stats.context_covered_size +
-    props.stats.reachable_without_contexts_size;
+    props.stats.retained_by_context_size +
+    props.stats.not_retained_by_context_size;
 
   return (
     <>
@@ -204,7 +204,7 @@ function ContextCoverage(props: { stats: Statistics }): JSX.Element {
           'margin-bottom': '8px',
         }}
       >
-        Context Coverage
+        Retained by Context
       </h3>
       <table
         style={{
@@ -223,24 +223,24 @@ function ContextCoverage(props: { stats: Statistics }): JSX.Element {
           </tr>
           <tr style={{ 'border-top': '1px solid #ddd' }}>
             <td style={{ padding: '3px 0', 'font-weight': '600' }}>
-              Kept Alive by Contexts
+              Retained by Contexts
             </td>
             <td style={{ padding: '3px 12px', 'text-align': 'right' }}>
-              {formatBytes(props.stats.context_covered_size)}
+              {formatBytes(props.stats.retained_by_context_size)}
             </td>
             <td style={{ padding: '3px 0', color: '#888' }}>
-              {pct(props.stats.context_covered_size, coverageTotal)}
+              {pct(props.stats.retained_by_context_size, coverageTotal)}
             </td>
           </tr>
           <tr>
             <td style={{ padding: '3px 0', color: '#888' }}>
-              Non-context-covered
+              Not Retained by Contexts
             </td>
             <td style={{ padding: '3px 12px', 'text-align': 'right' }}>
-              {formatBytes(props.stats.reachable_without_contexts_size)}
+              {formatBytes(props.stats.not_retained_by_context_size)}
             </td>
             <td style={{ padding: '3px 0', color: '#888' }}>
-              {pct(props.stats.reachable_without_contexts_size, coverageTotal)}
+              {pct(props.stats.not_retained_by_context_size, coverageTotal)}
             </td>
           </tr>
         </tbody>

@@ -66,24 +66,24 @@ fn get_summary_filter_context_covered() {
     let resp = proc.call_tool(
         2,
         "get_summary",
-        serde_json::json!({ "snapshot_id": 1, "filter": "context-covered" }),
+        serde_json::json!({ "snapshot_id": 1, "filter": "retained-by-context" }),
     );
     let text = get_text(&resp);
     assert!(
         text.contains("system / Context"),
-        "expected context-covered objects in filtered summary, got: {text}"
+        "expected retained-by-context objects in filtered summary, got: {text}"
     );
 }
 
 #[test]
-fn get_summary_filter_non_context_covered() {
+fn get_summary_filter_not_retained_by_context() {
     let mut proc = McpProcess::start();
     load_heap1(&mut proc);
 
     let resp = proc.call_tool(
         2,
         "get_summary",
-        serde_json::json!({ "snapshot_id": 1, "filter": "non-context-covered" }),
+        serde_json::json!({ "snapshot_id": 1, "filter": "not-retained-by-context" }),
     );
     let text = get_text(&resp);
     assert!(

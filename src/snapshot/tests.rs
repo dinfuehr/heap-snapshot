@@ -719,12 +719,12 @@ fn test_statistics() {
     assert_eq!(stats.extra_native_bytes, 0);
     assert_eq!(stats.v8heap_total, 350);
     assert_eq!(stats.context_count, 0);
-    assert_eq!(stats.context_covered_size, 0);
-    assert_eq!(stats.reachable_without_contexts_size, 350);
+    assert_eq!(stats.retained_by_context_size, 0);
+    assert_eq!(stats.not_retained_by_context_size, 350);
 }
 
 #[test]
-fn test_statistics_context_coverage_enters_native_contexts() {
+fn test_statistics_retained_by_context_enters_native_contexts() {
     let nfc = 5u32;
     let n = |ord: u32| ord * nfc;
     let snap = build_snapshot(
@@ -774,12 +774,12 @@ fn test_statistics_context_coverage_enters_native_contexts() {
     let stats = snap.get_statistics();
     assert_eq!(stats.total, 130);
     assert_eq!(stats.context_count, 1);
-    assert_eq!(stats.context_covered_size, 50);
-    assert_eq!(stats.reachable_without_contexts_size, 80);
+    assert_eq!(stats.retained_by_context_size, 50);
+    assert_eq!(stats.not_retained_by_context_size, 80);
 }
 
 #[test]
-fn test_statistics_context_coverage_uses_all_system_roots() {
+fn test_statistics_retained_by_context_uses_all_system_roots() {
     let nfc = 5u32;
     let n = |ord: u32| ord * nfc;
     let snap = build_snapshot(
@@ -827,12 +827,12 @@ fn test_statistics_context_coverage_uses_all_system_roots() {
 
     let stats = snap.get_statistics();
     assert_eq!(stats.context_count, 1);
-    assert_eq!(stats.context_covered_size, 50);
-    assert_eq!(stats.reachable_without_contexts_size, 40);
+    assert_eq!(stats.retained_by_context_size, 50);
+    assert_eq!(stats.not_retained_by_context_size, 40);
 }
 
 #[test]
-fn test_context_coverage_excludes_unreachable_objects() {
+fn test_retained_by_context_excludes_unreachable_objects() {
     let nfc = 5u32;
     let n = |ord: u32| ord * nfc;
     let snap = build_snapshot(
@@ -873,30 +873,30 @@ fn test_context_coverage_excludes_unreachable_objects() {
 
     let stats = snap.get_statistics();
     assert_eq!(stats.context_count, 2);
-    assert_eq!(stats.context_covered_size, 50);
-    assert_eq!(stats.reachable_without_contexts_size, 0);
+    assert_eq!(stats.retained_by_context_size, 50);
+    assert_eq!(stats.not_retained_by_context_size, 0);
 
-    let context_covered_ordinals: Vec<_> = snap
-        .aggregates_for_context_covered_objects()
+    let retained_by_context_ordinals: Vec<_> = snap
+        .aggregates_for_retained_by_context_objects()
         .iter()
         .flat_map(|agg| agg.node_ordinals.iter().copied())
         .collect();
-    assert!(context_covered_ordinals.contains(&NodeOrdinal(2)));
-    assert!(context_covered_ordinals.contains(&NodeOrdinal(3)));
-    assert!(!context_covered_ordinals.contains(&NodeOrdinal(4)));
-    assert!(!context_covered_ordinals.contains(&NodeOrdinal(5)));
+    assert!(retained_by_context_ordinals.contains(&NodeOrdinal(2)));
+    assert!(retained_by_context_ordinals.contains(&NodeOrdinal(3)));
+    assert!(!retained_by_context_ordinals.contains(&NodeOrdinal(4)));
+    assert!(!retained_by_context_ordinals.contains(&NodeOrdinal(5)));
 
-    let non_context_covered_ordinals: Vec<_> = snap
-        .aggregates_for_non_context_covered_objects()
+    let not_retained_by_context_ordinals: Vec<_> = snap
+        .aggregates_for_not_retained_by_context_objects()
         .iter()
         .flat_map(|agg| agg.node_ordinals.iter().copied())
         .collect();
-    assert!(!non_context_covered_ordinals.contains(&NodeOrdinal(4)));
-    assert!(!non_context_covered_ordinals.contains(&NodeOrdinal(5)));
+    assert!(!not_retained_by_context_ordinals.contains(&NodeOrdinal(4)));
+    assert!(!not_retained_by_context_ordinals.contains(&NodeOrdinal(5)));
 }
 
 #[test]
-fn test_aggregates_for_context_covered_objects_excludes_native_contexts() {
+fn test_aggregates_for_retained_by_context_objects_excludes_native_contexts() {
     let nfc = 5u32;
     let n = |ord: u32| ord * nfc;
     let snap = build_snapshot(
@@ -951,12 +951,15 @@ fn test_aggregates_for_context_covered_objects_excludes_native_contexts() {
         ]),
     );
 
-    let context_aggs = snap.aggregates_for_context_covered_objects();
+    let retained_by_context_aggs = snap.aggregates_for_retained_by_context_objects();
     assert_eq!(
-        context_aggs.iter().map(|agg| agg.self_size).sum::<u64>(),
+        retained_by_context_aggs
+            .iter()
+            .map(|agg| agg.self_size)
+            .sum::<u64>(),
         100
     );
-    let context_ordinals: Vec<_> = context_aggs
+    let context_ordinals: Vec<_> = retained_by_context_aggs
         .iter()
         .flat_map(|agg| agg.node_ordinals.iter().copied())
         .collect();
@@ -964,36 +967,38 @@ fn test_aggregates_for_context_covered_objects_excludes_native_contexts() {
     assert!(context_ordinals.contains(&NodeOrdinal(4)));
     assert!(context_ordinals.contains(&NodeOrdinal(7)));
     assert!(
-        context_aggs.iter().any(|agg| agg.name == "ContextOwned"),
-        "context-covered objects should include objects only reachable through a Context"
+        retained_by_context_aggs
+            .iter()
+            .any(|agg| agg.name == "ContextOwned"),
+        "retained-by-context objects should include objects only reachable through a Context"
     );
 
-    let reachable_without_aggs = snap.aggregates_for_non_context_covered_objects();
+    let not_retained_by_context_aggs = snap.aggregates_for_not_retained_by_context_objects();
     assert_eq!(
-        reachable_without_aggs
+        not_retained_by_context_aggs
             .iter()
             .map(|agg| agg.self_size)
             .sum::<u64>(),
         65
     );
-    let reachable_without_ordinals: Vec<_> = reachable_without_aggs
+    let not_retained_by_context_ordinals: Vec<_> = not_retained_by_context_aggs
         .iter()
         .flat_map(|agg| agg.node_ordinals.iter().copied())
         .collect();
-    assert!(reachable_without_ordinals.contains(&NodeOrdinal(2)));
-    assert!(reachable_without_ordinals.contains(&NodeOrdinal(5)));
-    assert!(reachable_without_ordinals.contains(&NodeOrdinal(6)));
+    assert!(not_retained_by_context_ordinals.contains(&NodeOrdinal(2)));
+    assert!(not_retained_by_context_ordinals.contains(&NodeOrdinal(5)));
+    assert!(not_retained_by_context_ordinals.contains(&NodeOrdinal(6)));
     assert!(
-        !reachable_without_ordinals.contains(&NodeOrdinal(3)),
+        !not_retained_by_context_ordinals.contains(&NodeOrdinal(3)),
         "ordinary Context should be blocked"
     );
     assert!(
-        reachable_without_aggs
+        not_retained_by_context_aggs
             .iter()
             .any(|agg| agg.name == "system / NativeContext")
     );
     assert!(
-        reachable_without_aggs
+        not_retained_by_context_aggs
             .iter()
             .any(|agg| agg.name == "NativeOwned")
     );

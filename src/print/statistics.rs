@@ -22,8 +22,8 @@ pub fn print_statistics(snap: &HeapSnapshot) {
         format_count(stats.unreachable_count),
     );
     println!();
-    println!("Context Coverage:");
-    let coverage_total = stats.context_covered_size + stats.reachable_without_contexts_size;
+    println!("Retained by Context:");
+    let coverage_total = stats.retained_by_context_size + stats.not_retained_by_context_size;
     println!(
         "  {:<28} {:>12}",
         "Context Objects",
@@ -31,15 +31,15 @@ pub fn print_statistics(snap: &HeapSnapshot) {
     );
     println!(
         "  {:<28} {:>12} {:>7}",
-        "Kept Alive by Contexts",
-        format_size(stats.context_covered_size),
-        format_percent(stats.context_covered_size, coverage_total)
+        "Retained by Contexts",
+        format_size(stats.retained_by_context_size),
+        format_percent(stats.retained_by_context_size, coverage_total)
     );
     println!(
         "  {:<28} {:>12} {:>7}",
-        "Non-context-covered",
-        format_size(stats.reachable_without_contexts_size),
-        format_percent(stats.reachable_without_contexts_size, coverage_total)
+        "Not Retained by Contexts",
+        format_size(stats.not_retained_by_context_size),
+        format_percent(stats.not_retained_by_context_size, coverage_total)
     );
 
     let contexts = snap.native_contexts();

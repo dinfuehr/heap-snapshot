@@ -9,8 +9,8 @@
   System:       0 bytes
   Unreachable:  0 bytes (0 objects)
   Context objects: 2
-  Kept alive by contexts: 2276 bytes
-  Non-context-covered objects: 125976 bytes
+  Retained by contexts: 2276 bytes
+  Objects not retained by context: 125976 bytes
 
 Native Context Attribution:
   [utility] #0 @7271: 121280 bytes

@@ -48,15 +48,15 @@ impl Bitmap {
 }
 
 #[derive(Clone, Copy, Debug, Default)]
-struct ContextCoverage {
+struct RetainedByContext {
     context_count: u32,
-    context_covered_size: u64,
-    reachable_without_contexts_size: u64,
+    retained_by_context_size: u64,
+    not_retained_by_context_size: u64,
 }
 
-struct ContextCoverageReachability {
+struct RetainedByContextReachability {
     context_count: u32,
-    context_covered: Vec<ContextCovered>,
+    context_retention: Vec<ContextRetention>,
 }
 
 struct DominatorData {
@@ -105,26 +105,26 @@ impl NativeContextAttributionData {
     }
 }
 
-struct ContextCoverageData {
+struct RetainedByContextData {
     // Aggregate result of the "block ordinary Context objects" coverage pass.
-    context_coverage: ContextCoverage,
+    retained_by_context: RetainedByContext,
     // Per-node coverage classification used by summary filters.
-    context_covered: Vec<ContextCovered>,
+    context_retention: Vec<ContextRetention>,
 }
 
-impl ContextCoverageData {
+impl RetainedByContextData {
     fn empty() -> Self {
         Self {
-            context_coverage: ContextCoverage::default(),
-            context_covered: Vec::new(),
+            retained_by_context: RetainedByContext::default(),
+            context_retention: Vec::new(),
         }
     }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum ContextCovered {
-    Covered,
-    NonCovered,
+enum ContextRetention {
+    Retained,
+    NotRetained,
     Unreachable,
 }
 
@@ -548,7 +548,7 @@ pub struct HeapSnapshot {
     // Best-effort native context owner for each node.
     native_context_attribution: NativeContextAttributionData,
     // Ordinary Context reachability coverage used by summary filters and stats.
-    context_coverage: ContextCoverageData,
+    retained_by_context: RetainedByContextData,
     // Edge names common to all NativeContext global_objects
     native_context_global_fields: FxHashSet<String>,
     // Precomputed "Vars" string per NativeContext (joined unique global + script context vars)
@@ -1064,8 +1064,8 @@ impl HeapSnapshot {
         &self.native_context_attribution
     }
 
-    fn context_coverage_data(&self) -> &ContextCoverageData {
-        &self.context_coverage
+    fn retained_by_context_data(&self) -> &RetainedByContextData {
+        &self.retained_by_context
     }
 
     // Public API
@@ -2328,14 +2328,16 @@ impl HeapSnapshot {
         })
     }
 
-    pub fn aggregates_for_context_covered_objects(&self) -> AggregateMap {
-        let context_covered = &self.context_coverage_data().context_covered;
-        self.compute_aggregates(|ordinal| context_covered[ordinal] == ContextCovered::Covered)
+    pub fn aggregates_for_retained_by_context_objects(&self) -> AggregateMap {
+        let context_retention = &self.retained_by_context_data().context_retention;
+        self.compute_aggregates(|ordinal| context_retention[ordinal] == ContextRetention::Retained)
     }
 
-    pub fn aggregates_for_non_context_covered_objects(&self) -> AggregateMap {
-        let context_covered = &self.context_coverage_data().context_covered;
-        self.compute_aggregates(|ordinal| context_covered[ordinal] == ContextCovered::NonCovered)
+    pub fn aggregates_for_not_retained_by_context_objects(&self) -> AggregateMap {
+        let context_retention = &self.retained_by_context_data().context_retention;
+        self.compute_aggregates(|ordinal| {
+            context_retention[ordinal] == ContextRetention::NotRetained
+        })
     }
 
     pub fn aggregates_for_native_context(&self, context_id: NativeContextId) -> AggregateMap {
