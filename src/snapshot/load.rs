@@ -24,9 +24,7 @@ const MAX_INTERFACE_NAME_LENGTH: usize = 60;
 const MIN_INTERFACE_PROPERTY_COUNT: usize = 1;
 const NO_EDGE_TARGET: u32 = u32::MAX;
 const NO_NATIVE_CONTEXT_ID: u32 = u32::MAX;
-const UNRESOLVED_NATIVE_CONTEXT_ID: u32 = u32::MAX - 1;
-const IN_PROGRESS_NATIVE_CONTEXT_ID: u32 = u32::MAX - 2;
-const SHARED_NATIVE_CONTEXT_ID: u32 = u32::MAX - 3;
+const SHARED_NATIVE_CONTEXT_ID: u32 = u32::MAX - 1;
 
 // Temporary load-time cache of selected named edge targets, indexed by
 // source node ordinal. Each slot is either a target node ordinal or
@@ -38,14 +36,10 @@ struct InitEdgeTargets {
     global_object: Vec<u32>,
     // NativeContext -> JSGlobalProxy.
     global_proxy_object: Vec<u32>,
-    // Object/function -> Context.
-    context: Vec<u32>,
     // Object/map -> NativeContext.
     native_context: Vec<u32>,
     // Object -> Map.
     map: Vec<u32>,
-    // Context -> previous outer Context.
-    previous: Vec<u32>,
     // NativeContext -> ScriptContextTable.
     script_context_table: Vec<u32>,
 }
@@ -91,10 +85,8 @@ impl InitEdgeTargets {
         Self {
             global_object: vec![NO_EDGE_TARGET; node_count],
             global_proxy_object: vec![NO_EDGE_TARGET; node_count],
-            context: vec![NO_EDGE_TARGET; node_count],
             native_context: vec![NO_EDGE_TARGET; node_count],
             map: vec![NO_EDGE_TARGET; node_count],
-            previous: vec![NO_EDGE_TARGET; node_count],
             script_context_table: vec![NO_EDGE_TARGET; node_count],
         }
     }
@@ -689,8 +681,15 @@ impl HeapSnapshot {
             context_index_by_ordinal.insert(ctx.ordinal.0, NativeContextId(idx as u32));
         }
 
-        let context_owners = self.build_context_owner_map(&context_index_by_ordinal, edge_targets);
-        let fixed_owner = self.compute_fixed_native_context_owners(&context_owners, edge_targets);
+        let fixed_owner: Vec<u32> = (0..self.node_count)
+            .map(|ordinal| {
+                self.infer_fixed_native_context_for_object(
+                    ordinal,
+                    &context_index_by_ordinal,
+                    edge_targets,
+                )
+            })
+            .collect();
 
         let mut reach_owner = vec![NO_NATIVE_CONTEXT_ID; self.node_count];
         let mut queue = Vec::with_capacity(self.node_count);
@@ -782,110 +781,29 @@ impl HeapSnapshot {
         (native_context_sizes, shared_size, unattributed_size)
     }
 
-    fn build_context_owner_map(
-        &self,
-        context_index_by_ordinal: &FxHashMap<usize, NativeContextId>,
-        edge_targets: &InitEdgeTargets,
-    ) -> Vec<u32> {
-        let mut owners = vec![UNRESOLVED_NATIVE_CONTEXT_ID; self.node_count];
-        for (&ordinal, &id) in context_index_by_ordinal {
-            owners[ordinal] = id.0;
-        }
-
-        for ordinal in 0..self.node_count {
-            if owners[ordinal] != UNRESOLVED_NATIVE_CONTEXT_ID {
-                continue;
-            }
-            if !self.is_context_object(NodeOrdinal(ordinal)) {
-                owners[ordinal] = NO_NATIVE_CONTEXT_ID;
-                continue;
-            }
-
-            let mut path = Vec::new();
-            let mut current = ordinal;
-            let mut resolved = NO_NATIVE_CONTEXT_ID;
-
-            for _ in 0..self.node_count {
-                match owners[current] {
-                    id if native_context_id_from_raw(id).is_some() => {
-                        resolved = id;
-                        break;
-                    }
-                    NO_NATIVE_CONTEXT_ID => {
-                        break;
-                    }
-                    IN_PROGRESS_NATIVE_CONTEXT_ID => {
-                        break;
-                    }
-                    UNRESOLVED_NATIVE_CONTEXT_ID => {}
-                    _ => {
-                        break;
-                    }
-                }
-
-                if !self.is_context_object(NodeOrdinal(current)) {
-                    break;
-                }
-
-                owners[current] = IN_PROGRESS_NATIVE_CONTEXT_ID;
-                path.push(current);
-
-                let Some(previous) = edge_target_ordinal(edge_targets.previous[current]) else {
-                    break;
-                };
-                current = previous.0;
-            }
-
-            for visited in path {
-                owners[visited] = resolved;
-            }
-        }
-
-        owners
-    }
-
-    fn compute_fixed_native_context_owners(
-        &self,
-        context_owners: &[u32],
-        edge_targets: &InitEdgeTargets,
-    ) -> Vec<u32> {
-        (0..self.node_count)
-            .map(|ordinal| {
-                self.infer_direct_native_context_from_targets(ordinal, context_owners, edge_targets)
-            })
-            .collect()
-    }
-
-    fn infer_direct_native_context_from_targets(
+    fn infer_fixed_native_context_for_object(
         &self,
         ordinal: usize,
-        context_owners: &[u32],
+        context_index_by_ordinal: &FxHashMap<usize, NativeContextId>,
         edge_targets: &InitEdgeTargets,
     ) -> u32 {
-        if let Some(id) = native_context_id_from_raw(context_owners[ordinal]) {
+        if let Some(id) = context_index_by_ordinal.get(&ordinal) {
             return id.0;
-        }
-
-        for target in [
-            edge_targets.context[ordinal],
-            edge_targets.native_context[ordinal],
-        ] {
-            if let Some(target_ordinal) = edge_target_ordinal(target) {
-                if let Some(id) = native_context_id_from_raw(context_owners[target_ordinal.0]) {
-                    return id.0;
-                }
-            }
         }
 
         let Some(map_ordinal) = edge_target_ordinal(edge_targets.map[ordinal]) else {
             return NO_NATIVE_CONTEXT_ID;
         };
+        let Some(meta_map_ordinal) = edge_target_ordinal(edge_targets.map[map_ordinal.0]) else {
+            return NO_NATIVE_CONTEXT_ID;
+        };
         let Some(native_context_ordinal) =
-            edge_target_ordinal(edge_targets.native_context[map_ordinal.0])
+            edge_target_ordinal(edge_targets.native_context[meta_map_ordinal.0])
         else {
             return NO_NATIVE_CONTEXT_ID;
         };
-        native_context_id_from_raw(context_owners[native_context_ordinal.0])
+        context_index_by_ordinal
+            .get(&native_context_ordinal.0)
             .map(|id| id.0)
             .unwrap_or(NO_NATIVE_CONTEXT_ID)
     }
@@ -1070,17 +988,11 @@ impl HeapSnapshot {
                     {
                         targets.global_proxy_object[ordinal] = child_ordinal;
                     }
-                    "context" if targets.context[ordinal] == NO_EDGE_TARGET => {
-                        targets.context[ordinal] = child_ordinal;
-                    }
                     "native_context" if targets.native_context[ordinal] == NO_EDGE_TARGET => {
                         targets.native_context[ordinal] = child_ordinal;
                     }
                     "map" if targets.map[ordinal] == NO_EDGE_TARGET => {
                         targets.map[ordinal] = child_ordinal;
-                    }
-                    "previous" if targets.previous[ordinal] == NO_EDGE_TARGET => {
-                        targets.previous[ordinal] = child_ordinal;
                     }
                     "script_context_table"
                         if targets.script_context_table[ordinal] == NO_EDGE_TARGET =>
