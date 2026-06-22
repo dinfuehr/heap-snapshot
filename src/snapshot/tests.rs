@@ -9099,120 +9099,6 @@ fn test_find_native_context_for_context_non_context_returns_none() {
     assert_eq!(snap.find_native_context_for_context(NodeOrdinal(5)), None);
 }
 
-/// Snapshot for two-stage native context ownership inference.
-///
-/// ```text
-/// Node  0: synthetic root
-/// Node  1: (GC roots)
-/// Node  2: NativeContext A -> FixedA
-/// Node  3: NativeContext B -> FixedB
-/// Node  4: MapA -> native_context A
-/// Node  5: MapB -> native_context B
-/// Node  6: FixedA -> mapA, UniqueChild, SharedChild
-/// Node  7: FixedB -> mapB, SharedChild, FixedA
-/// Node  8: UniqueChild
-/// Node  9: SharedChild
-/// Node 10: Context -> previous -> NativeContext A
-/// Node 11: Closure -> context -> Context
-/// Node 12: Isolated
-/// ```
-fn make_native_context_ownership_snapshot() -> HeapSnapshot {
-    let nfc = 5u32;
-    let n = |ord: u32| ord * nfc;
-
-    build_snapshot(
-        standard_node_fields(),
-        vec![
-            //  type name id size edges
-            9, 0, 1, 0, 1, // 0 synthetic root
-            9, 1, 2, 0, 2, // 1 (GC roots)
-            3, 2, 3, 80, 1, // 2 NativeContext A
-            3, 3, 5, 80, 1, // 3 NativeContext B
-            3, 4, 7, 24, 1, // 4 MapA
-            3, 4, 9, 24, 1, // 5 MapB
-            3, 5, 11, 40, 3, // 6 FixedA
-            3, 6, 13, 40, 3, // 7 FixedB
-            3, 7, 15, 16, 0, // 8 UniqueChild
-            3, 8, 17, 16, 0, // 9 SharedChild
-            3, 9, 19, 24, 1, // 10 Context
-            5, 10, 21, 32, 1, // 11 Closure
-            3, 11, 23, 16, 0, // 12 Isolated
-        ],
-        vec![
-            1,
-            0,
-            n(1), // root -> GC roots
-            2,
-            12,
-            n(2), // GC roots -> NativeContext A
-            2,
-            13,
-            n(3), // GC roots -> NativeContext B
-            2,
-            14,
-            n(6), // NativeContext A -> FixedA
-            2,
-            15,
-            n(7), // NativeContext B -> FixedB
-            3,
-            17,
-            n(2), // MapA -> native_context A
-            3,
-            17,
-            n(3), // MapB -> native_context B
-            3,
-            16,
-            n(4), // FixedA -> mapA
-            2,
-            18,
-            n(8), // FixedA -> UniqueChild
-            2,
-            19,
-            n(9), // FixedA -> SharedChild
-            3,
-            16,
-            n(5), // FixedB -> mapB
-            2,
-            19,
-            n(9), // FixedB -> SharedChild
-            2,
-            20,
-            n(6), // FixedB -> FixedA (conflicting reachability)
-            3,
-            21,
-            n(2), // Context -> previous -> NativeContext A
-            0,
-            22,
-            n(10), // Closure -> context -> Context
-        ],
-        s(&[
-            "",                                        // 0
-            "(GC roots)",                              // 1
-            "system / NativeContext / https://a.test", // 2
-            "system / NativeContext / https://b.test", // 3
-            "system / Map",                            // 4
-            "FixedA",                                  // 5
-            "FixedB",                                  // 6
-            "UniqueChild",                             // 7
-            "SharedChild",                             // 8
-            "system / Context",                        // 9
-            "Closure",                                 // 10
-            "Isolated",                                // 11
-            "ctx_a",                                   // 12
-            "ctx_b",                                   // 13
-            "a_root",                                  // 14
-            "b_root",                                  // 15
-            "map",                                     // 16
-            "native_context",                          // 17
-            "child_unique",                            // 18
-            "child_shared",                            // 19
-            "b_to_fixed_a",                            // 20
-            "previous",                                // 21
-            "context",                                 // 22
-        ]),
-    )
-}
-
 fn assert_bucket_context(snap: &HeapSnapshot, node: NodeOrdinal, expected_ctx: NodeOrdinal) {
     match snap.node_native_context_bucket(node) {
         NativeContextBucket::Context(id) => {
@@ -9220,57 +9106,6 @@ fn assert_bucket_context(snap: &HeapSnapshot, node: NodeOrdinal, expected_ctx: N
         }
         other => panic!("expected Context({expected_ctx:?}) for {node:?}, got {other:?}"),
     }
-}
-
-#[test]
-fn test_node_native_context_direct_inference_uses_map_and_context_edges() {
-    let snap = make_native_context_ownership_snapshot();
-    const CTX_A: NodeOrdinal = NodeOrdinal(2);
-    const CTX_B: NodeOrdinal = NodeOrdinal(3);
-    const FIXED_A: NodeOrdinal = NodeOrdinal(6);
-    const FIXED_B: NodeOrdinal = NodeOrdinal(7);
-    const CONTEXT_A: NodeOrdinal = NodeOrdinal(10);
-    const CLOSURE: NodeOrdinal = NodeOrdinal(11);
-
-    assert_bucket_context(&snap, CTX_A, CTX_A);
-    assert_bucket_context(&snap, CTX_B, CTX_B);
-    assert_bucket_context(&snap, FIXED_A, CTX_A);
-    assert_bucket_context(&snap, FIXED_B, CTX_B);
-    assert_bucket_context(&snap, CONTEXT_A, CTX_A);
-    assert_bucket_context(&snap, CLOSURE, CTX_A);
-}
-
-#[test]
-fn test_node_native_context_bucket_assigns_unique_shared_and_unattributed() {
-    let snap = make_native_context_ownership_snapshot();
-    const CTX_A: NodeOrdinal = NodeOrdinal(2);
-    const UNIQUE_CHILD: NodeOrdinal = NodeOrdinal(8);
-    const SHARED_CHILD: NodeOrdinal = NodeOrdinal(9);
-    const ISOLATED: NodeOrdinal = NodeOrdinal(12);
-
-    // UniqueChild has no direct owner, but is only reachable through FixedA.
-    assert_bucket_context(&snap, UNIQUE_CHILD, CTX_A);
-    // SharedChild is reachable from GC roots but not attributable to one context.
-    assert_eq!(
-        snap.node_native_context_bucket(SHARED_CHILD),
-        NativeContextBucket::Shared
-    );
-    // Isolated has neither native-context attribution nor GC reachability.
-    assert_eq!(
-        snap.node_native_context_bucket(ISOLATED),
-        NativeContextBucket::Unattributed
-    );
-}
-
-#[test]
-fn test_node_native_context_fallback_does_not_overwrite_direct_owner() {
-    let snap = make_native_context_ownership_snapshot();
-    const CTX_A: NodeOrdinal = NodeOrdinal(2);
-    const FIXED_A: NodeOrdinal = NodeOrdinal(6);
-
-    // FixedA is directly attributed to NativeContext A via its map, even though
-    // NativeContext B also reaches it through FixedB.
-    assert_bucket_context(&snap, FIXED_A, CTX_A);
 }
 
 /// Snapshot where one native context reaches `Target` via a weak edge and
@@ -9432,48 +9267,6 @@ fn make_native_context_bucket_scc_snapshot() -> HeapSnapshot {
     )
 }
 
-/// Snapshot where an object is unreachable from GC roots but still directly
-/// attributable through map -> native_context.
-fn make_native_context_bucket_unreachable_direct_snapshot() -> HeapSnapshot {
-    let nfc = 5u32;
-    let n = |ord: u32| ord * nfc;
-
-    build_snapshot(
-        standard_node_fields(),
-        vec![
-            9, 0, 1, 0, 1, // 0 root
-            9, 1, 2, 0, 1, // 1 (GC roots)
-            3, 2, 3, 80, 0, // 2 NativeContext A
-            3, 3, 5, 24, 1, // 3 MapA (unreachable)
-            3, 4, 7, 16, 1, // 4 UnreachableObject
-        ],
-        vec![
-            1,
-            0,
-            n(1), // root -> GC roots
-            2,
-            5,
-            n(2), // GC roots -> NativeContext A
-            3,
-            6,
-            n(2), // MapA -> native_context A
-            3,
-            7,
-            n(3), // UnreachableObject -> map
-        ],
-        s(&[
-            "",
-            "(GC roots)",
-            "system / NativeContext / https://a.test",
-            "system / Map",
-            "UnreachableObject",
-            "ctx_a",
-            "native_context",
-            "map",
-        ]),
-    )
-}
-
 /// Snapshot with a GC-reachable object that is not reached from any native
 /// context and should therefore remain unattributed.
 fn make_native_context_bucket_reachable_unattributed_snapshot() -> HeapSnapshot {
@@ -9547,16 +9340,6 @@ fn test_node_native_context_bucket_assigns_single_context_scc() {
 
     assert_bucket_context(&snap, X, CTX_A);
     assert_bucket_context(&snap, Y, CTX_A);
-}
-
-#[test]
-fn test_node_native_context_bucket_keeps_direct_assignment_for_unreachable_object() {
-    let snap = make_native_context_bucket_unreachable_direct_snapshot();
-    const CTX_A: NodeOrdinal = NodeOrdinal(2);
-    const UNREACHABLE_OBJECT: NodeOrdinal = NodeOrdinal(4);
-
-    assert!(snap.node_distance(UNREACHABLE_OBJECT).is_unreachable());
-    assert_bucket_context(&snap, UNREACHABLE_OBJECT, CTX_A);
 }
 
 #[test]
@@ -9683,64 +9466,6 @@ fn make_native_context_bucket_shared_scc_snapshot() -> HeapSnapshot {
     )
 }
 
-/// Snapshot where direct inference signals disagree. `context` currently wins
-/// over `map -> native_context`.
-fn make_native_context_bucket_conflicting_direct_signals_snapshot() -> HeapSnapshot {
-    let nfc = 5u32;
-    let n = |ord: u32| ord * nfc;
-
-    build_snapshot(
-        standard_node_fields(),
-        vec![
-            9, 0, 1, 0, 1, // 0 root
-            9, 1, 2, 0, 2, // 1 (GC roots)
-            3, 2, 3, 80, 0, // 2 NativeContext A
-            3, 3, 5, 80, 0, // 3 NativeContext B
-            3, 4, 7, 24, 1, // 4 Context -> previous -> A
-            3, 5, 9, 24, 1, // 5 MapB -> native_context B
-            3, 6, 11, 16, 2, // 6 Target -> context A, map B
-        ],
-        vec![
-            1,
-            0,
-            n(1), // root -> GC roots
-            2,
-            7,
-            n(2), // GC roots -> NativeContext A
-            2,
-            8,
-            n(3), // GC roots -> NativeContext B
-            3,
-            9,
-            n(2), // Context -> previous -> NativeContext A
-            3,
-            10,
-            n(3), // MapB -> native_context B
-            0,
-            11,
-            n(4), // Target -> context -> Context
-            3,
-            12,
-            n(5), // Target -> map -> MapB
-        ],
-        s(&[
-            "",
-            "(GC roots)",
-            "system / NativeContext / https://a.test",
-            "system / NativeContext / https://b.test",
-            "system / Context",
-            "system / Map",
-            "Target",
-            "ctx_a",
-            "ctx_b",
-            "previous",
-            "native_context",
-            "context",
-            "map",
-        ]),
-    )
-}
-
 #[test]
 fn test_node_native_context_bucket_ignores_shortcut_edges() {
     let snap = make_native_context_bucket_shortcut_snapshot();
@@ -9767,54 +9492,6 @@ fn test_node_native_context_bucket_assigns_shared_scc() {
 }
 
 #[test]
-fn test_node_native_context_bucket_prefers_context_over_map_native_context() {
-    let snap = make_native_context_bucket_conflicting_direct_signals_snapshot();
-    const CTX_A: NodeOrdinal = NodeOrdinal(2);
-    const TARGET: NodeOrdinal = NodeOrdinal(6);
-
-    // `Target` has two direct signals:
-    // - `context` -> Context A -> NativeContext A
-    // - `map` -> MapB -> native_context -> NativeContext B
-    // The direct inference order currently prefers `context`.
-    assert_bucket_context(&snap, TARGET, CTX_A);
-}
-
-#[test]
-fn test_native_context_attributable_sizes_sum_bucketed_self_sizes() {
-    let snap = make_native_context_ownership_snapshot();
-    const CTX_A: NodeOrdinal = NodeOrdinal(2);
-    const CTX_B: NodeOrdinal = NodeOrdinal(3);
-
-    let sizes = snap.native_context_attributable_sizes();
-
-    assert_eq!(
-        sizes,
-        NativeContextAttributableSizes {
-            native_contexts: vec![
-                NativeContextData {
-                    ordinal: CTX_A,
-                    kind: NativeContextKind::Utility,
-                    is_extension: false,
-                    size: 216,
-                },
-                NativeContextData {
-                    ordinal: CTX_B,
-                    kind: NativeContextKind::Utility,
-                    is_extension: false,
-                    size: 144,
-                },
-            ],
-            shared: 16,
-            unattributed: 16,
-        }
-    );
-    assert_eq!(snap.native_context_attributable_size(CTX_A), Some(216));
-    assert_eq!(snap.native_context_attributable_size(CTX_B), Some(144));
-    assert_eq!(snap.shared_attributable_size(), 16);
-    assert_eq!(snap.unattributed_size(), 16);
-}
-
-#[test]
 fn test_native_context_attributable_sizes_count_mixed_weak_and_strong_shared_bytes() {
     let snap = make_native_context_bucket_weak_snapshot();
     const CTX_A: NodeOrdinal = NodeOrdinal(2);
@@ -9824,28 +9501,6 @@ fn test_native_context_attributable_sizes_count_mixed_weak_and_strong_shared_byt
     assert_eq!(snap.native_context_attributable_size(CTX_B), Some(96));
     assert_eq!(snap.shared_attributable_size(), 16);
     assert_eq!(snap.unattributed_size(), 0);
-}
-
-#[test]
-fn test_native_context_attributable_sizes_keep_unreachable_direct_and_reachable_unattributed() {
-    let unreachable = make_native_context_bucket_unreachable_direct_snapshot();
-    const CTX_A: NodeOrdinal = NodeOrdinal(2);
-
-    assert_eq!(
-        unreachable.native_context_attributable_size(CTX_A),
-        Some(120)
-    );
-    assert_eq!(unreachable.shared_attributable_size(), 0);
-    assert_eq!(unreachable.unattributed_size(), 0);
-
-    let reachable_unattributed = make_native_context_bucket_reachable_unattributed_snapshot();
-
-    assert_eq!(
-        reachable_unattributed.native_context_attributable_size(CTX_A),
-        Some(80)
-    );
-    assert_eq!(reachable_unattributed.shared_attributable_size(), 0);
-    assert_eq!(reachable_unattributed.unattributed_size(), 16);
 }
 
 // ── parse_edge_refs ─────────────────────────────────────────────────────
@@ -9873,4 +9528,77 @@ fn test_parse_edge_refs_no_match() {
     assert!(
         parse_edge_refs("part of key (A @1) -> value (B @2) pair in WeakMap (table @3)").is_empty()
     );
+}
+
+#[test]
+fn test_native_context_attribution_via_meta_map() {
+    let nfc = 5u32;
+    let n = |ord: u32| ord * nfc;
+
+    let snap = build_snapshot(
+        standard_node_fields(),
+        vec![
+            //  type name id size edges
+            9, 0, 1, 0, 1, // 0 root
+            9, 1, 2, 0, 2, // 1 (GC roots)
+            3, 2, 3, 80, 0, // 2 NativeContext
+            3, 3, 5, 32, 2, // 3 JSObject
+            3, 4, 7, 24, 1, // 4 Map
+            3, 4, 9, 24, 2, // 5 MapMap
+            3, 9, 11, 8, 0, // 6 UserMapProperty
+            3, 10, 13, 16, 1, // 7 UnreachableObject
+            3, 11, 15, 8, 0, // 8 UserNativeContextProperty
+        ],
+        vec![
+            1,
+            0,
+            n(1), // root -> GC roots
+            2,
+            5,
+            n(2), // GC roots -> NativeContext
+            2,
+            6,
+            n(3), // GC roots -> JSObject
+            2,
+            7,
+            n(6), // JSObject -> property "map"
+            3,
+            7,
+            n(4), // JSObject -> internal map -> Map
+            3,
+            7,
+            n(5), // Map -> internal map -> MapMap
+            2,
+            8,
+            n(8), // MapMap -> property "native_context"
+            3,
+            8,
+            n(2), // MapMap -> native_context -> NativeContext
+            3,
+            7,
+            n(4), // UnreachableObject -> internal map -> Map
+        ],
+        s(&[
+            "",
+            "(GC roots)",
+            "system / NativeContext / https://a.test",
+            "Object",
+            "system / Map",
+            "ctx_a",
+            "a_root",
+            "map",
+            "native_context",
+            "UserMapProperty",
+            "UnreachableObject",
+            "UserNativeContextProperty",
+        ]),
+    );
+
+    const CTX: NodeOrdinal = NodeOrdinal(2);
+    const OBJECT: NodeOrdinal = NodeOrdinal(3);
+    const UNREACHABLE_OBJECT: NodeOrdinal = NodeOrdinal(7);
+
+    assert_bucket_context(&snap, OBJECT, CTX);
+    assert!(snap.node_distance(UNREACHABLE_OBJECT).is_unreachable());
+    assert_bucket_context(&snap, UNREACHABLE_OBJECT, CTX);
 }
