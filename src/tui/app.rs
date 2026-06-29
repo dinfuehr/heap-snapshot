@@ -447,6 +447,11 @@ impl App {
 
     pub(super) fn show_in_summary(&mut self, ordinal: NodeOrdinal, snap: &HeapSnapshot) {
         self.push_history(ordinal);
+
+        if self.summary_filter_mode != SummaryFilterMode::All {
+            self.set_summary_filter(SummaryFilterMode::All, snap);
+        }
+
         // Find which aggregate contains this ordinal
         let agg_idx = self
             .sorted_aggregates

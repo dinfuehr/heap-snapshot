@@ -5692,6 +5692,38 @@ fn test_action_menu_enter_show_in_summary() {
 }
 
 #[test]
+fn test_action_menu_show_in_summary_from_retainers_resets_summary_filter() {
+    let snap = make_many_retainers_snapshot(1);
+    let (work_tx, _work_rx) = mpsc::channel();
+    let (_result_tx, result_rx) = mpsc::channel();
+    let mut app = App::new(&snap, Vec::new(), work_tx, result_rx);
+
+    app.set_summary_filter(SummaryFilterMode::Unreachable, &snap);
+    app.set_retainers_target(NodeOrdinal(2), &snap);
+    app.rebuild_rows(&snap);
+
+    let retainer_idx = app
+        .cached_rows
+        .iter()
+        .position(|row| row.node_ordinal() == Some(NodeOrdinal(3)))
+        .expect("retainer row should be visible");
+    app.retainers.tree_state.cursor = retainer_idx;
+
+    app.handle_key(KeyEvent::new(KeyCode::Char('o'), KeyModifiers::NONE), &snap);
+    assert_eq!(app.input_mode, InputMode::ActionMenu);
+
+    app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE), &snap);
+
+    assert_eq!(app.input_mode, InputMode::Normal);
+    assert_eq!(app.current_view, ViewType::Summary);
+    assert_eq!(app.summary_filter_mode, SummaryFilterMode::All);
+    assert_eq!(
+        app.cached_rows[app.summary_state.cursor].node_ordinal(),
+        Some(NodeOrdinal(3))
+    );
+}
+
+#[test]
 fn test_action_menu_enter_show_in_retainers() {
     let snap = load_test_snapshot(concat!(
         env!("CARGO_MANIFEST_DIR"),
