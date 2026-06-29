@@ -1254,6 +1254,13 @@ impl HeapSnapshot {
         u32::try_from(val).ok()
     }
 
+    /// Returns the V8 string hash by following its `hash` internal edge to an
+    /// int-typed number node.
+    pub fn node_string_hash(&self, ordinal: NodeOrdinal) -> Option<i64> {
+        let hash_ord = self.find_edge_target(ordinal, "hash")?;
+        self.node_value_as_int(hash_ord)
+    }
+
     /// Returns true if this string node has a `truncated` internal edge
     /// pointing to a bool `true` node, meaning its display name is only a
     /// prefix of the real content.
@@ -2637,10 +2644,10 @@ impl HeapSnapshot {
 
     /// Find duplicate strings in the heap. Only considers strings that have a
     /// `length` internal edge (added by newer V8 builds). Groups by display
-    /// name (and, for truncated strings, also by length) and returns entries
-    /// with count >= 2, sorted by wasted bytes descending.
+    /// name (and, for truncated strings, also by length and hash) and returns
+    /// entries with count >= 2, sorted by wasted bytes descending.
     pub fn duplicate_strings(&self) -> DuplicateStringsResult {
-        let mut groups: FxHashMap<String, DuplicateStringInfo> = FxHashMap::default();
+        let mut groups: FxHashMap<String, Vec<DuplicateStringInfo>> = FxHashMap::default();
         let mut skipped_count: u32 = 0;
         let mut skipped_size: u64 = 0;
 
@@ -2682,38 +2689,37 @@ impl HeapSnapshot {
 
             let truncated = self.node_is_truncated_string(ord);
             let two_byte = self.node_is_two_byte_string(ord);
-
-            // For truncated strings, incorporate the true length into the
-            // grouping key so that different strings sharing the same
-            // truncated prefix are not falsely merged.
-            let key = if truncated {
-                format!("{display_name}\0{length}")
-            } else {
-                display_name.clone()
-            };
+            let hash = truncated.then(|| self.node_string_hash(ord)).flatten();
 
             let node_id = self.node_id(ord);
-            groups
-                .entry(key)
-                .and_modify(|e| {
-                    e.count += 1;
-                    e.total_size += self_size;
-                    e.node_ids.push(node_id);
-                })
-                .or_insert_with(|| DuplicateStringInfo {
+            let bucket = groups.entry(display_name.clone()).or_default();
+            if let Some(entry) = bucket.iter_mut().find(|entry| {
+                entry.truncated == truncated
+                    && (!truncated || (entry.length == length && entry.hash == hash))
+            }) {
+                entry.count += 1;
+                entry.total_size += self_size;
+                entry.node_ids.push(node_id);
+            } else {
+                bucket.push(DuplicateStringInfo {
                     value: display_name,
                     count: 1,
                     instance_size: self_size,
                     total_size: self_size,
                     length,
+                    hash,
                     truncated,
                     two_byte,
                     node_ids: vec![node_id],
                 });
+            }
         }
 
-        let mut duplicates: Vec<DuplicateStringInfo> =
-            groups.into_values().filter(|e| e.count >= 2).collect();
+        let mut duplicates: Vec<DuplicateStringInfo> = groups
+            .into_values()
+            .flatten()
+            .filter(|e| e.count >= 2)
+            .collect();
         duplicates.sort_by(|a, b| {
             b.wasted_size()
                 .cmp(&a.wasted_size())

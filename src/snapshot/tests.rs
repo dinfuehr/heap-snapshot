@@ -7084,10 +7084,21 @@ fn test_duplicate_strings_non_flat_cons_string_included() {
 /// `truncated`, and/or `two_byte_representation` internal edges, mimicking
 /// V8's `ExtractStringReferences`.
 fn build_string_props_snapshot(entries: &[StringTestEntry]) -> HeapSnapshot {
+    let hashes = vec![None; entries.len()];
+    build_string_props_snapshot_with_hashes(entries, &hashes)
+}
+
+/// Helper variant that can also emit per-string `hash` internal edges.
+fn build_string_props_snapshot_with_hashes(
+    entries: &[StringTestEntry],
+    hashes: &[Option<i64>],
+) -> HeapSnapshot {
+    assert_eq!(entries.len(), hashes.len());
+
     // Strings table:
     // 0: ""  1: "(GC roots)"  2: "value"  3: "length"  4: "truncated"
     // 5: "two_byte_representation"  6: "bool"  7: "true"  8: "int"
-    // 9: "ref"
+    // 9: "ref" 10: "hash"
     // then per-entry: string name, length-as-string
     let mut strings: Vec<String> = vec![
         "".into(),
@@ -7100,6 +7111,7 @@ fn build_string_props_snapshot(entries: &[StringTestEntry]) -> HeapSnapshot {
         "true".into(),
         "int".into(),
         "ref".into(),
+        "hash".into(),
     ];
 
     let nfc = 5u32;
@@ -7108,16 +7120,58 @@ fn build_string_props_snapshot(entries: &[StringTestEntry]) -> HeapSnapshot {
     struct EntryStrings {
         name_idx: u32,
         len_str_idx: u32,
+        hash_str_idx: Option<u32>,
     }
     let mut entry_strings = Vec::new();
-    for entry in entries {
+    for (entry, hash) in entries.iter().zip(hashes) {
         let name_idx = strings.len() as u32;
         strings.push(entry.name.clone());
         let len_str_idx = strings.len() as u32;
         strings.push(entry.length.to_string());
+        let hash_str_idx = hash.map(|hash| {
+            let idx = strings.len() as u32;
+            strings.push(hash.to_string());
+            idx
+        });
         entry_strings.push(EntryStrings {
             name_idx,
             len_str_idx,
+            hash_str_idx,
+        });
+    }
+
+    struct EntryNodes {
+        string_ord: u32,
+        len_int_ord: u32,
+        len_value_ord: u32,
+        hash_int_ord: Option<u32>,
+        hash_value_ord: Option<u32>,
+    }
+
+    let mut next_ord = 4u32;
+    let mut entry_nodes = Vec::new();
+    for hash in hashes {
+        let string_ord = next_ord;
+        next_ord += 1;
+        let len_int_ord = next_ord;
+        next_ord += 1;
+        let len_value_ord = next_ord;
+        next_ord += 1;
+        let (hash_int_ord, hash_value_ord) = if hash.is_some() {
+            let hash_int_ord = next_ord;
+            next_ord += 1;
+            let hash_value_ord = next_ord;
+            next_ord += 1;
+            (Some(hash_int_ord), Some(hash_value_ord))
+        } else {
+            (None, None)
+        };
+        entry_nodes.push(EntryNodes {
+            string_ord,
+            len_int_ord,
+            len_value_ord,
+            hash_int_ord,
+            hash_value_ord,
         });
     }
 
@@ -7126,10 +7180,10 @@ fn build_string_props_snapshot(entries: &[StringTestEntry]) -> HeapSnapshot {
     //   1: GC roots (entries.len() edges)
     //   2: bool "true" node (1 edge -> node 3)
     //   3: string "true" (0 edges)
-    //   then per entry (3 nodes each):
-    //     4+i*3: string node (1-3 edges: length + truncated? + two_byte?)
-    //     5+i*3: int node for length (1 edge -> value)
-    //     6+i*3: string node for length value (0 edges)
+    //   then per entry:
+    //     string node (length + optional hash/truncated/two_byte edges)
+    //     int node for length, string node for length value
+    //     optional int node for hash, string node for hash value
 
     let mut nodes: Vec<u32> = vec![];
     let mut edges: Vec<u32> = vec![];
@@ -7145,9 +7199,8 @@ fn build_string_props_snapshot(entries: &[StringTestEntry]) -> HeapSnapshot {
     nodes.extend_from_slice(&[9, 1, next_id, 0, entries.len() as u32]);
     next_id += 1;
     // node 1 edges: all GC roots -> string node refs
-    for (i, _) in entries.iter().enumerate() {
-        let str_node = (4 + i * 3) as u32;
-        edges.extend_from_slice(&[2, 9, str_node * nfc]);
+    for entry_node in &entry_nodes {
+        edges.extend_from_slice(&[2, 9, entry_node.string_ord * nfc]);
     }
 
     // node 2: bool "true" (type number=7, name "bool"=6)
@@ -7163,10 +7216,12 @@ fn build_string_props_snapshot(entries: &[StringTestEntry]) -> HeapSnapshot {
     // Per-entry nodes and edges (in node order)
     for (i, entry) in entries.iter().enumerate() {
         let es = &entry_strings[i];
-        let int_node = (5 + i * 3) as u32;
-        let len_val_node = (6 + i * 3) as u32;
+        let entry_node = &entry_nodes[i];
 
         let mut str_edge_count = 1u32; // "length" always
+        if entry_node.hash_int_ord.is_some() {
+            str_edge_count += 1;
+        }
         if entry.truncated {
             str_edge_count += 1;
         }
@@ -7178,7 +7233,10 @@ fn build_string_props_snapshot(entries: &[StringTestEntry]) -> HeapSnapshot {
         nodes.extend_from_slice(&[2, es.name_idx, next_id, entry.self_size, str_edge_count]);
         next_id += 1;
         // string node edges:
-        edges.extend_from_slice(&[3, 3, int_node * nfc]); // internal "length"
+        edges.extend_from_slice(&[3, 3, entry_node.len_int_ord * nfc]); // internal "length"
+        if let Some(hash_int_ord) = entry_node.hash_int_ord {
+            edges.extend_from_slice(&[3, 10, hash_int_ord * nfc]); // internal "hash"
+        }
         if entry.truncated {
             edges.extend_from_slice(&[3, 4, 2 * nfc]); // internal "truncated" -> bool
         }
@@ -7190,11 +7248,24 @@ fn build_string_props_snapshot(entries: &[StringTestEntry]) -> HeapSnapshot {
         nodes.extend_from_slice(&[7, 8, next_id, 0, 1]);
         next_id += 1;
         // int node edges:
-        edges.extend_from_slice(&[3, 2, len_val_node * nfc]); // internal "value"
+        edges.extend_from_slice(&[3, 2, entry_node.len_value_ord * nfc]); // internal "value"
 
         // string node for length value (leaf)
         nodes.extend_from_slice(&[2, es.len_str_idx, next_id, 0, 0]);
         next_id += 1;
+
+        if let (Some(hash_value_ord), Some(hash_str_idx)) =
+            (entry_node.hash_value_ord, es.hash_str_idx)
+        {
+            // int node for hash (type number=7, name "int"=8)
+            nodes.extend_from_slice(&[7, 8, next_id, 0, 1]);
+            next_id += 1;
+            edges.extend_from_slice(&[3, 2, hash_value_ord * nfc]); // internal "value"
+
+            // string node for hash value (leaf)
+            nodes.extend_from_slice(&[2, hash_str_idx, next_id, 0, 0]);
+            next_id += 1;
+        }
     }
 
     build_snapshot(standard_node_fields(), nodes, edges, strings)
@@ -7236,9 +7307,9 @@ fn test_duplicate_strings_truncated_different_lengths_not_grouped() {
 }
 
 #[test]
-fn test_duplicate_strings_truncated_same_length_grouped() {
+fn test_duplicate_strings_truncated_same_length_missing_hash_grouped() {
     // Two truncated strings with the same prefix AND same length
-    // should be grouped as duplicates.
+    // should be grouped as duplicates when both hash fields are missing.
     let snap = build_string_props_snapshot(&[
         StringTestEntry {
             name: "hello world this is a long".into(),
@@ -7259,10 +7330,66 @@ fn test_duplicate_strings_truncated_same_length_grouped() {
     let main = dupes
         .iter()
         .find(|d| d.value == "hello world this is a long")
-        .expect("truncated strings with same length should be grouped");
+        .expect("truncated strings with same length and missing hashes should be grouped");
     assert_eq!(main.count, 2);
     assert!(main.truncated);
     assert_eq!(main.length, 500);
+    assert_eq!(main.hash, None);
+}
+
+#[test]
+fn test_duplicate_strings_truncated_same_length_different_hash_not_grouped() {
+    let entries = [
+        StringTestEntry {
+            name: "hello world this is a long".into(),
+            self_size: 100,
+            length: 500,
+            truncated: true,
+            two_byte: false,
+        },
+        StringTestEntry {
+            name: "hello world this is a long".into(),
+            self_size: 100,
+            length: 500,
+            truncated: true,
+            two_byte: false,
+        },
+    ];
+    let snap = build_string_props_snapshot_with_hashes(&entries, &[Some(123), Some(456)]);
+    let dupes = snap.duplicate_strings().duplicates;
+    assert!(
+        dupes.is_empty(),
+        "truncated strings with matching prefix and length but different hashes should not be grouped"
+    );
+}
+
+#[test]
+fn test_duplicate_strings_truncated_same_length_same_hash_grouped() {
+    let entries = [
+        StringTestEntry {
+            name: "hello world this is a long".into(),
+            self_size: 100,
+            length: 500,
+            truncated: true,
+            two_byte: false,
+        },
+        StringTestEntry {
+            name: "hello world this is a long".into(),
+            self_size: 100,
+            length: 500,
+            truncated: true,
+            two_byte: false,
+        },
+    ];
+    let snap = build_string_props_snapshot_with_hashes(&entries, &[Some(123), Some(123)]);
+    let dupes = snap.duplicate_strings().duplicates;
+    let main = dupes
+        .iter()
+        .find(|d| d.value == "hello world this is a long")
+        .expect("truncated strings with matching length and hash should be grouped");
+    assert_eq!(main.count, 2);
+    assert_eq!(main.length, 500);
+    assert_eq!(main.hash, Some(123));
 }
 
 #[test]
@@ -7607,6 +7734,20 @@ fn test_node_string_length() {
     assert_eq!(snap.node_string_length(NodeOrdinal(7)), Some(10000));
     // Non-string nodes have no length edge
     assert_eq!(snap.node_string_length(NodeOrdinal(0)), None);
+}
+
+#[test]
+fn test_node_string_hash() {
+    let entries = [StringTestEntry {
+        name: "hashed".into(),
+        self_size: 20,
+        length: 6,
+        truncated: true,
+        two_byte: false,
+    }];
+    let snap = build_string_props_snapshot_with_hashes(&entries, &[Some(987654321)]);
+    assert_eq!(snap.node_string_hash(NodeOrdinal(4)), Some(987654321));
+    assert_eq!(snap.node_string_hash(NodeOrdinal(0)), None);
 }
 
 #[test]

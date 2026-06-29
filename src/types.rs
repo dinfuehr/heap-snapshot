@@ -149,6 +149,8 @@ pub struct DuplicateStringInfo {
     pub total_size: u64,
     /// True character length from the snapshot's `length` edge.
     pub length: u32,
+    /// String hash from the snapshot's `hash` edge, when present.
+    pub hash: Option<i64>,
     /// Whether the string value was truncated in the snapshot.
     pub truncated: bool,
     /// Whether the string uses two-byte (UTF-16) representation.
