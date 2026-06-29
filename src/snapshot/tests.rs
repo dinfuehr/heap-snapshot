@@ -6282,6 +6282,11 @@ fn test_dominator_of_chain() {
     assert_eq!(snap.dominator_of(NodeOrdinal(2)), NodeOrdinal(1));
     assert_eq!(snap.dominator_of(NodeOrdinal(3)), NodeOrdinal(2));
     assert_eq!(snap.dominator_of(NodeOrdinal(4)), NodeOrdinal(3));
+    assert_eq!(
+        snap.dominators_of(NodeOrdinal(4)),
+        vec![NodeOrdinal(3), NodeOrdinal(2), NodeOrdinal(1)]
+    );
+    assert!(snap.dominators_of(NodeOrdinal(1)).is_empty());
 }
 
 // ── is_root_holder ──────────────────────────────────────────────────────

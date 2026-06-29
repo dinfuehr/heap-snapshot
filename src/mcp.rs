@@ -791,20 +791,14 @@ impl McpServer {
             snapshot.node_retained_size(ordinal),
         ));
 
-        let mut current = ordinal;
-        loop {
-            let dom = snapshot.dominator_of(current);
-            if dom == current {
-                break;
-            }
+        for dom in snapshot.dominators_of(ordinal) {
             lines.push(format!(
-                "  dominated by {} (type: {}, self_size: {}, retained_size: {:.0})",
+                "  {} (type: {}, self_size: {}, retained_size: {:.0})",
                 snapshot.format_node_label(dom),
                 snapshot.node_type_name(dom),
                 snapshot.node_self_size(dom),
                 snapshot.node_retained_size(dom),
             ));
-            current = dom;
         }
 
         Ok(CallToolResult::success(vec![Content::text(

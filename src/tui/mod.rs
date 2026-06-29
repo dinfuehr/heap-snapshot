@@ -771,6 +771,16 @@ impl App {
             }
         }
 
+        lines.push(String::new());
+        lines.push("Dominators".to_string());
+        let dominators = snap.dominators_of(ordinal);
+        for &dom in &dominators {
+            lines.push(format!("  {}", snap.format_node_label(dom)));
+        }
+        if dominators.is_empty() {
+            lines.push("  none".to_string());
+        }
+
         self.inspect_lines = lines;
         self.input_mode = InputMode::Inspect;
     }

@@ -2319,6 +2319,24 @@ impl HeapSnapshot {
         NodeOrdinal(self.dominator_data().immediate_dominators[ordinal.0] as usize)
     }
 
+    /// Returns all dominators of `ordinal`, from nearest to root.
+    pub fn dominators_of(&self, ordinal: NodeOrdinal) -> Vec<NodeOrdinal> {
+        let mut result = Vec::new();
+        let mut seen = FxHashSet::default();
+        let mut current = ordinal;
+
+        seen.insert(current);
+        loop {
+            let dom = self.dominator_of(current);
+            if dom == current || !seen.insert(dom) {
+                break;
+            }
+            result.push(dom);
+            current = dom;
+        }
+        result
+    }
+
     pub fn get_dominated_children(&self, ordinal: NodeOrdinal) -> Vec<NodeOrdinal> {
         let dominator_data = self.dominator_data();
         let from = dominator_data.first_dominated_node_index[ordinal.0] as usize;
