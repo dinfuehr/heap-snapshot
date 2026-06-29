@@ -1723,6 +1723,30 @@ impl HeapSnapshot {
         None
     }
 
+    fn find_internal_edge_target(&self, ordinal: NodeOrdinal, name: &str) -> Option<NodeOrdinal> {
+        let first = self.first_edge_index(ordinal.0);
+        let last = self.first_edge_index(ordinal.0 + 1);
+        let mut ei = first;
+        while ei < last {
+            if self.edge_type_raw(ei) == self.edge_internal_type {
+                let name_idx = self.edge_name_or_index(ei) as usize;
+                if self.strings[name_idx] == name {
+                    return Some(NodeOrdinal(self.edge_to_node_ordinal(ei)));
+                }
+            }
+            ei += 1;
+        }
+        None
+    }
+
+    /// Follow an object's `map` edge and read the map's `instance_type_name`.
+    pub fn map_instance_type_name(&self, ordinal: NodeOrdinal) -> Option<&str> {
+        let map_ord = self.find_internal_edge_target(ordinal, "map")?;
+        let type_name_ord = self.find_internal_edge_target(map_ord, "instance_type_name")?;
+        self.node_value_as_str(type_name_ord)
+            .filter(|type_name| !type_name.is_empty())
+    }
+
     /// For a JSFunction or SharedFunctionInfo node, extract its source code.
     /// Follows `shared` from a JSFunction to reach the SFI, then delegates to
     /// [`Self::shared_function_info_source`].

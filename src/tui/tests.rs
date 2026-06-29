@@ -365,6 +365,55 @@ fn make_many_edges_snapshot(edge_count: usize) -> HeapSnapshot {
     build_snapshot(strings, nodes, edges)
 }
 
+fn make_map_instance_type_snapshot() -> HeapSnapshot {
+    let strings = vec![
+        "".to_string(),
+        "(GC roots)".to_string(),
+        "Object".to_string(),
+        "system / Map".to_string(),
+        "JS_OBJECT_TYPE".to_string(),
+        "obj".to_string(),
+        "map".to_string(),
+        "instance_type_name".to_string(),
+        "not a map".to_string(),
+        "WRONG_TYPE".to_string(),
+    ];
+
+    let nodes = vec![
+        9, 0, 1, 0, 1, // synthetic root
+        9, 1, 2, 0, 1, // (GC roots)
+        3, 2, 3, 10, 2, // object
+        8, 3, 4, 0, 2, // map
+        2, 4, 5, 0, 0, // instance type name
+        2, 8, 6, 0, 0, // user property named map
+        2, 9, 7, 0, 0, // user property named instance_type_name
+    ];
+
+    let node_index = |ordinal: usize| (ordinal * 5) as u32;
+    let edges = vec![
+        1,
+        0,
+        node_index(1), // root -> (GC roots)
+        2,
+        5,
+        node_index(2), // (GC roots) -> object
+        2,
+        6,
+        node_index(5), // object -> user property named map
+        3,
+        6,
+        node_index(3), // object -> internal map
+        2,
+        7,
+        node_index(6), // map -> user property named instance_type_name
+        3,
+        7,
+        node_index(4), // map -> internal instance_type_name
+    ];
+
+    build_snapshot(strings, nodes, edges)
+}
+
 fn make_duplicate_children_snapshot() -> HeapSnapshot {
     let strings = vec![
         "".to_string(),
@@ -591,6 +640,35 @@ fn test_compute_edges_lists_specific_js_global_fields_before_common_fields() {
     assert!(proxy_children[0].label.starts_with("specific_proxy_a :: "));
     assert!(proxy_children[1].label.starts_with("proxy_shared_a :: "));
     assert!(proxy_children[2].label.starts_with("proxy_shared_b :: "));
+}
+
+#[test]
+fn test_inspect_shows_map_instance_type_name() {
+    let snap = make_map_instance_type_snapshot();
+    let (work_tx, _work_rx) = mpsc::channel();
+    let (_result_tx, result_rx) = mpsc::channel();
+    let mut app = App::new(&snap, Vec::new(), work_tx, result_rx);
+
+    app.show_in_containment(NodeOrdinal(2), &snap);
+    app.rebuild_rows(&snap);
+    let row_idx = app
+        .cached_rows
+        .iter()
+        .position(|row| row.node_ordinal() == Some(NodeOrdinal(2)))
+        .expect("object row should be visible");
+    app.containment_state.cursor = row_idx;
+
+    app.open_inspect(&snap);
+
+    assert_eq!(app.input_mode, InputMode::Inspect);
+    assert!(
+        app.inspect_lines
+            .contains(&"  map instance type: JS_OBJECT_TYPE".to_string())
+    );
+    assert!(
+        !app.inspect_lines
+            .contains(&"  map instance type: WRONG_TYPE".to_string())
+    );
 }
 
 #[test]

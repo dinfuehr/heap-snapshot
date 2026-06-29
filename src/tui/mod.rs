@@ -718,6 +718,7 @@ impl App {
         let name = snap.node_display_name(ordinal);
         let node_type = snap.node_type_name(ordinal);
         let class_name = snap.node_class_name(ordinal);
+        let map_instance_type_name = snap.map_instance_type_name(ordinal);
         let det = snap.node_detachedness(ordinal);
         let det_origin = if snap.node_detachedness_is_original(ordinal) {
             "original"
@@ -735,6 +736,9 @@ impl App {
         lines.push(format!("  type:         {node_type}"));
         lines.push(format!("  name:         {name}"));
         lines.push(format!("  class:        {class_name}"));
+        if let Some(map_instance_type_name) = map_instance_type_name {
+            lines.push(format!("  map instance type: {map_instance_type_name}"));
+        }
         lines.push(format!(
             "  self size:    {} ({self_size})",
             format_size(self_size as u64)
