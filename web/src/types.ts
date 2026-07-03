@@ -41,6 +41,8 @@ export interface NodeInfo {
   detachedness_is_original: boolean;
   ctx: string;
   ctx_label: string;
+  map_instance_type_name?: string;
+  map_visitor_name?: string;
   // For JSFunction / SharedFunctionInfo, formatted as
   // `"file.js:start_line:start_col-end_line:end_col"` or just
   // `"file.js:line:col"` if the end position is unavailable.

@@ -377,16 +377,21 @@ fn make_map_instance_type_snapshot() -> HeapSnapshot {
         "instance_type_name".to_string(),
         "not a map".to_string(),
         "WRONG_TYPE".to_string(),
+        "visitor_name".to_string(),
+        "JSObjectVisitor".to_string(),
+        "WRONG_VISITOR".to_string(),
     ];
 
     let nodes = vec![
         9, 0, 1, 0, 1, // synthetic root
         9, 1, 2, 0, 1, // (GC roots)
         3, 2, 3, 10, 2, // object
-        8, 3, 4, 0, 2, // map
+        8, 3, 4, 0, 4, // map
         2, 4, 5, 0, 0, // instance type name
         2, 8, 6, 0, 0, // user property named map
         2, 9, 7, 0, 0, // user property named instance_type_name
+        2, 11, 8, 0, 0, // visitor name
+        2, 12, 9, 0, 0, // user property named visitor_name
     ];
 
     let node_index = |ordinal: usize| (ordinal * 5) as u32;
@@ -409,6 +414,12 @@ fn make_map_instance_type_snapshot() -> HeapSnapshot {
         3,
         7,
         node_index(4), // map -> internal instance_type_name
+        2,
+        10,
+        node_index(8), // map -> user property named visitor_name
+        3,
+        10,
+        node_index(7), // map -> internal visitor_name
     ];
 
     build_snapshot(strings, nodes, edges)
@@ -643,7 +654,7 @@ fn test_compute_edges_lists_specific_js_global_fields_before_common_fields() {
 }
 
 #[test]
-fn test_inspect_shows_map_instance_type_name() {
+fn test_inspect_shows_map_instance_type_and_visitor_name() {
     let snap = make_map_instance_type_snapshot();
     let (work_tx, _work_rx) = mpsc::channel();
     let (_result_tx, result_rx) = mpsc::channel();
@@ -663,11 +674,19 @@ fn test_inspect_shows_map_instance_type_name() {
     assert_eq!(app.input_mode, InputMode::Inspect);
     assert!(
         app.inspect_lines
-            .contains(&"  map instance type: JS_OBJECT_TYPE".to_string())
+            .contains(&"  instance type: JS_OBJECT_TYPE".to_string())
     );
     assert!(
         !app.inspect_lines
-            .contains(&"  map instance type: WRONG_TYPE".to_string())
+            .contains(&"  instance type: WRONG_TYPE".to_string())
+    );
+    assert!(
+        app.inspect_lines
+            .contains(&"  visitor:       JSObjectVisitor".to_string())
+    );
+    assert!(
+        !app.inspect_lines
+            .contains(&"  visitor:       WRONG_VISITOR".to_string())
     );
 }
 

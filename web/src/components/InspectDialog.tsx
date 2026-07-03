@@ -44,6 +44,14 @@ export function InspectDialog(props: {
     ['Type', n.node_type],
     ['Name', n.name],
     ['Class', n.class_name],
+  ];
+  if (n.map_instance_type_name) {
+    rows.push(['Instance type', n.map_instance_type_name]);
+  }
+  if (n.map_visitor_name) {
+    rows.push(['Visitor', n.map_visitor_name]);
+  }
+  rows.push(
     ['Self size', `${formatBytes(n.self_size)} (${n.self_size})`],
     ['Retained size', `${formatBytes(n.retained_size)} (${n.retained_size})`],
     ['Distance', `${n.distance}`],
@@ -54,7 +62,7 @@ export function InspectDialog(props: {
       )})`,
     ],
     ['Edge count', `${n.edge_count}`],
-  ];
+  );
   if (n.ctx) {
     rows.push(['Context', n.ctx_label || n.ctx]);
   }

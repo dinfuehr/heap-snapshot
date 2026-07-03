@@ -67,6 +67,10 @@ struct JsNodeInfo {
     detachedness_is_original: bool,
     ctx: String,
     ctx_label: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    map_instance_type_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    map_visitor_name: Option<String>,
     /// For JSFunction / SharedFunctionInfo, formatted as
     /// `"file.js:start_line:start_col-end_line:end_col"` or just
     /// `"file.js:line:col"` if the end position is unavailable.
@@ -259,6 +263,8 @@ impl WasmHeapSnapshot {
             detachedness_is_original: snap.node_detachedness_is_original(ordinal),
             ctx: format_ctx_bucket(bucket),
             ctx_label: format_ctx_label(snap, bucket),
+            map_instance_type_name: snap.map_instance_type_name(ordinal).map(str::to_string),
+            map_visitor_name: snap.map_visitor_name(ordinal).map(str::to_string),
             location,
             has_source,
         }

@@ -719,6 +719,7 @@ impl App {
         let node_type = snap.node_type_name(ordinal);
         let class_name = snap.node_class_name(ordinal);
         let map_instance_type_name = snap.map_instance_type_name(ordinal);
+        let map_visitor_name = snap.map_visitor_name(ordinal);
         let det = snap.node_detachedness(ordinal);
         let det_origin = if snap.node_detachedness_is_original(ordinal) {
             "original"
@@ -730,26 +731,36 @@ impl App {
         let distance = snap.node_distance(ordinal);
         let edge_count = snap.node_edge_count(ordinal);
 
-        lines.push("Node".to_string());
-        lines.push(format!("  id:           @{}", node_id.0));
-        lines.push(format!("  ordinal:      {}", ordinal.0));
-        lines.push(format!("  type:         {node_type}"));
-        lines.push(format!("  name:         {name}"));
-        lines.push(format!("  class:        {class_name}"));
-        if let Some(map_instance_type_name) = map_instance_type_name {
-            lines.push(format!("  map instance type: {map_instance_type_name}"));
+        fn inspect_kv(label: &str, value: impl std::fmt::Display) -> String {
+            format!("  {label:<14} {value}")
         }
-        lines.push(format!(
-            "  self size:    {} ({self_size})",
-            format_size(self_size as u64)
+
+        lines.push("Node".to_string());
+        lines.push(inspect_kv("id:", format!("@{}", node_id.0)));
+        lines.push(inspect_kv("ordinal:", ordinal.0));
+        lines.push(inspect_kv("type:", node_type));
+        lines.push(inspect_kv("name:", name));
+        lines.push(inspect_kv("class:", class_name));
+        if let Some(map_instance_type_name) = map_instance_type_name {
+            lines.push(inspect_kv("instance type:", map_instance_type_name));
+        }
+        if let Some(map_visitor_name) = map_visitor_name {
+            lines.push(inspect_kv("visitor:", map_visitor_name));
+        }
+        lines.push(inspect_kv(
+            "self size:",
+            format!("{} ({self_size})", format_size(self_size as u64)),
         ));
-        lines.push(format!(
-            "  retained:     {} ({retained})",
-            format_size(retained)
+        lines.push(inspect_kv(
+            "retained:",
+            format!("{} ({retained})", format_size(retained)),
         ));
-        lines.push(format!("  distance:     {distance}"));
-        lines.push(format!("  detachedness: {det:?} ({det_origin})"));
-        lines.push(format!("  edge count:   {edge_count}"));
+        lines.push(inspect_kv("distance:", distance));
+        lines.push(inspect_kv(
+            "detachedness:",
+            format!("{det:?} ({det_origin})"),
+        ));
+        lines.push(inspect_kv("edge count:", edge_count));
 
         // Edge info: find how this node is referenced from its parent row
         let parent_ordinal = row
@@ -763,9 +774,12 @@ impl App {
                     let edge_name = snap.edge_name(edge_idx);
                     lines.push(String::new());
                     lines.push("Edge (from parent)".to_string());
-                    lines.push(format!("  type:         {edge_type}"));
-                    lines.push(format!("  name:         {edge_name}"));
-                    lines.push(format!("  parent:       @{}", snap.node_id(parent_ord).0));
+                    lines.push(inspect_kv("type:", edge_type));
+                    lines.push(inspect_kv("name:", edge_name));
+                    lines.push(inspect_kv(
+                        "parent:",
+                        format!("@{}", snap.node_id(parent_ord).0),
+                    ));
                     break;
                 }
             }

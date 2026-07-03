@@ -1739,12 +1739,21 @@ impl HeapSnapshot {
         None
     }
 
+    fn map_string_value(&self, ordinal: NodeOrdinal, edge_name: &str) -> Option<&str> {
+        let map_ord = self.find_internal_edge_target(ordinal, "map")?;
+        let value_ord = self.find_internal_edge_target(map_ord, edge_name)?;
+        self.node_value_as_str(value_ord)
+            .filter(|value| !value.is_empty())
+    }
+
     /// Follow an object's `map` edge and read the map's `instance_type_name`.
     pub fn map_instance_type_name(&self, ordinal: NodeOrdinal) -> Option<&str> {
-        let map_ord = self.find_internal_edge_target(ordinal, "map")?;
-        let type_name_ord = self.find_internal_edge_target(map_ord, "instance_type_name")?;
-        self.node_value_as_str(type_name_ord)
-            .filter(|type_name| !type_name.is_empty())
+        self.map_string_value(ordinal, "instance_type_name")
+    }
+
+    /// Follow an object's `map` edge and read the map's `visitor_name`.
+    pub fn map_visitor_name(&self, ordinal: NodeOrdinal) -> Option<&str> {
+        self.map_string_value(ordinal, "visitor_name")
     }
 
     /// For a JSFunction or SharedFunctionInfo node, extract its source code.
