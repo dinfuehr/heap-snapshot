@@ -33,6 +33,64 @@ pub struct RetainerAutoExpandPlan {
     pub truncated: bool,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SingleRetainingPathEntry {
+    pub edge_idx: EdgeId,
+    pub retainer: NodeOrdinal,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum SingleRetainingPathResult {
+    Path(Vec<SingleRetainingPathEntry>),
+    LimitReached,
+    NoPath,
+}
+
+/// Follow one retainer chain from `start` toward `(GC roots)`.
+///
+/// At each node this greedily picks the non-weak retainer with the smallest
+/// distance to the root, considering only retainers that are closer to the
+/// root than the current node. The result is intentionally linear and separate
+/// from [`plan_gc_root_retainer_paths`], which explores a bounded tree of all
+/// GC-root-reaching retainers.
+pub fn find_single_retaining_path(
+    snap: &HeapSnapshot,
+    start: NodeOrdinal,
+    max_depth: usize,
+) -> SingleRetainingPathResult {
+    let mut path = Vec::new();
+    let mut current = start;
+
+    loop {
+        if snap.is_root(current) {
+            return SingleRetainingPathResult::Path(path);
+        }
+        if path.len() >= max_depth {
+            return SingleRetainingPathResult::LimitReached;
+        }
+
+        let current_distance = snap.node_distance(current);
+        let mut best_distance = current_distance;
+        let mut best: Option<(EdgeId, NodeOrdinal)> = None;
+        snap.for_each_retainer(current, |edge_idx, retainer| {
+            if snap.is_weak_edge(edge_idx) {
+                return;
+            }
+            let retainer_distance = snap.node_distance(retainer);
+            if retainer_distance < best_distance {
+                best_distance = retainer_distance;
+                best = Some((edge_idx, retainer));
+            }
+        });
+
+        let Some((edge_idx, retainer)) = best else {
+            return SingleRetainingPathResult::NoPath;
+        };
+        path.push(SingleRetainingPathEntry { edge_idx, retainer });
+        current = retainer;
+    }
+}
+
 /// Collect all retainer edges that lie on at least one path from `start` to
 /// `(GC roots)`, bounded by `limits`.  Returns a tree of
 /// [`RetainerPathEdge`]s ready for the TUI to convert to `ChildNode`s.

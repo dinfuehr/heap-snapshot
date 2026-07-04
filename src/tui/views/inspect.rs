@@ -42,7 +42,10 @@ impl App {
                 width: inner.width,
                 height: 1,
             };
-            let style = if matches!(line.as_str(), "Node" | "Edge (from parent)" | "Dominators") {
+            let style = if matches!(
+                line.as_str(),
+                "Node" | "Edge (from parent)" | "Retaining path" | "Dominators"
+            ) {
                 Style::default().add_modifier(Modifier::BOLD)
             } else {
                 Style::default()

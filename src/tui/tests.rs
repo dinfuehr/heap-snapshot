@@ -425,6 +425,95 @@ fn make_map_instance_type_snapshot() -> HeapSnapshot {
     build_snapshot(strings, nodes, edges)
 }
 
+fn make_single_retaining_path_snapshot() -> HeapSnapshot {
+    let strings = vec![
+        "".to_string(),
+        "(GC roots)".to_string(),
+        "Target".to_string(),
+        "Mid".to_string(),
+        "Bridge".to_string(),
+        "Near".to_string(),
+        "ref".to_string(),
+        "bridge".to_string(),
+        "near".to_string(),
+    ];
+
+    let nodes = vec![
+        9, 0, 1, 0, 1, // synthetic root
+        9, 1, 2, 0, 2, // (GC roots)
+        3, 2, 3, 10, 0, // target
+        3, 3, 4, 10, 1, // mid, farther from GC roots
+        3, 4, 5, 10, 1, // bridge
+        3, 5, 6, 10, 1, // near
+    ];
+
+    let node_index = |ordinal: usize| (ordinal * 5) as u32;
+    let edges = vec![
+        1,
+        0,
+        node_index(1), // root -> (GC roots)
+        2,
+        7,
+        node_index(4), // (GC roots) -> bridge
+        2,
+        8,
+        node_index(5), // (GC roots) -> near
+        2,
+        6,
+        node_index(2), // mid -> target; appears before near -> target
+        2,
+        7,
+        node_index(3), // bridge -> mid
+        2,
+        6,
+        node_index(2), // near -> target
+    ];
+
+    build_snapshot(strings, nodes, edges)
+}
+
+fn make_non_decreasing_retainer_snapshot() -> HeapSnapshot {
+    let strings = vec![
+        "".to_string(),
+        "(GC roots)".to_string(),
+        "Reachable".to_string(),
+        "Current".to_string(),
+        "SameDistanceRetainer".to_string(),
+        "weak_current".to_string(),
+        "weak_retainer".to_string(),
+        "ref".to_string(),
+    ];
+
+    let nodes = vec![
+        9, 0, 1, 0, 1, // synthetic root
+        9, 1, 2, 0, 1, // (GC roots)
+        3, 2, 3, 10, 2, // reachable
+        3, 3, 4, 10, 0, // current
+        3, 4, 5, 10, 1, // same-distance retainer
+    ];
+
+    let node_index = |ordinal: usize| (ordinal * 5) as u32;
+    let edges = vec![
+        1,
+        0,
+        node_index(1), // root -> (GC roots)
+        2,
+        2,
+        node_index(2), // (GC roots) -> reachable
+        6,
+        5,
+        node_index(3), // reachable weakly -> current
+        6,
+        6,
+        node_index(4), // reachable weakly -> same-distance retainer
+        2,
+        7,
+        node_index(3), // same-distance retainer -> current
+    ];
+
+    build_snapshot(strings, nodes, edges)
+}
+
 fn make_duplicate_children_snapshot() -> HeapSnapshot {
     let strings = vec![
         "".to_string(),
@@ -688,6 +777,71 @@ fn test_inspect_shows_map_instance_type_and_visitor_name() {
         !app.inspect_lines
             .contains(&"  visitor:       WRONG_VISITOR".to_string())
     );
+
+    let retaining_path_idx = app
+        .inspect_lines
+        .iter()
+        .position(|line| line == "Retaining path")
+        .expect("retaining path section should be shown");
+    let dominators_idx = app
+        .inspect_lines
+        .iter()
+        .position(|line| line == "Dominators")
+        .expect("dominators section should be shown");
+    assert!(retaining_path_idx < dominators_idx);
+    assert!(
+        app.inspect_lines
+            .contains(&"  obj in @2 (GC roots)".to_string())
+    );
+}
+
+#[test]
+fn test_single_retaining_path_picks_closest_retainer() {
+    use crate::retaining_path::{SingleRetainingPathResult, find_single_retaining_path};
+
+    let snap = make_single_retaining_path_snapshot();
+    let result = find_single_retaining_path(&snap, NodeOrdinal(2), 8);
+
+    let SingleRetainingPathResult::Path(path) = result else {
+        panic!("expected retaining path");
+    };
+    let retainers: Vec<NodeOrdinal> = path.iter().map(|entry| entry.retainer).collect();
+    assert_eq!(retainers, vec![NodeOrdinal(5), NodeOrdinal(1)]);
+}
+
+#[test]
+fn test_single_retaining_path_reports_limit_reached() {
+    use crate::retaining_path::{SingleRetainingPathResult, find_single_retaining_path};
+
+    let snap = make_single_retaining_path_snapshot();
+    let result = find_single_retaining_path(&snap, NodeOrdinal(2), 1);
+
+    assert!(matches!(result, SingleRetainingPathResult::LimitReached));
+}
+
+#[test]
+fn test_single_retaining_path_reports_no_path() {
+    use crate::retaining_path::{SingleRetainingPathResult, find_single_retaining_path};
+
+    let snap = make_nested_retainers_snapshot(0);
+    let result = find_single_retaining_path(&snap, NodeOrdinal(5), 8);
+
+    assert!(matches!(result, SingleRetainingPathResult::NoPath));
+}
+
+#[test]
+fn test_single_retaining_path_requires_decreasing_distance() {
+    use crate::retaining_path::{SingleRetainingPathResult, find_single_retaining_path};
+
+    let snap = make_non_decreasing_retainer_snapshot();
+    assert_eq!(
+        snap.node_distance(NodeOrdinal(3)),
+        snap.node_distance(NodeOrdinal(4))
+    );
+
+    let result = find_single_retaining_path(&snap, NodeOrdinal(3), 8);
+
+    assert!(matches!(result, SingleRetainingPathResult::NoPath));
 }
 
 #[test]

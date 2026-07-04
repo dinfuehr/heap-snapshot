@@ -18,7 +18,10 @@ use crate::print::retainers::{RetainerAutoExpandLimits, plan_gc_root_retainer_pa
 use crate::print::{
     display_width, display_width_capped, format_size, pad_str, slice_str, truncate_str,
 };
-use crate::retaining_path::{DEFAULT_RETAINER_SEARCH_MAX_DEPTH, DEFAULT_RETAINER_SEARCH_MAX_NODES};
+use crate::retaining_path::{
+    DEFAULT_RETAINER_SEARCH_MAX_DEPTH, DEFAULT_RETAINER_SEARCH_MAX_NODES,
+    SingleRetainingPathResult, find_single_retaining_path,
+};
 use crate::snapshot::HeapSnapshot;
 use crate::types::{AggregateInfo, EdgeId, NodeOrdinal};
 
@@ -782,6 +785,28 @@ impl App {
                     ));
                     break;
                 }
+            }
+        }
+
+        lines.push(String::new());
+        lines.push("Retaining path".to_string());
+        match find_single_retaining_path(snap, ordinal, DEFAULT_RETAINER_SEARCH_MAX_DEPTH) {
+            SingleRetainingPathResult::Path(path) => {
+                for entry in path {
+                    lines.push(format!(
+                        "  {}",
+                        snap.format_retainer_label(entry.edge_idx, entry.retainer)
+                    ));
+                }
+            }
+            SingleRetainingPathResult::LimitReached => {
+                lines.push(format!(
+                    "  limit reached (depth {})",
+                    DEFAULT_RETAINER_SEARCH_MAX_DEPTH
+                ));
+            }
+            SingleRetainingPathResult::NoPath => {
+                lines.push("  none".to_string());
             }
         }
 
