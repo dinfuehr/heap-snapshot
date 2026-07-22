@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::fmt::Write;
 use std::path::{Path, PathBuf};
 
 use rustc_hash::FxHashMap;
@@ -29,7 +30,11 @@ pub(super) fn history_file_path() -> Option<PathBuf> {
 pub(super) fn file_sha256(path: &Path) -> Option<String> {
     let data = std::fs::read(path).ok()?;
     let hash = Sha256::digest(&data);
-    Some(format!("{hash:x}"))
+    let mut encoded = String::with_capacity(hash.len() * 2);
+    for byte in hash {
+        write!(encoded, "{byte:02x}").expect("writing to a String cannot fail");
+    }
+    Some(encoded)
 }
 
 pub(super) fn load_history(

@@ -69,9 +69,9 @@ pub fn extract_scopes(source: &str) -> Result<Vec<ScopeInfo>, String> {
     let source_type = SourceType::default();
     let parser_ret = Parser::new(&allocator, source, source_type).parse();
 
-    if !parser_ret.errors.is_empty() {
+    if !parser_ret.diagnostics.is_empty() {
         return Err(parser_ret
-            .errors
+            .diagnostics
             .iter()
             .map(|e| e.to_string())
             .collect::<Vec<_>>()

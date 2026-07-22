@@ -3,7 +3,6 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, Ordering};
 use tokio::sync::Mutex;
 
-use rmcp::handler::server::router::tool::ToolRouter;
 use rmcp::handler::server::wrapper::Parameters;
 use rmcp::model::*;
 use rmcp::schemars;
@@ -175,7 +174,6 @@ struct GetTimelineParams {
 struct McpServer {
     snapshots: Arc<Mutex<FxHashMap<u32, Arc<HeapSnapshot>>>>,
     next_id: Arc<AtomicU32>,
-    tool_router: ToolRouter<McpServer>,
 }
 
 // ---------------------------------------------------------------------------
@@ -188,7 +186,6 @@ impl McpServer {
         Self {
             snapshots: Arc::new(Mutex::new(FxHashMap::default())),
             next_id: Arc::new(AtomicU32::new(1)),
-            tool_router: Self::tool_router(),
         }
     }
 
@@ -227,7 +224,7 @@ impl McpServer {
             .file_name()
             .map(|s| s.to_string_lossy().into_owned())
             .unwrap_or(path);
-        Ok(CallToolResult::success(vec![Content::text(format!(
+        Ok(CallToolResult::success(vec![ContentBlock::text(format!(
             "Loaded snapshot from {name} with {node_count} nodes. snapshot_id: {snapshot_id}"
         ))]))
     }
@@ -246,11 +243,11 @@ impl McpServer {
         let snapshot_id = params.snapshot_id;
 
         if removed {
-            Ok(CallToolResult::success(vec![Content::text(format!(
+            Ok(CallToolResult::success(vec![ContentBlock::text(format!(
                 "Closed snapshot {snapshot_id}"
             ))]))
         } else {
-            Ok(CallToolResult::success(vec![Content::text(format!(
+            Ok(CallToolResult::success(vec![ContentBlock::text(format!(
                 "No snapshot found with id {snapshot_id}"
             ))]))
         }
@@ -367,7 +364,7 @@ impl McpServer {
 
             show_edges(&snapshot, ordinal, 1, max_depth, offset, limit, &mut lines);
 
-            Ok(CallToolResult::success(vec![Content::text(
+            Ok(CallToolResult::success(vec![ContentBlock::text(
                 lines.join("\n"),
             )]))
         })
@@ -470,7 +467,7 @@ impl McpServer {
 
             show_retainers_recursive(&snapshot, ordinal, 1, max_depth, offset, limit, &mut lines);
 
-            Ok(CallToolResult::success(vec![Content::text(
+            Ok(CallToolResult::success(vec![ContentBlock::text(
                 lines.join("\n"),
             )]))
         })
@@ -521,7 +518,7 @@ impl McpServer {
             lines.insert(0, format!("{} native contexts:", contexts.len()));
         }
 
-        Ok(CallToolResult::success(vec![Content::text(
+        Ok(CallToolResult::success(vec![ContentBlock::text(
             lines.join("\n"),
         )]))
     }
@@ -589,7 +586,7 @@ impl McpServer {
             ));
         }
 
-        Ok(CallToolResult::success(vec![Content::text(
+        Ok(CallToolResult::success(vec![ContentBlock::text(
             lines.join("\n"),
         )]))
     }
@@ -646,7 +643,7 @@ impl McpServer {
             ));
         }
 
-        Ok(CallToolResult::success(vec![Content::text(
+        Ok(CallToolResult::success(vec![ContentBlock::text(
             lines.join("\n"),
         )]))
     }
@@ -713,7 +710,7 @@ impl McpServer {
                     }
                 }
 
-                Ok(CallToolResult::success(vec![Content::text(
+                Ok(CallToolResult::success(vec![ContentBlock::text(
                     lines.join("\n"),
                 )]))
             } else {
@@ -736,7 +733,7 @@ impl McpServer {
                     ));
                 }
 
-                Ok(CallToolResult::success(vec![Content::text(
+                Ok(CallToolResult::success(vec![ContentBlock::text(
                     lines.join("\n"),
                 )]))
             }
@@ -801,7 +798,7 @@ impl McpServer {
             ));
         }
 
-        Ok(CallToolResult::success(vec![Content::text(
+        Ok(CallToolResult::success(vec![ContentBlock::text(
             lines.join("\n"),
         )]))
     }
@@ -867,7 +864,7 @@ impl McpServer {
                 }
             }
 
-            Ok(CallToolResult::success(vec![Content::text(
+            Ok(CallToolResult::success(vec![ContentBlock::text(
                 lines.join("\n"),
             )]))
         })
@@ -987,7 +984,7 @@ impl McpServer {
             lines.push(String::new());
             walk(&snapshot, &plan.tree, 0, &mut lines);
 
-            Ok(CallToolResult::success(vec![Content::text(
+            Ok(CallToolResult::success(vec![ContentBlock::text(
                 lines.join("\n"),
             )]))
         })
@@ -1069,7 +1066,7 @@ impl McpServer {
                     }
                 }
 
-                Ok(CallToolResult::success(vec![Content::text(
+                Ok(CallToolResult::success(vec![ContentBlock::text(
                     lines.join("\n"),
                 )]))
             } else {
@@ -1100,7 +1097,7 @@ impl McpServer {
                     ));
                 }
 
-                Ok(CallToolResult::success(vec![Content::text(
+                Ok(CallToolResult::success(vec![ContentBlock::text(
                     lines.join("\n"),
                 )]))
             }
@@ -1185,7 +1182,7 @@ impl McpServer {
                 ));
             }
 
-            Ok(CallToolResult::success(vec![Content::text(
+            Ok(CallToolResult::success(vec![ContentBlock::text(
                 lines.join("\n"),
             )]))
         })
@@ -1273,7 +1270,7 @@ impl McpServer {
                 lines.push(format!("\n{} contexts with unused variables", leaks.len()));
             }
 
-            Ok(CallToolResult::success(vec![Content::text(
+            Ok(CallToolResult::success(vec![ContentBlock::text(
                 lines.join("\n"),
             )]))
         })
@@ -1301,7 +1298,7 @@ impl McpServer {
         tokio::task::spawn_blocking(move || {
             let intervals = snapshot.get_timeline();
             if intervals.is_empty() {
-                return Ok(CallToolResult::success(vec![Content::text(
+                return Ok(CallToolResult::success(vec![ContentBlock::text(
                     "No allocation timeline data in this snapshot.",
                 )]));
             }
@@ -1330,7 +1327,7 @@ impl McpServer {
                 ));
             }
 
-            Ok(CallToolResult::success(vec![Content::text(
+            Ok(CallToolResult::success(vec![ContentBlock::text(
                 lines.join("\n"),
             )]))
         })
